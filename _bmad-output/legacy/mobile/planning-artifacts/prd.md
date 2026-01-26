@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [step-01-init, step-02-discovery, step-03-success, step-04-journeys]
+stepsCompleted: [step-01-init, step-02-discovery, step-03-success, step-04-journeys, step-05-domain]
 inputDocuments:
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
   - docs/brainstorming/brainstorming-session-2026-01-26.md
@@ -160,4 +160,49 @@ Il note mentalement 2-3 points à travailler. Il devient lui-même meilleur anal
 | J2 - Coach Interruption | Persistance état, sauvegarde auto, reprise session |
 | J3 - Joueur Passif | Export standalone (pas besoin d'app), audio intégré, format compatible messageries |
 | J4 - Joueur Actif | Import vidéo, découpage auto, navigation, toggle POV/Minimap |
+
+## Domain-Specific Requirements
+
+### Contraintes Techniques
+
+| Catégorie | Contrainte | Détail |
+|-----------|------------|--------|
+| **Device** | Mid-range Android | Poco X5 référence (Snapdragon 695, 6GB RAM) |
+| **RAM** | Budget ~2GB max | Keyframes low-res uniquement |
+| **Batterie** | Optimisation requise | Traitement léger grâce aux keyframes |
+
+### Format Vidéo
+
+| Aspect | Spécification |
+|--------|---------------|
+| **Format** | MP4 (H.264/AAC) |
+| **Source** | Fichier local sur device |
+| **Durée typique** | ~1h20 par session |
+| **Gestion** | Lecture in-place, pas de copie |
+
+### Processing Pipeline
+
+| Étape | Technique |
+|-------|-----------|
+| **1. Keyframe extraction** | FFmpeg `-skip_frame nokey`, basse résolution |
+| **2. Détection écran noir** | Analyse luminosité moyenne sur keyframes |
+| **3. Template matching** | OpenCV sur écrans de fin de carte (low-res) |
+| **4. Output** | Timestamps uniquement (pas de re-encoding) |
+| **5. Mode** | Background processing, notification progress |
+
+### Dépendances Techniques
+
+| Lib | Usage |
+|-----|-------|
+| **FFmpeg** | Keyframe extraction, demux/mux, export final |
+| **OpenCV** | Template matching basse-res |
+
+### Risques & Mitigations
+
+| Risque | Mitigation |
+|--------|------------|
+| Process tué en background | Sauvegarder état, permettre reprise |
+| Keyframe spacing variable | Tolérance sur détection transitions |
+| Template non reconnu | Fallback écran noir seul + correction manuelle |
+| Codec non supporté | Valider format à l'import, message clair si incompatible |
 
