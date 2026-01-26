@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2]
+stepsCompleted: [1, 2, 3]
 inputDocuments:
   - docs/planning-artifacts/brainstorming-synthesis-2026-01-26.md
 date: 2026-01-26
@@ -60,3 +60,90 @@ Warden est l'application mobile de review de matchs EVA qui :
 | **100% On-Device** | Pas d'upload, coûts fixes, fonctionne offline |
 | **Voice-First** | Commentaires vocaux = friction minimale pour coach fatigué |
 | **Clips Standalone** | Joueurs n'ont pas besoin de l'app pour recevoir le feedback |
+
+---
+
+## Target Users
+
+### Primary User: Le Coach
+
+**Persona: Thomas, 26 ans**
+- Coach sportif/kiné de profession
+- Joue aux FPS depuis 10 ans, EVA depuis 2 ans
+- Expérience de coaching (ex-coach COD)
+
+**Contexte d'usage:**
+- Reviews le soir après le travail, sur PC, à la maison
+- Sessions de 30-60 minutes quand il a le temps
+
+**Frustrations actuelles:**
+- Jongler entre lecteur vidéo + notes + logiciel de montage
+- N'utilise que 5% des fonctions des outils génériques
+- Processus trop lourd → reviews irrégulières
+
+**Ce qu'il attend de Warden:**
+- Workflow unifié et optimisé pour EVA
+- Mode Minimap pour l'analyse tactique
+- Export de clips rapide avec commentaires vocaux
+
+---
+
+### Secondary User: Le Joueur Passif
+
+**Persona: Lucas, 17 ans**
+- Lycéen, joueur compétitif
+- Excellents réflexes et aim, suit bien les instructions
+- Manque la vision de jeu pour analyser seul
+
+**Rapport au feedback:**
+- Pense que progresser = jouer plus
+- A besoin qu'on lui MONTRE quoi changer
+- Les preuves vidéo éliminent le déni
+
+**Ce qu'il attend de Warden (indirectement):**
+- Clips clairs avec contexte vocal du coach
+- Pas besoin d'installer d'app
+- Feedback actionnable, pas théorique
+
+---
+
+### Secondary User: Le Joueur Actif
+
+**Persona: Maxime, 22 ans**
+- Joueur haute division + coach adjoint d'équipes inférieures
+- Proactif, cherche à comprendre, pas juste exécuter
+- Pipeline: Joueur passif → Actif → Coach
+
+**Usage de Warden:**
+- Importe les reviews du coach principal
+- Regarde la session complète seul
+- Développe sa propre capacité d'analyse
+
+**Ce qu'il attend de Warden:**
+- Mode review import avec commentaires coach
+- Navigation facile (mode épisodes/highlights)
+- Possibilité de revoir plusieurs fois les moments clés
+
+---
+
+### User Journey
+
+**Découverte:**
+- Bouche à oreille dans la communauté EVA (Discord)
+- Réseau de coachs FR/BE existant
+- Coupons offerts aux gagnants de ligue locale mensuelle
+
+**Onboarding:**
+- Import vidéo → découpage automatique par carte
+- Premier "wow": Mode Minimap révèle la vue tactique
+- Premier clip exporté en < 5 minutes
+
+**Adoption:**
+- Stratégie "dealer de confort": coupon 1 mois aux champions
+- Équipe monte de division, découvre Warden
+- Même si redescend, le confort justifie l'abonnement
+
+**Fidélisation:**
+- Habitude hebdomadaire de review post-session
+- Progression visible des joueurs = validation du coach
+- Devient outil indispensable de l'équipe
