@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [step-01-init, step-02-discovery, step-03-success, step-04-journeys, step-05-domain, step-06-innovation, step-07-project-type, step-08-scoping, step-09-functional]
+stepsCompleted: [step-01-init, step-02-discovery, step-03-success, step-04-journeys, step-05-domain, step-06-innovation, step-07-project-type, step-08-scoping, step-09-functional, step-10-nonfunctional]
 inputDocuments:
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
   - docs/brainstorming/brainstorming-session-2026-01-26.md
@@ -387,4 +387,33 @@ Il note mentalement 2-3 points à travailler. Il devient lui-même meilleur anal
 - **FR31:** System caches auth locally for offline use after initial login
 - **FR32:** System periodically re-validates subscription when online
 - **FR33:** Non-subscribed users see login screen only (no pricing, no subscribe CTA)
+
+## Non-Functional Requirements
+
+### Performance
+
+| NFR | Cible | Contexte |
+|-----|-------|----------|
+| **NFR1** | Analyse vidéo 1h20 complète en < 2 minutes | Poco X5 référence |
+| **NFR2** | Toggle POV/Minimap en < 100ms | UX critique |
+| **NFR3** | Export clip Mobile en < 30 secondes par minute de clip | Best effort FFmpeg |
+| **NFR4** | UI reste responsive pendant processing background | Pas de freeze |
+| **NFR5** | RAM usage < 2GB pendant processing | Contrainte device |
+
+### Reliability
+
+| NFR | Cible | Contexte |
+|-----|-------|----------|
+| **NFR6** | Session state sauvegardé toutes les 30 secondes | Pas de perte de travail |
+| **NFR7** | Reprise automatique après crash/kill | Background processing |
+| **NFR8** | Commentaires vocaux persistés immédiatement | Pas de perte audio |
+| **NFR9** | Auth cache valide 30 jours offline | Usage sans réseau |
+
+### Security
+
+| NFR | Cible | Contexte |
+|-----|-------|----------|
+| **NFR10** | Auth via Firebase (OAuth 2.0) | Standard sécurisé |
+| **NFR11** | Token refresh automatique | Session seamless |
+| **NFR12** | Pas de données utilisateur stockées côté serveur | Privacy by design |
 
