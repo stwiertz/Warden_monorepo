@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [step-01-init, step-02-discovery, step-03-success, step-04-journeys, step-05-domain, step-06-innovation, step-07-project-type]
+stepsCompleted: [step-01-init, step-02-discovery, step-03-success, step-04-journeys, step-05-domain, step-06-innovation, step-07-project-type, step-08-scoping]
 inputDocuments:
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
   - docs/brainstorming/brainstorming-session-2026-01-26.md
@@ -272,4 +272,63 @@ Il note mentalement 2-3 points à travailler. Il devient lui-même meilleur anal
 | Pas de lien paiement | Pas de bouton "S'abonner" |
 | Pas de prix | Aucune mention tarifaire |
 | Login only | Écran connexion Firebase uniquement |
+
+## Project Scoping & Phased Development
+
+### MVP Strategy & Philosophy
+
+| Aspect | Décision |
+|--------|----------|
+| **Approche** | Problem-solving MVP avec path to revenue |
+| **Cible** | 20 coachs payants en 3 mois |
+| **Principe** | Lean mais fonctionnel, valeur immédiate |
+
+### MVP Feature Set (Phase 1)
+
+**Journeys Supportés :**
+
+| Journey | Support MVP |
+|---------|-------------|
+| J1 - Coach Happy Path | ✅ Complet |
+| J2 - Coach Interruption | ✅ Complet |
+| J3 - Joueur Passif | ✅ Complet |
+| J4 - Joueur Actif | ⚠️ Partiel (pas de mode review import) |
+
+**Must-Have Capabilities :**
+
+| Feature | Status MVP |
+|---------|------------|
+| Découpage auto (écran noir + template) | ✅ |
+| Vue Minimap (ROI) | ✅ |
+| Commentaires vocaux | ✅ |
+| Export clip standalone | ✅ |
+| Navigation épisodes | ✅ |
+| Toggle POV/Minimap | ✅ |
+| Qualité export (Mobile + HD) | ✅ |
+| Auth Firebase + paywall | ✅ |
+
+### Post-MVP Features
+
+**Phase 2 (Growth) :**
+- OCR scores/kills automatique
+- Stats par carte
+- Composition ROI avancée
+- Mode review import (joueur actif)
+- Export vertical (stories)
+- iOS release
+
+**Phase 3 (Expansion) :**
+- Custom ROI templates (Desktop)
+- Pick & Ban tool
+- Stream Discord review groupe
+- Analyse avancée Desktop
+
+### Risk Mitigation Strategy
+
+| Type | Risque | Mitigation |
+|------|--------|------------|
+| **Technical** | Perf FFmpeg/OpenCV mobile | Prototypage PC d'abord, puis portage mobile |
+| **Technical** | Bridge React Native | Native modules si overhead trop élevé |
+| **Market** | Niche petite | Valider 20 early adopters, coupons beta |
+| **Resource** | Dev solo | MVP ultra lean, Firebase simplifie backend |
 
