@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3, 4]
+stepsCompleted: [1, 2, 3, 4, 5]
 inputDocuments:
   - docs/planning-artifacts/brainstorming-synthesis-2026-01-26.md
 date: 2026-01-26
@@ -190,3 +190,52 @@ Warden est l'application mobile de review de matchs EVA qui :
 - Taux de conversion coupon → abonnement
 - Clips partagés par coach/mois
 - Temps moyen pour créer premier clip
+
+---
+
+## MVP Scope
+
+### Core Features
+
+| Feature | Description | Note technique |
+|---------|-------------|----------------|
+| **Découpage auto par carte** | Détection écran noir + template matching | < 2 min pour 1h20 |
+| **Vue Minimap (ROI)** | Crop/zoom sur région minimap côté player | Pas de pré-processing |
+| **Commentaires vocaux** | Enregistrement avant/pendant/après clip | Ancre le feedback au moment |
+| **Export clips standalone** | Vidéo autonome avec voix intégrée | Vue active (POV ou minimap) |
+| **Navigation épisodes** | Mode Netflix par carte | Suppression lobby auto |
+| **Toggle POV/Minimap** | Switch instantané entre vues | Côté player, léger |
+
+### Critères de Succès MVP
+
+- **Performance :** Découpage 1h20 < 2 minutes
+- **Output :** Clips exportables avec commentaires vocaux
+- **Device référence :** Poco X5 (Snapdragon 695, 6GB RAM)
+
+### Out of Scope pour MVP
+
+| Feature | Raison | Horizon |
+|---------|--------|---------|
+| OCR scores/kills | Complexité ML | V2 |
+| Stats par carte | Dépend de l'OCR | V2 |
+| Composition ROI avancée | Simple crop suffit pour MVP | V2 |
+| Export vertical (stories) | Nice-to-have | V2+ |
+| Custom ROI templates | Desktop feature | Desktop |
+| Mode review import | Coach first | V2 |
+| Pick & Ban tool | Communautaire | V2+ |
+
+### Future Vision
+
+**V2 - Enrichissement:**
+- OCR automatique (scores, kills, timer)
+- Composition ROI avancée (minimap + killfeed + vie)
+- Mode review import pour joueurs actifs
+
+**Desktop:**
+- Custom ROI templates
+- Analyse avancée
+- Stream Discord pour review groupe
+
+**Communautaire (V2+):**
+- Pick & Ban tool
+- Features demandées par la communauté
