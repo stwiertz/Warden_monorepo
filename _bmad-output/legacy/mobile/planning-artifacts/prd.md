@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [step-01-init, step-02-discovery, step-03-success, step-04-journeys, step-05-domain, step-06-innovation]
+stepsCompleted: [step-01-init, step-02-discovery, step-03-success, step-04-journeys, step-05-domain, step-06-innovation, step-07-project-type]
 inputDocuments:
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
   - docs/brainstorming/brainstorming-session-2026-01-26.md
@@ -205,4 +205,71 @@ Il note mentalement 2-3 points à travailler. Il devient lui-même meilleur anal
 | Keyframe spacing variable | Tolérance sur détection transitions |
 | Template non reconnu | Fallback écran noir seul + correction manuelle |
 | Codec non supporté | Valider format à l'import, message clair si incompatible |
+
+## Mobile App Specific Requirements
+
+### Platform Requirements
+
+| Aspect | Spécification |
+|--------|---------------|
+| **Framework** | React Native |
+| **MVP Platform** | Android (test phase) |
+| **V2 Platform** | iOS (après license Apple) |
+| **Min Android** | API 24+ (Android 7.0) |
+
+### Tech Stack
+
+| Composant | Technologie |
+|-----------|-------------|
+| **App** | React Native |
+| **Video Processing** | `ffmpeg-kit-react-native` |
+| **Template Matching** | Native module OpenCV |
+| **Auth** | Firebase Auth |
+| **Backend** | Firebase |
+| **Web** | NextJS |
+| **Paiements** | Stripe |
+
+### Device Permissions
+
+| Permission | Usage | Obligatoire |
+|------------|-------|-------------|
+| `READ_EXTERNAL_STORAGE` | Accès vidéos locales | Oui |
+| `RECORD_AUDIO` | Commentaires vocaux | Oui |
+| `FOREGROUND_SERVICE` | Background processing | Oui |
+| `INTERNET` | Auth Firebase + validation abo | Oui |
+
+### Auth & Subscription Flow
+
+```
+[Web NextJS + Stripe] → Paiement → Stripe webhook → Firebase (user.isPaid = true)
+                                                          ↓
+[App React Native] ← Firebase Auth ← Login ← User lance l'app
+                                                          ↓
+                                    App vérifie user.isPaid → Unlock features
+```
+
+### Offline Mode
+
+| Scénario | Comportement |
+|----------|--------------|
+| **Première connexion** | Login Firebase requis |
+| **Sessions suivantes** | Cache auth local, fonctionne offline |
+| **Vérification abo** | Au login + périodique si online |
+| **Processing vidéo** | 100% offline |
+
+### Store Compliance - Reader App Model
+
+| Aspect | Approche |
+|--------|----------|
+| **Modèle** | Reader App (Netflix-style) |
+| **Monétisation** | 100% externe (web + Stripe) |
+| **Dans l'app** | Login only, aucune mention paiement/prix |
+| **Commission stores** | 0% |
+
+| Règle | Application |
+|-------|-------------|
+| Pas d'IAP | Aucun achat in-app |
+| Pas de lien paiement | Pas de bouton "S'abonner" |
+| Pas de prix | Aucune mention tarifaire |
+| Login only | Écran connexion Firebase uniquement |
 
