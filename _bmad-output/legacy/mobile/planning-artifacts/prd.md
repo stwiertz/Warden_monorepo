@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [step-01-init, step-02-discovery, step-03-success, step-04-journeys, step-05-domain, step-06-innovation, step-07-project-type, step-08-scoping]
+stepsCompleted: [step-01-init, step-02-discovery, step-03-success, step-04-journeys, step-05-domain, step-06-innovation, step-07-project-type, step-08-scoping, step-09-functional]
 inputDocuments:
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
   - docs/brainstorming/brainstorming-session-2026-01-26.md
@@ -331,4 +331,60 @@ Il note mentalement 2-3 points à travailler. Il devient lui-même meilleur anal
 | **Technical** | Bridge React Native | Native modules si overhead trop élevé |
 | **Market** | Niche petite | Valider 20 early adopters, coupons beta |
 | **Resource** | Dev solo | MVP ultra lean, Firebase simplifie backend |
+
+## Functional Requirements
+
+### Video Import & Management
+
+- **FR1:** Coach can import MP4 video files from device storage
+- **FR2:** Coach can view list of imported sessions
+- **FR3:** Coach can delete an imported session
+- **FR4:** System validates video format at import and displays error if incompatible
+
+### Video Processing
+
+- **FR5:** System can automatically detect black screen timestamps using keyframe analysis
+- **FR6:** System can identify map end screen timestamps using template matching
+- **FR7:** System can determine time ranges for each map/round based on detected timestamps
+- **FR8:** System can identify and mark lobby segments as excluded from navigation
+- **FR9:** System can process 1h20 video in background mode
+- **FR10:** System can resume processing if interrupted
+
+### Video Playback & Navigation
+
+- **FR11:** Coach can navigate between maps using episode-style interface (UI-based on time ranges)
+- **FR12:** Coach can play/pause video at any point within allowed time ranges
+- **FR13:** Coach can seek within a map segment (time range)
+- **FR14:** Coach can toggle between POV view and Minimap view instantly
+- **FR15:** Coach can view minimap as cropped ROI from source video
+
+### Audio Commentary
+
+- **FR16:** Coach can record voice comment before a clip segment
+- **FR17:** Coach can record voice comment during playback (overlay)
+- **FR18:** Coach can record voice comment after a clip segment
+- **FR19:** Coach can delete a recorded comment
+- **FR20:** Coach can preview clip with comments before export
+
+### Clip Export
+
+- **FR21:** Coach can select start/end points for a clip within a map
+- **FR22:** Coach can export clip in Mobile quality (720p, fast)
+- **FR23:** Coach can export clip in HD quality (source resolution)
+- **FR24:** System exports clip as standalone video with embedded audio commentary
+- **FR25:** Exported clip is playable without Warden app installed
+
+### Session Persistence
+
+- **FR26:** System saves session state automatically (current position, comments, clips in progress)
+- **FR27:** Coach can resume session exactly where left off
+- **FR28:** System persists state across app restarts and device reboots
+
+### User Authentication & Subscription
+
+- **FR29:** User can log in with Firebase account
+- **FR30:** System validates subscription status on login
+- **FR31:** System caches auth locally for offline use after initial login
+- **FR32:** System periodically re-validates subscription when online
+- **FR33:** Non-subscribed users see login screen only (no pricing, no subscribe CTA)
 
