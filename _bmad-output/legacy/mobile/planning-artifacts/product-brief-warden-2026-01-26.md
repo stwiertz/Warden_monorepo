@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3]
+stepsCompleted: [1, 2, 3, 4]
 inputDocuments:
   - docs/planning-artifacts/brainstorming-synthesis-2026-01-26.md
 date: 2026-01-26
@@ -147,3 +147,46 @@ Warden est l'application mobile de review de matchs EVA qui :
 - Habitude hebdomadaire de review post-session
 - Progression visible des joueurs = validation du coach
 - Devient outil indispensable de l'équipe
+
+---
+
+## Success Metrics
+
+### User Success
+
+**Coach (Thomas):**
+- Peut faire des reviews confortablement (canapé, mobile)
+- Atteint une régularité de 1 review/semaine minimum
+- Temps de création d'un clip réduit de 80% vs workflow actuel
+
+**Équipe:**
+- Des équipes qui ne communiquaient pas sur leurs games commencent à échanger
+- Les joueurs passifs regardent ET répondent aux clips
+- Réduction des erreurs répétées match après match
+
+### Business Objectives
+
+| Horizon | Objectif | Indicateur |
+|---------|----------|------------|
+| 3 mois | Validation MVP | 20 utilisateurs payants |
+| 12 mois | Croissance établie | 100 abonnés |
+| 12 mois+ | Expansion features | Roadmap communautaire (Pick & Ban, etc.) |
+
+**Pricing:**
+- Mensuel: 7€/mois
+- Annuel: 70€/an (-17%)
+
+### Key Performance Indicators
+
+| KPI | Cible 3 mois | Cible 12 mois |
+|-----|--------------|---------------|
+| Coachs payants | 20 | 100 |
+| Reviews/semaine/coach | 1+ | 1+ |
+| Clips créés/review | 3-5 | 5+ |
+| Churn mensuel | <15% | <10% |
+| MRR | 140€ | 700€ |
+
+**Leading Indicators:**
+- Taux de conversion coupon → abonnement
+- Clips partagés par coach/mois
+- Temps moyen pour créer premier clip
