@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3]
+stepsCompleted: [1, 2, 3, 4]
 inputDocuments:
   - docs/planning-artifacts/prd.md
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
@@ -132,3 +132,104 @@ npx create-expo-app@latest Warden --template blank-typescript
 **Décision à prendre au Step 4.**
 
 **Note:** L'initialisation du projet avec cette commande sera la première story d'implémentation.
+
+## Core Architectural Decisions
+
+### Decision Priority Analysis
+
+**Critical Decisions (Block Implementation):**
+- Data locale, FFmpeg strategy, OpenCV integration, Video playback, Audio recording, Auth
+
+**Important Decisions (Shape Architecture):**
+- Build & deploy pipeline, cross-platform strategy
+
+**Deferred Decisions (Post-MVP):**
+- iOS-specific optimizations, analytics, advanced monitoring
+
+### Data Architecture
+
+| Décision | Choix | Rationale |
+|----------|-------|-----------|
+| **Données structurées** | SQLite via `expo-sqlite` | Sessions, clips, commentaires metadata -- relations nécessaires |
+| **Données rapides** | MMKV (`react-native-mmkv`) | Prefs, cache auth, état session -- auto-save 30s (NFR6) instantané |
+| **Fichiers audio** | Filesystem local | Commentaires vocaux .m4a stockés en fichiers, référencés par SQLite |
+| **Approche** | Hybride MMKV + SQLite | MMKV pour la vitesse (state persistence), SQLite pour la structure |
+
+### FFmpeg Strategy
+
+| Décision | Choix | Rationale |
+|----------|-------|-----------|
+| **Lib MVP** | Fork `jdarshan5/ffmpeg-kit-react-native` | Drop-in replacement de la lib deprecated, API connue |
+| **Intégration Expo** | Config plugin custom | Injection des dépendances natives via `expo prebuild` |
+| **Plan B** | Module natif custom via Expo Modules API | Si le fork devient instable, migration vers wrapper natif direct |
+| **Risque** | ffmpeg-kit-react-native deprecated jan 2025 | Fork communautaire actif, surveillance nécessaire |
+
+### OpenCV Integration
+
+| Décision | Choix | Rationale |
+|----------|-------|-----------|
+| **Lib** | `react-native-fast-opencv` | JSI/C++, cross-platform Android+iOS, API TypeScript |
+| **Usage** | Template matching basse résolution sur keyframes | Détection écrans de fin de carte |
+| **Avantage** | Pas de code natif custom | Un seul code C++ partagé, pas de Kotlin/Swift à écrire |
+
+### Video Playback & Audio
+
+| Décision | Choix | Rationale |
+|----------|-------|-----------|
+| **Video player** | `expo-av` | Intégré Expo, UI 100% custom (timeline, boutons, toggle) |
+| **Audio recording** | `expo-av` (Audio.Recording) | Même lib, enregistrement AAC/.m4a |
+| **Format audio** | AAC (.m4a) | Compatible pipeline FFmpeg -- mux sans ré-encoding |
+| **Toggle POV/Minimap** | Changement de style/crop sur même source | Pas de changement de player, juste crop ROI = < 100ms (NFR2) |
+
+### Authentication & Security
+
+| Décision | Choix | Rationale |
+|----------|-------|-----------|
+| **Auth SDK** | Firebase JS SDK (modular v9+) | Cross-platform natif, pas de module natif supplémentaire |
+| **Modèle** | Reader App (0% commission stores) | Login only dans l'app, paiement web Stripe |
+| **Offline** | Cache auth local MMKV, 30j validité (NFR9) | Processing 100% offline après premier login |
+| **Validation abo** | Au login + périodique si online | Check `user.isPaid` via Firebase |
+
+### Infrastructure & Deployment
+
+| Décision | Choix | Rationale |
+|----------|-------|-----------|
+| **Build** | EAS Build (cloud Expo) | Standard Expo, pas de CI/CD custom |
+| **Distribution** | EAS Submit | Soumission directe aux stores |
+| **Environnements** | 3 : development, preview, production | Dev-client / test interne / stores |
+| **Target MVP** | Android (Play Store) | iOS Phase 2, mais toutes décisions cross-platform ready |
+
+### Cross-Platform Strategy
+
+| Aspect | Android (MVP) | iOS (Phase 2) |
+|--------|---------------|---------------|
+| Expo | natif | natif |
+| React Navigation | natif | natif |
+| Zustand | JS pur | JS pur |
+| expo-av | natif | natif |
+| Firebase JS SDK | JS pur | JS pur |
+| FFmpeg (fork) | natif Android | natif iOS (supporté par le fork) |
+| react-native-fast-opencv | JSI/C++ partagé | JSI/C++ partagé |
+| MMKV | natif | natif |
+| expo-sqlite | natif | natif |
+
+**Seule action supplémentaire pour iOS :** Tester le build et valider les config plugins FFmpeg côté iOS.
+
+### Decision Impact Analysis
+
+**Implementation Sequence:**
+1. Init projet Expo + TypeScript
+2. Setup navigation (React Navigation) + state (Zustand)
+3. Setup data layer (MMKV + SQLite)
+4. Intégration FFmpeg (fork + config plugin)
+5. Intégration OpenCV (react-native-fast-opencv)
+6. Video player (expo-av) + UI custom
+7. Audio recording (expo-av)
+8. Auth Firebase + validation abo
+9. Pipeline export (FFmpeg mux vidéo + audio)
+
+**Cross-Component Dependencies:**
+- FFmpeg + OpenCV → Pipeline de traitement vidéo (processing)
+- expo-av + FFmpeg → Pipeline export (playback → clip selection → export)
+- MMKV + SQLite → State persistence (auto-save session + données structurées)
+- Firebase Auth + MMKV → Auth flow (login → cache → offline)
