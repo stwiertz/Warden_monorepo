@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2]
+stepsCompleted: [1, 2, 3]
 inputDocuments:
   - docs/planning-artifacts/prd.md
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
@@ -69,3 +69,66 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 3. **Error handling & recovery** : Process tué par OS, codec incompatible, template non reconnu, réseau absent
 4. **Offline-first** : Cache auth local, processing 100% offline, sync périodique quand réseau disponible
 5. **State persistence** : Auto-save 30s, reprise exacte après interruption/crash, commentaires audio persistés immédiatement
+
+## Starter Template Evaluation
+
+### Primary Technology Domain
+
+Application mobile React Native avec traitement vidéo natif on-device.
+
+### Technical Preferences
+
+| Aspect | Choix | Rationale |
+|--------|-------|-----------|
+| **Framework** | Expo (managed → dev-client) | Simplifie le deploy, support modules natifs via dev-client |
+| **Langage** | TypeScript | Type safety essentielle pour un projet de cette complexité |
+| **State Management** | Zustand | Léger, simple, adapté au profil junior |
+| **Navigation** | React Navigation | Standard React Native, large communauté |
+| **Niveau équipe** | Junior | Première app en prod, expérience RN existante |
+
+### Starter Options Considered
+
+| Option | Verdict |
+|--------|---------|
+| `create-expo-app --template blank-typescript` | **Retenu** - Base propre, pas de magie excessive |
+| Obytes Starter | Écarté - Trop de couches pour un premier projet |
+| ExpoStarter.com | Écarté - Template payant, opinionated |
+| Custom template | Écarté - Overhead inutile |
+
+### Selected Starter: create-expo-app (blank-typescript)
+
+**Rationale:** Pour un profil junior, mieux vaut comprendre chaque brique ajoutée. Le template blank-typescript offre une base propre avec TypeScript configuré, sans abstraction cachée.
+
+**Initialization Command:**
+
+```bash
+npx create-expo-app@latest Warden --template blank-typescript
+```
+
+**Architectural Decisions Provided by Starter:**
+
+- **Language & Runtime:** TypeScript, Metro bundler
+- **Build Tooling:** Expo CLI, EAS Build
+- **Config:** app.json / app.config.ts
+- **Dev Experience:** Hot reload, Expo DevTools
+
+**Additional Dependencies Required:**
+
+| Package | Usage | Raison |
+|---------|-------|--------|
+| `expo-dev-client` | Custom dev builds | Nécessaire pour modules natifs FFmpeg/OpenCV |
+| `react-navigation` | Navigation | Standard RN |
+| `zustand` | State management | Choix utilisateur |
+| FFmpeg (fork/custom) | Video processing | Core feature - fork communautaire car ffmpeg-kit-react-native deprecated (jan 2025) |
+| OpenCV (native module) | Template matching | Via Expo Modules API |
+
+### Risk Alert: ffmpeg-kit-react-native Deprecated
+
+`ffmpeg-kit-react-native` a été officiellement retiré en janvier 2025 (repo archivé juin 2025). Options viables :
+1. Fork communautaire (jdarshan5/ffmpeg-kit-react-native) + config plugin Expo
+2. Build local FFmpegKit + custom config plugin
+3. Module natif custom via Expo Modules API wrappant FFmpeg directement
+
+**Décision à prendre au Step 4.**
+
+**Note:** L'initialisation du projet avec cette commande sera la première story d'implémentation.
