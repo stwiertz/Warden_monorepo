@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3, 4, 5]
+stepsCompleted: [1, 2, 3, 4, 5, 6]
 inputDocuments:
   - docs/planning-artifacts/prd.md
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
@@ -325,3 +325,146 @@ src/
 - Import circulaires entre features
 - Fichiers "fourre-tout" (`utils.ts` géant, `helpers.ts` sans scope)
 - Accès direct à SQLite/MMKV depuis les composants (passer par les services)
+
+## Project Structure & Boundaries
+
+### Complete Project Directory Structure
+
+```
+Warden/
+├── app.config.ts                        # Config Expo dynamique
+├── package.json
+├── tsconfig.json
+├── eas.json                             # Config EAS Build (dev/preview/prod)
+├── .gitignore
+├── .env.example
+├── plugins/
+│   └── with-ffmpeg.js                   # Config plugin Expo pour FFmpeg fork
+├── assets/
+│   ├── images/
+│   │   └── map-templates/               # Templates de fin de carte pour OpenCV matching
+│   └── fonts/
+├── src/
+│   ├── app/                             # Entry point & navigation
+│   │   ├── _layout.tsx                  # Root layout (React Navigation)
+│   │   ├── index.tsx                    # Home / session list
+│   │   └── session/
+│   │       ├── [id].tsx                 # Session review screen
+│   │       └── export.tsx               # Export screen
+│   ├── features/
+│   │   ├── video-import/                # FR1-4 : Import & gestion vidéo
+│   │   │   ├── VideoImportScreen.tsx
+│   │   │   ├── useVideoImport.ts
+│   │   │   ├── videoImportService.ts
+│   │   │   └── types.ts
+│   │   ├── video-processing/            # FR5-10 : Traitement vidéo
+│   │   │   ├── useVideoProcessing.ts
+│   │   │   ├── processingPipeline.ts        # Orchestration keyframes → détection → segments
+│   │   │   ├── blackScreenDetector.ts       # Analyse luminosité keyframes
+│   │   │   ├── templateMatcher.ts           # OpenCV template matching
+│   │   │   ├── processingNotification.ts    # Foreground service notification
+│   │   │   └── types.ts
+│   │   ├── video-playback/              # FR11-15 : Lecture & navigation
+│   │   │   ├── VideoPlayer.tsx              # Player expo-av + UI custom
+│   │   │   ├── PlayerControls.tsx           # Play/pause, seek, timeline
+│   │   │   ├── MinimapView.tsx              # ROI crop view
+│   │   │   ├── EpisodeNavigator.tsx         # Navigation Netflix-style par carte
+│   │   │   ├── usePlayback.ts
+│   │   │   └── types.ts
+│   │   ├── audio-commentary/            # FR16-20 : Commentaires vocaux
+│   │   │   ├── AudioRecorder.tsx
+│   │   │   ├── CommentaryTimeline.tsx
+│   │   │   ├── useAudioRecording.ts
+│   │   │   ├── audioCommentService.ts
+│   │   │   └── types.ts
+│   │   ├── clip-export/                 # FR21-25 : Export clips
+│   │   │   ├── ExportOptions.tsx
+│   │   │   ├── ExportProgress.tsx
+│   │   │   ├── useClipExport.ts
+│   │   │   ├── exportPipeline.ts            # FFmpeg demux → process → mux
+│   │   │   └── types.ts
+│   │   ├── session/                     # FR26-28 : Persistance session
+│   │   │   ├── useSessionStore.ts           # Zustand store + persist MMKV
+│   │   │   ├── sessionRepository.ts         # SQLite CRUD sessions
+│   │   │   ├── autoSaveService.ts           # Auto-save 30s
+│   │   │   └── types.ts
+│   │   └── auth/                        # FR29-33 : Auth & abonnement
+│   │       ├── LoginScreen.tsx
+│   │       ├── useAuthStore.ts              # Zustand store + persist MMKV
+│   │       ├── authService.ts               # Firebase JS SDK
+│   │       ├── subscriptionService.ts       # Validation isPaid
+│   │       └── types.ts
+│   └── shared/
+│       ├── components/
+│       │   ├── Button.tsx
+│       │   ├── Toast.tsx
+│       │   └── LoadingSpinner.tsx
+│       ├── hooks/
+│       │   └── usePermissions.ts
+│       ├── services/
+│       │   ├── ffmpeg.ts                    # Wrapper FFmpeg fork API
+│       │   ├── opencv.ts                    # Wrapper react-native-fast-opencv
+│       │   ├── database.ts                  # Init & migrations SQLite
+│       │   └── storage.ts                   # MMKV instance & helpers
+│       ├── types/
+│       │   └── index.ts                     # Types globaux (Session, MapSegment, etc.)
+│       └── utils/
+│           ├── fileSystem.ts
+│           └── formatters.ts
+```
+
+### Architectural Boundaries
+
+**Service Boundaries :**
+- `shared/services/ffmpeg.ts` et `shared/services/opencv.ts` sont les seuls points d'accès aux libs natives -- les features ne les importent jamais directement
+- `shared/services/database.ts` et `shared/services/storage.ts` encapsulent tout accès SQLite/MMKV
+- Chaque feature expose ses fonctionnalités via ses hooks (`useVideoProcessing`, `useClipExport`, etc.)
+
+**Component Boundaries :**
+- Les features ne s'importent pas entre elles directement
+- La communication inter-features passe par les Zustand stores (état partagé) ou les services partagés
+- Les screens (`src/app/`) orchestrent les features en composant leurs hooks et composants
+
+**Data Boundaries :**
+- SQLite : `sessions`, `audio_comments`, `clip_exports`, `map_segments` (données structurées)
+- MMKV : `auth.*`, `session.current.*`, `prefs.*` (état rapide, cache)
+- Filesystem : fichiers vidéo source (in-place, pas de copie), fichiers audio .m4a (commentaires)
+
+### Requirements to Structure Mapping
+
+| Feature | FRs | Fichiers clés |
+|---------|-----|---------------|
+| video-import | FR1-4 | `videoImportService.ts` (validation format, accès fichier) |
+| video-processing | FR5-10 | `processingPipeline.ts` (orchestration), `blackScreenDetector.ts`, `templateMatcher.ts` |
+| video-playback | FR11-15 | `VideoPlayer.tsx` (expo-av), `MinimapView.tsx` (ROI crop), `EpisodeNavigator.tsx` |
+| audio-commentary | FR16-20 | `AudioRecorder.tsx` (expo-av recording), `audioCommentService.ts` (persistence) |
+| clip-export | FR21-25 | `exportPipeline.ts` (FFmpeg demux/mux + audio overlay) |
+| session | FR26-28 | `useSessionStore.ts` (Zustand+MMKV), `sessionRepository.ts` (SQLite) |
+| auth | FR29-33 | `authService.ts` (Firebase JS), `subscriptionService.ts` (isPaid check) |
+
+### Data Flow
+
+```
+Import MP4 → Processing Pipeline → [keyframes → black screen detect → template match] → MapSegments
+                                                                                            ↓
+                                                                              Session stored (SQLite)
+                                                                                            ↓
+                                                                              Playback (expo-av)
+                                                                                    ↓           ↓
+                                                                               POV view    Minimap (ROI)
+                                                                                    ↓
+                                                                           Audio commentary (expo-av)
+                                                                                    ↓
+                                                                           Clip export (FFmpeg mux)
+                                                                                    ↓
+                                                                           Standalone MP4 → Share
+```
+
+### External Integrations
+
+| Service | Point d'intégration | Fichier |
+|---------|---------------------|---------|
+| Firebase Auth | Login + validation abo | `auth/authService.ts` |
+| Firebase Firestore | Check `user.isPaid` | `auth/subscriptionService.ts` |
+| Filesystem Android | Import vidéo, stockage audio | `shared/services/ffmpeg.ts`, `shared/utils/fileSystem.ts` |
+| Share API | Partage clips exportés | `clip-export/` (via Expo Sharing) |
