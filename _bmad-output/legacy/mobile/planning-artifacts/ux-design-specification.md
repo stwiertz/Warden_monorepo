@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3]
+stepsCompleted: [1, 2, 3, 4]
 inputDocuments:
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
   - docs/planning-artifacts/prd.md
@@ -86,3 +86,48 @@ The core action is **clip creation with minimap + voice**. This is where raw foo
 3. **Invisible infrastructure.** Auto-slicing, on-device processing, state persistence -- the user never sees the machinery. They see results.
 4. **Progressive revelation.** Import -> auto-slice -> watch works on day one. Minimap, voice clips, batch export reveal themselves through natural exploration.
 5. **No orientation, no friction.** Work in any grip, any position. The couch is our design lab.
+
+## Desired Emotional Response
+
+### Primary Emotional Goals
+
+The dominant emotion is **purposeful immediacy**: "let's see what went wrong" -- not "let me set up a review session." Warden collapses the gap between intent and action. The coach should be *doing the thing* before they've consciously decided to start.
+
+Secondary emotion is **momentum**: after clipping one moment, the feeling should be "that was fast, let me do the next one" rather than "done, I can close this." Review should feel like scrubbing through a match replay in a competitive game -- quick, purposeful, almost addictive.
+
+### Emotional Journey Mapping
+
+| Stage | Current Reality | Warden Emotion |
+|-------|----------------|----------------|
+| **Post-session** | "I'll review it later" (procrastination) | "Let's see what went wrong" (immediate purpose) |
+| **Opening the app** | N/A -- no tool exists that's worth opening | Cold start: clear choice -- resume last review or import new. Background resume: right where you left off. |
+| **Watching footage** | Minimap too small on mobile, only notice highlights | Full-screen tactical view makes patterns visible for the first time |
+| **Creating a clip** | Doesn't happen -- feedback stays in the coach's head | See it, say it, send it -- one fluid motion |
+| **Sharing** | Verbal, ephemeral, forgotten by next session | Persistent artifact that players can rewatch |
+| **Receiving a clip (player)** | Passive, no real learning | First time actually *understanding* tactical positioning |
+
+### Micro-Emotions
+
+- **Confidence over confusion**: Every control is self-explanatory. No learning curve anxiety.
+- **Momentum over completion**: Each clip done fuels the next one. Not a checklist to finish.
+- **Understanding over entertainment**: The minimap transforms "cool moment" viewing into actual tactical comprehension -- for both coach and player.
+- **Trust over skepticism**: State persistence builds trust. The app never loses your work.
+
+### Design Implications
+
+| Emotional Goal | UX Design Choice |
+|---------------|-----------------|
+| Purposeful immediacy | **Cold start**: two clear paths -- resume last review or import new video. No assumptions, no wizard. **Background resume**: instant return to exact position. |
+| Momentum | After exporting a clip, return to the timeline at the exact playback position. Don't break flow with success modals. |
+| Tactical understanding | Minimap mode must be **full-screen**, not a tiny overlay. This is the core differentiator -- if it's too small, Warden fails like current tools. |
+| Tone neutrality | Clip sharing UX is neutral infrastructure. No "send feedback" or "coach your player" framing. Just "share." The coach's voice carries the tone. |
+| Review is play, not work | Dark, game-adjacent aesthetic. Review should feel like postgame analysis in an esport, not filling out a form. |
+| Anti-chore | Quick interactions, no mandatory fields, no "save before closing" dialogs. |
+
+### Emotional Design Principles
+
+1. **Intent-to-action in seconds.** The gap between "I want to review" and "I am reviewing" must be near-zero. Cold start gives a clear choice, not a blank screen.
+2. **Momentum, not milestones.** Never celebrate completion. Feed the next action.
+3. **Full-screen tactical = full understanding.** The minimap is only useful if it dominates the screen. Tiny = useless = current reality.
+4. **The voice IS the tone.** Warden doesn't frame, label, or categorize feedback. The coach's voice recording carries whatever authority or casualness fits.
+5. **Review is play, not work.** The aesthetic and interaction speed should evoke competitive game analysis, not productivity software.
