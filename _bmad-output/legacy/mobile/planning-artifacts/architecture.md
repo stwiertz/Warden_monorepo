@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3, 4]
+stepsCompleted: [1, 2, 3, 4, 5]
 inputDocuments:
   - docs/planning-artifacts/prd.md
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
@@ -233,3 +233,95 @@ npx create-expo-app@latest Warden --template blank-typescript
 - expo-av + FFmpeg → Pipeline export (playback → clip selection → export)
 - MMKV + SQLite → State persistence (auto-save session + données structurées)
 - Firebase Auth + MMKV → Auth flow (login → cache → offline)
+
+## Implementation Patterns & Consistency Rules
+
+### Naming Patterns
+
+**Code Naming Conventions:**
+
+| Élément | Convention | Exemple |
+|---------|-----------|---------|
+| Composants React | PascalCase | `VideoPlayer.tsx`, `MapCard.tsx` |
+| Fichiers composants | PascalCase | `VideoPlayer.tsx` |
+| Hooks custom | camelCase avec `use` prefix | `useSession.ts`, `useVideoProcessing.ts` |
+| Fonctions / variables | camelCase | `getSessionData`, `clipDuration` |
+| Types / Interfaces | PascalCase, pas de prefix | `Session`, `ClipExportOptions`, `MapSegment` |
+| Constants | UPPER_SNAKE_CASE | `MAX_RAM_BUDGET`, `AUTO_SAVE_INTERVAL_MS` |
+| Dossiers | kebab-case | `video-processing/`, `clip-export/` |
+
+**Database Naming Conventions (SQLite):**
+
+| Élément | Convention | Exemple |
+|---------|-----------|---------|
+| Tables | snake_case pluriel | `sessions`, `audio_comments`, `clip_exports` |
+| Colonnes | snake_case | `session_id`, `created_at`, `map_index` |
+| Foreign keys | `{table_singulier}_id` | `session_id`, `comment_id` |
+
+**MMKV Key Conventions:**
+
+| Élément | Convention | Exemple |
+|---------|-----------|---------|
+| Keys | dot.notation groupée | `auth.token`, `session.current.position`, `prefs.exportQuality` |
+
+### Structure Patterns
+
+**Organisation par feature :**
+
+```
+src/
+  features/
+    video-import/       # FR1-4
+    video-processing/   # FR5-10
+    video-playback/     # FR11-15
+    audio-commentary/   # FR16-20
+    clip-export/        # FR21-25
+    session/            # FR26-28 (persistance)
+    auth/               # FR29-33
+  shared/
+    components/         # Composants UI réutilisables
+    hooks/              # Hooks partagés
+    services/           # FFmpeg, OpenCV, SQLite, MMKV wrappers
+    types/              # Types globaux
+    utils/              # Fonctions utilitaires
+```
+
+**Règles :**
+- Chaque feature contient ses propres composants, hooks, types et logique
+- Les éléments réutilisés entre features vont dans `shared/`
+- Tests co-located : `VideoPlayer.test.tsx` à côté de `VideoPlayer.tsx`
+
+### State Management Patterns (Zustand)
+
+| Règle | Détail |
+|-------|--------|
+| Un store par feature | `useSessionStore`, `useAuthStore`, `useExportStore` |
+| Pas de logique async dans le store | Les stores sont purs, la logique async dans des hooks ou services |
+| Persistance via middleware | Zustand `persist` middleware avec MMKV comme storage engine |
+| Immutabilité | Toujours retourner un nouvel objet, jamais muter directement |
+
+### Error Handling Patterns
+
+| Contexte | Pattern |
+|----------|---------|
+| Processing vidéo | Try/catch + sauvegarde état avant crash, reprise possible |
+| Import vidéo | Validation format à l'entrée, message clair si incompatible |
+| Template matching | Fallback écran noir si template non reconnu |
+| Auth réseau | Fallback cache MMKV si réseau absent |
+| UI | Pas de crash silencieux -- toast/snackbar pour informer l'utilisateur |
+
+### Enforcement Guidelines
+
+**Tous les agents AI DOIVENT :**
+- Suivre les conventions de nommage strictement (PascalCase composants, camelCase fonctions, snake_case DB)
+- Placer le code dans la feature appropriée, jamais dans `shared/` sauf si réutilisé par 2+ features
+- Créer les tests co-located avec le code source
+- Utiliser Zustand stores purs (pas d'async dans le store)
+- Gérer les erreurs explicitement (pas de catch vide, pas de crash silencieux)
+
+**Anti-Patterns à éviter :**
+- Mutation directe du state Zustand
+- Logique métier dans les composants UI (extraire dans hooks/services)
+- Import circulaires entre features
+- Fichiers "fourre-tout" (`utils.ts` géant, `helpers.ts` sans scope)
+- Accès direct à SQLite/MMKV depuis les composants (passer par les services)
