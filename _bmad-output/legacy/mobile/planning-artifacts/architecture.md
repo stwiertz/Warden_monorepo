@@ -1,5 +1,7 @@
 ---
-stepsCompleted: [1, 2, 3, 4, 5, 6, 7]
+stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8]
+status: 'complete'
+completedAt: '2026-01-30'
 inputDocuments:
   - docs/planning-artifacts/prd.md
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
