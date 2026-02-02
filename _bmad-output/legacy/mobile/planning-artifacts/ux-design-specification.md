@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8, 9]
+stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 inputDocuments:
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
   - docs/planning-artifacts/prd.md
@@ -435,3 +435,110 @@ Sorting reorders the card grid AND sets the next/previous episode order within C
 - Cinema Mode: Fully custom video player with reveal-on-tap overlay system
 - Sort state persists across sessions (part of state persistence design)
 - Navigation order in Cinema Mode follows the active sort -- next/previous respects the sorted sequence
+
+## User Journey Flows
+
+### Journey 1: Coach Full Review (Thomas)
+
+```
+Cold Start → [Resume last / Import new]
+                        ↓ (Import new)
+         File picker → Processing indicator (auto-slice)
+                        ↓ (auto-slice complete)
+         Card View: Episode grid with result frames
+         [Sort: Orange win / Blue win / Closest / Temporal]
+                        ↓ (tap a card)
+         Cinema Mode: Full-screen POV playback
+         [Tap → reveal controls]
+         [Double-tap top-left → minimap shortcut]
+                        ↓ (tap clip button)
+         30s clip region on timeline → drag handles to adjust
+                        ↓ (optional: tap add voice)
+         Voice recording over clip playback
+                        ↓ (tap export/confirm)
+         ┌─────────────────────────────────────────┐
+         │ MVP (Option 1): Processing screen,      │
+         │ Thomas waits, then share sheet opens     │
+         │                                          │
+         │ Goal (Option 3): Clip queues for         │
+         │ background encoding, Thomas keeps        │
+         │ reviewing. Share when ready.             │
+         └─────────────────────────────────────────┘
+                        ↓ (after share)
+         Return to Cinema Mode → next clip
+```
+
+**Export processing UX (two-phase design):**
+
+| Phase | Behavior | User Experience |
+|-------|----------|----------------|
+| **MVP (Option 1)** | Export encodes immediately, Thomas waits | "Preparing clip..." with progress indicator. Share sheet opens when done. Simple, linear. |
+| **Goal (Option 3)** | Export queues for background encoding while Thomas keeps reviewing | Subtle clip queue indicator in controls overlay (e.g., "2 ready, 1 processing"). Share from queue when clips are done. |
+
+**Design for upgrade path:** The clip creation flow is identical in both options. The only difference is what happens after "confirm clip" -- wait or continue. UX designed so transitioning from Option 1 to Option 3 requires no UI changes to the clip creation flow itself.
+
+### Journey 2: Interrupted Session (Thomas)
+
+```
+Thomas closes app mid-review
+         ↓ (hours later)
+Cold Start → [Resume last review] / [Import new]
+         ↓ (Resume)
+Cinema Mode: exact map, exact playback position
+Clips in progress preserved, voice recordings intact
+         ↓
+Continues as if never interrupted
+```
+
+**State that persists:**
+- Current map/episode and playback position
+- Sort order selection
+- Any clip definitions in progress (timestamps + voice)
+- Export queue status (MVP: n/a. Goal: pending clips resume encoding)
+
+### Journey 3: Passive Player (Lucas)
+
+```
+Discord/WhatsApp notification → shared clip in channel
+         ↓ (tap)
+Inline video playback (no app needed)
+         ↓
+Full-screen minimap + coach voice plays
+Lucas sees his positioning, hears the explanation
+         ↓
+No install, no account, just understanding
+```
+
+**No Warden UX involved.** This journey lives entirely in Discord/WhatsApp. The exported clip must be a standard video file that plays inline on any platform. Warden's UX responsibility ends at the share sheet.
+
+### Journey 4: Active Player Self-Review (Maxime)
+
+```
+Cold Start → [Import new]
+         ↓
+File picker → Processing → Card View
+         ↓ (tap a card)
+Cinema Mode: toggles between POV and Minimap
+         ↓
+Watches, analyzes, learns patterns
+Can create clips to share with teammates if desired
+```
+
+**Identical to coach journey, export is optional.** The value for Maxime is the auto-slicing + full-screen minimap as a convenience tool for personal analysis.
+
+### Journey Patterns
+
+| Pattern | Description |
+|---------|-------------|
+| **Cold start choice** | Always two clear paths: resume or import new. No blank state. |
+| **Card View as hub** | Entry point for all review activity. Triage, sort, pick. |
+| **Cinema Mode as workspace** | Full-screen immersion. All review and clip creation happens here. |
+| **Export as culmination** | Clip export is the finish line. Share = success. |
+| **State persistence everywhere** | Every journey assumes interruption is normal. Nothing is lost. |
+
+### Flow Optimization Principles
+
+1. **Minimum taps to value**: Import -> auto-slice -> tap card -> watching. Four steps from "I have a video" to "I'm reviewing."
+2. **Export doesn't break flow**: Whether MVP (wait) or Goal (background), after exporting Thomas is back at the same timeline position, ready for the next clip.
+3. **No dead ends**: Every screen has a clear "what's next" action. Card View -> Cinema Mode -> Clip -> Share -> back to Cinema Mode.
+4. **Journeys are subsets, not separate flows**: Maxime's journey is Thomas's without export. Lucas's journey is outside the app entirely. One UI serves all users.
