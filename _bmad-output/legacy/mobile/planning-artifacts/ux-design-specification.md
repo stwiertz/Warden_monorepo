@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3, 4, 5, 6]
+stepsCompleted: [1, 2, 3, 4, 5, 6, 7]
 inputDocuments:
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
   - docs/planning-artifacts/prd.md
@@ -222,3 +222,74 @@ Copy-paste component architecture -- components live in the project, not in node
 - **Standard components**: Use React Native Reusables defaults, customize theming to match game-adjacent aesthetic
 - **Custom components**: Build video player, minimap, clip creation from scratch -- these are the core product and deserve dedicated engineering
 - **Progressive customization**: Start with library defaults for non-core UI, refine as the product matures
+
+## Defining Core Experience
+
+### The Defining Interaction
+
+> **"Clip the play, say what happened, send it to the team."**
+
+When a coach describes Warden: "I can make proper review clips on my phone -- I can finally focus on the minimap full-screen, just tap to clip, record my voice if I want, and send it. Done."
+
+The defining experience is **clip creation from minimap mode**. This is what users will describe to friends, what makes them feel productive, and what no other tool provides.
+
+### User Mental Model
+
+Thomas approaches Warden as a **video editing tool** -- not a social app, not a messaging tool. He's cutting footage, marking moments, adding commentary. The UI should respect this mental model:
+
+- **Timeline-centric**: The video timeline is the primary workspace, like a simplified video editor
+- **Non-destructive editing**: Clips are selections from the source, not permanent cuts
+- **Export-oriented**: The goal is producing artifacts (clips) to share externally
+- **Tool, not platform**: Warden produces content that lives elsewhere (Discord, WhatsApp)
+
+**Current workaround**: No dedicated tool exists. Coaches either don't review at all, or try to use generic video players where the minimap is too small to focus on. Feedback stays verbal and ephemeral.
+
+### Success Criteria
+
+| Criteria | Metric |
+|----------|--------|
+| Clip creation speed | Tap -> 30-second default clip appears -> adjust boundaries -> done. Under 10 seconds to define a clip. |
+| Voice feels optional | Adding voice is a clear but non-mandatory step. Silent clips are first-class exports. |
+| Minimap readability | Tactical view is full-screen, giving the coach the ability to focus on it. Player positions and movements are clear. |
+| Success moment | Thomas has succeeded when the clip is **sent to the team**. Sharing is the finish line, not saving. |
+| Resume confidence | Returning to an in-progress review picks up exactly where he left off. |
+
+### Novel UX Patterns
+
+**Established patterns (zero learning curve):**
+- Video timeline scrubbing (YouTube)
+- Boundary handles for clip selection (every video editor)
+- Share sheet for export (OS-native)
+- Dark, content-first layout (Discord)
+
+**Novel patterns (Warden-defined):**
+- **Full-screen minimap toggle**: No other tool gives full-screen focus to the minimap on mobile. One tap switches between POV and tactical overhead. The icon must be self-explanatory.
+- **Auto-generated 30-second clip**: Tap to create a clip with default 30s duration at current position. Drag handles to adjust. Lowers the commitment barrier -- you're refining, not creating from scratch.
+- **Voice-over-clip recording**: Scoped to clip creation only. After defining clip boundaries, optional voice recording step. Not a separate feature -- part of the clip flow.
+
+### Experience Mechanics
+
+**1. Initiation -- Creating a clip:**
+- Thomas is watching an episode in minimap or POV mode
+- He sees a moment worth clipping
+- He taps "clip" (or a scissors icon / clip creation button)
+- A **30-second clip region** appears centered on the current playback position
+- Boundary handles are visible and draggable
+
+**2. Interaction -- Refining the clip:**
+- Drag start/end handles to adjust clip boundaries
+- Scrub within the clip to preview
+- Toggle between POV and minimap to decide which view to export
+- Optionally tap "add voice" to record commentary over the clip
+- Voice recording plays back the clip while recording the coach's audio
+
+**3. Feedback -- Knowing it's working:**
+- Clip region is visually highlighted on the timeline
+- Preview plays the exact clip content (what you see is what gets exported)
+- Voice waveform appears if audio is recorded
+- No ambiguity about what will be exported
+
+**4. Completion -- The finish line:**
+- Tap share -> OS share sheet opens -> send to Discord/WhatsApp/etc.
+- Success = clip is sent to the team. Thomas has done his part.
+- After sharing, return to the timeline at the exact playback position. Flow continues -- momentum, not celebration.
