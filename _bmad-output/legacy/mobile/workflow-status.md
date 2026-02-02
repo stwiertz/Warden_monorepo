@@ -32,7 +32,7 @@
 | Artifact | Status | File |
 |----------|--------|------|
 | Architecture Decision Document | Complete | `docs/planning-artifacts/architecture.md` |
-| Epics & Stories | Not Started | - |
+| Epics & Stories | Complete | `docs/planning-artifacts/epics.md` |
 | Implementation Readiness Check | Not Started | - |
 
 ## Phase 4: Implementation
@@ -47,7 +47,7 @@
 
 ## Next Steps
 
-1. **Create Epics & Stories** - Break PRD functional requirements into implementable epics and user stories using the `create-epics-and-stories` workflow (requires PRD + Architecture)
+1. ~~**Create Epics & Stories**~~ - Complete (6 epics, 27 stories)
 2. **Run Implementation Readiness Check** - Validate alignment between PRD, Architecture, and Epics before starting development
 3. **Sprint Planning** - Generate `sprint-status.yaml` from epic files
 4. **Scaffold Expo Project** - Initialize the codebase with the architecture defined in `architecture.md`
