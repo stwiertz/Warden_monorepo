@@ -22,12 +22,12 @@ sprints:
   - id: sprint-1
     name: Foundation
     goal: Scaffold project, set up navigation/styling/data layer, implement Firebase auth with subscription validation
-    status: not_started
+    status: completed
     epic: Epic 1 - Project Setup & User Authentication
     stories:
       - id: "1.1"
         title: Initialize Expo Project from Starter Template
-        status: not_started
+        status: completed
         frs: []
         notes: >
           npx create-expo-app@latest Warden --template blank-typescript.
@@ -35,7 +35,7 @@ sprints:
           Enable strict TypeScript.
       - id: "1.2"
         title: Set Up Navigation and Design System
-        status: not_started
+        status: completed
         frs: []
         depends_on: ["1.1"]
         notes: >
@@ -44,7 +44,7 @@ sprints:
           Design tokens: bg #101014, surface #1A1A1E, accent #FF6B00.
       - id: "1.3"
         title: Set Up Data Layer (MMKV + SQLite)
-        status: not_started
+        status: completed
         frs: []
         depends_on: ["1.2"]
         notes: >
@@ -52,7 +52,7 @@ sprints:
           sessions table created, Zustand persist middleware configured.
       - id: "1.4"
         title: Implement Firebase Login Screen
-        status: not_started
+        status: completed
         frs: [FR29, FR33]
         depends_on: ["1.3"]
         notes: >
@@ -60,7 +60,7 @@ sprints:
           error toast for invalid credentials.
       - id: "1.5"
         title: Implement Subscription Validation and Offline Auth Cache
-        status: not_started
+        status: completed
         frs: [FR30, FR31, FR32]
         depends_on: ["1.4"]
         notes: >
