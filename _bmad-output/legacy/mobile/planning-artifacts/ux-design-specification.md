@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
 inputDocuments:
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
   - docs/planning-artifacts/prd.md
@@ -751,3 +751,89 @@ All segments optional. Silent clips skip all voice segments.
 | **Tap** | Card View (episode card) | Enter Cinema Mode for that episode |
 
 **Gesture principle:** No hidden gestures required for core functionality. Every gesture has a button equivalent. Gestures are shortcuts, not the only path.
+
+## Responsive Design & Accessibility
+
+### Orientation-Adaptive Layout
+
+| Orientation | Video | Controls | Rationale |
+|-------------|-------|----------|-----------|
+| **Landscape** | Fills 100% of screen | Reveal-on-tap overlay, auto-hide after 4s | Maximum immersion, video dominates |
+| **Portrait** | Fills width, positioned at top | **Persistent below the video** -- always visible, NOT overlaid on video | Vertical space available, no reason to hide controls |
+
+**Portrait layout structure:**
+```
+┌─────────────────────┐
+│                     │
+│   Video (full width)│
+│                     │
+├─────────────────────┤
+│ Timeline scrubber   │
+│ Controls: play/pause│
+│ minimap toggle,     │
+│ clip, next/prev/maps│
+└─────────────────────┘
+```
+
+**Landscape layout structure:**
+```
+┌─────────────────────────────────────┐
+│                                     │
+│           Video (fullscreen)        │
+│                                     │
+│    [controls overlay on tap]        │
+│                                     │
+└─────────────────────────────────────┘
+```
+
+Portrait is the more **control-accessible** mode -- everything visible at all times. Landscape is the more **immersive** mode. Both are valid workflows depending on how Thomas is holding his phone.
+
+### Screen Size Variance
+
+| Aspect | Approach |
+|--------|----------|
+| **Small phones (5.5")** | Card View: single column grid. Cinema Mode: same layout, controls slightly more compact. |
+| **Standard phones (6.0-6.4")** | Card View: 2-column grid. Cinema Mode: standard layout. |
+| **Large phones (6.5"+)** | Card View: 2-column grid with more metadata visible. Cinema Mode: more breathing room for controls. |
+
+**Scaling rules:**
+- Touch targets: always minimum 44x44px regardless of screen size
+- Video: always fills available width
+- Episode cards: responsive grid, 1 or 2 columns based on width
+- Font sizes: respect system font size preferences, minimum body size 14sp
+
+### Accessibility Strategy
+
+**Target: WCAG AA compliance** where applicable to a mobile video review tool.
+
+**What we implement:**
+
+| Area | Implementation |
+|------|---------------|
+| **Color contrast** | Soft white (#F0F0F0) on dark (#101014) = ~17:1 ratio (exceeds AA 4.5:1). Secondary text (#8B8F96) on dark = ~7:1 (exceeds AA). |
+| **Touch targets** | Minimum 44x44px on all interactive elements |
+| **No color-only indicators** | All states communicated via shape, icon, or content change (see Visual Design Foundation) |
+| **System font scaling** | Respect Android/iOS accessibility font size preferences |
+| **Motion sensitivity** | No essential information conveyed through animation alone. Blinking mic uses icon + color, not animation alone. |
+
+**What we intentionally skip:**
+
+| Area | Rationale |
+|------|-----------|
+| **Screen reader support (TalkBack/VoiceOver)** | Product is inherently visual -- reviewing video footage of VR matches. Screen reader labels provide no meaningful value for this use case. |
+| **Audio descriptions** | Video content is user-generated match footage. No audio description possible or meaningful. |
+| **Keyboard navigation** | Mobile-only app, no external keyboard use case. |
+
+### Testing Strategy
+
+| Test Type | Approach |
+|-----------|----------|
+| **Orientation** | Test all screens in both portrait and landscape. Verify controls layout adapts correctly. |
+| **Screen sizes** | Test on reference device (Poco X5, 6.67"), small phone (5.5"), and large phone (6.7"+). |
+| **Contrast** | Verify all text/background combinations meet WCAG AA (4.5:1 normal text, 3:1 large text). |
+| **Touch targets** | Verify 44x44px minimum on all interactive elements, especially timeline handles and overlay controls. |
+| **Font scaling** | Test with system font size set to largest -- verify no text truncation or layout breakage. |
+
+### V2 Enhancement: Multi-View Clip Export
+
+**Future capability:** Allow switching between POV and minimap mode *within a single clip export*. The coach could show "here's what you saw" (POV) then cut to "here's what was actually happening" (minimap) in one exported video. This requires multi-segment encoding with view switching at defined timestamps -- deferred to V2 due to FFmpeg complexity.
