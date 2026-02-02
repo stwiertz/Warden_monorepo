@@ -1,6 +1,6 @@
 # Map End-Screen Templates
 
-Place Valorant map end-screen template images here.
+Place EVA After-h map end-screen template images here.
 
 ## Format
 - Resolution: ~320px wide (must match keyframe extraction resolution)

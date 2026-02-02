@@ -30,7 +30,7 @@ export async function detectBlackScreens(
 
   // --- STUB: Generate fake black screen ranges ---
   // Simulate detection by placing black screens at regular intervals.
-  // A typical Valorant VOD (~80 min) has ~3-5 map transitions.
+  // A typical EVA After-h VOD (~80 min) has ~3-5 map transitions.
   const totalDurationMs =
     keyframes[keyframes.length - 1].timestampMs - keyframes[0].timestampMs;
 
