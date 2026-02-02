@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3, 4, 5, 6, 7]
+stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8]
 inputDocuments:
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
   - docs/planning-artifacts/prd.md
@@ -293,3 +293,79 @@ Thomas approaches Warden as a **video editing tool** -- not a social app, not a 
 - Tap share -> OS share sheet opens -> send to Discord/WhatsApp/etc.
 - Success = clip is sent to the team. Thomas has done his part.
 - After sharing, return to the timeline at the exact playback position. Flow continues -- momentum, not celebration.
+
+## Visual Design Foundation
+
+### Color System
+
+**Architecture: Config-driven color tokens.** All colors defined in a single configuration file so the entire palette can be swapped without touching component code.
+
+**Base palette (starting point -- swappable via config):**
+
+| Token | Role | Starting Value |
+|-------|------|---------------|
+| `background` | Primary background | Very dark with subtle cool tint (~#101014) |
+| `surface` | Cards, elevated surfaces | Slightly lighter dark (~#1A1A1E) |
+| `surfaceElevated` | Modals, sheets | (~#242428) |
+| `textPrimary` | Main text | Soft white (~#F0F0F0) |
+| `textSecondary` | Subdued text, labels | Muted gray (~#8B8F96) |
+| `accent` | Shadows, separators, highlights | Bright orange (~#FF6B00) |
+| `accentSubtle` | Faint accent glow, borders | Low-opacity orange (~#FF6B0020) |
+| `success` | Clip exported, share complete | Green (~#22C55E) |
+| `error` | Failures, warnings, recording dot | Red (~#EF4444) |
+
+**Orange usage philosophy:** Accent color is for **separation and emphasis**, not fills. Orange shadows behind elevated elements, orange tint on active separators, subtle orange glow on selected states. Dark-first with orange as a signature whisper, not a shout.
+
+**Config file approach:** Single source of truth (`theme.config.ts` or equivalent in NativeWind/Tailwind config) -- change the accent color once, the whole app updates.
+
+### Typography System
+
+**System defaults -- platform native:**
+- **Android**: Roboto
+- **iOS**: SF Pro
+
+**Type scale (minimal):**
+
+| Token | Use | Size |
+|-------|-----|------|
+| `heading` | Screen titles, episode names | 20sp |
+| `subheading` | Section labels, metadata | 16sp |
+| `body` | Descriptions, timestamps | 14sp |
+| `caption` | Subtle labels, secondary info | 12sp |
+
+Soft white text on dark backgrounds. No thin font weights -- minimum medium weight for readability on OLED screens.
+
+### Spacing & Layout Foundation
+
+**Minimal chrome, reveal-on-tap philosophy:**
+- Video takes 100% of screen real estate by default
+- Controls appear on tap, auto-hide after inactivity (YouTube fullscreen model)
+- No persistent toolbars during playback
+- **Double-tap top-left**: Power-user shortcut to toggle minimap/POV (like YouTube double-tap left/right for 10s skip)
+
+**Spacing base unit:** 4px
+- Small gap: 4px | Medium gap: 8px | Large gap: 16px | Section gap: 24px
+
+**Layout principles:**
+- Content-first: video fills the screen, UI gets out of the way
+- Overlay controls: semi-transparent dark background behind revealed controls
+- Touch targets: minimum 44x44px for all interactive elements
+- Edge margins: 16px safe zone from screen edges
+
+### Accessibility Considerations
+
+**Softened contrast for eye comfort:** Soft white (#F0F0F0) on dark background (#101014) provides ~17:1 contrast ratio (WCAG AAA) without the eye strain of pure white on pure black -- important for late-night couch usage.
+
+**No color-only state indicators -- every state has a shape, icon, or content change as primary signal:**
+
+| State | Primary Indicator | Color Reinforcement |
+|-------|------------------|-------------------|
+| Clip selected on timeline | Visible **bracket handles** at start/end (draggable shape) | Orange highlight on selected region |
+| Minimap mode active | **Video content itself changes** (POV vs tactical overhead) -- self-evident | N/A -- no color indicator needed |
+| Voice recording active | **Blinking mic icon + red dot** (animation + icon change) | Red color reinforces but blink + icon are primary |
+| Controls visible/hidden | Controls **appear/disappear** on tap | Semi-transparent overlay background |
+
+**Additional accessibility:**
+- 44x44px minimum touch targets
+- Respect system font size preferences
+- Double-tap minimap shortcut has visible button alternative in controls overlay
