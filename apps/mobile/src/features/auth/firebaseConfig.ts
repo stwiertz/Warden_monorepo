@@ -1,5 +1,10 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import {
+  initializeAuth,
+  getAuth,
+  getReactNativePersistence,
+} from "firebase/auth";
+import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? "",
@@ -12,6 +17,15 @@ const firebaseConfig = {
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-export const auth = getAuth(app);
+// Use AsyncStorage for auth persistence on React Native.
+// The default web SDK persistence (indexedDB/localStorage) does not exist in RN.
+// TODO: Consider migrating to @react-native-firebase/* native SDK for better
+// performance, native token refresh, and full offline auth support.
+const auth =
+  getApps().length === 1
+    ? initializeAuth(app, {
+        persistence: getReactNativePersistence(ReactNativeAsyncStorage),
+      })
+    : getAuth(app);
 
-export { app };
+export { app, auth };

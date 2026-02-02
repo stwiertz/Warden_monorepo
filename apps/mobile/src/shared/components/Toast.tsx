@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import { Animated, Text, View } from "react-native";
 
 export type ToastType = "info" | "error" | "success";
@@ -25,6 +25,12 @@ export function Toast({
   duration = 3000,
 }: ToastProps) {
   const opacity = useRef(new Animated.Value(0)).current;
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+
+  const stableDismiss = useCallback(() => {
+    onDismissRef.current();
+  }, []);
 
   useEffect(() => {
     if (visible) {
@@ -39,12 +45,12 @@ export function Toast({
           toValue: 0,
           duration: 200,
           useNativeDriver: true,
-        }).start(() => onDismiss());
+        }).start(() => stableDismiss());
       }, duration);
 
       return () => clearTimeout(timer);
     }
-  }, [visible, duration, onDismiss, opacity]);
+  }, [visible, duration, stableDismiss, opacity]);
 
   if (!visible) return null;
 
