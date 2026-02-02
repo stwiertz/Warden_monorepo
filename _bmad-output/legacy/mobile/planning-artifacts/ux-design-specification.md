@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3, 4, 5]
+stepsCompleted: [1, 2, 3, 4, 5, 6]
 inputDocuments:
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
   - docs/planning-artifacts/prd.md
@@ -189,3 +189,36 @@ Secondary emotion is **momentum**: after clipping one moment, the feeling should
 - Any UI pattern that feels like productivity software
 - Social features that duplicate Discord
 - Tiny tactical overlays that repeat the current failure
+
+## Design System Foundation
+
+### Design System Choice
+
+**React Native Reusables** (shadcn/ui for React Native) with **NativeWind** (Tailwind CSS for React Native).
+
+Copy-paste component architecture -- components live in the project, not in node_modules. Full ownership, full customization capability.
+
+### Rationale for Selection
+
+- **Dark theme built-in** -- aligns with the "review is play, not work" game-adjacent aesthetic
+- **NativeWind / Tailwind utility classes** -- fast iteration, consistent spacing/color tokens
+- **Free, open source, active community** -- no licensing constraints, community-driven improvements
+- **Copy-paste ownership model** -- no dependency lock-in, components are yours to modify
+- **Standard UI components covered** -- buttons, sheets, dialogs, cards, navigation handled out of the box
+- **Not Material Design** -- avoids the "Google productivity app" look that conflicts with game-adjacent aesthetic
+
+### Implementation Approach
+
+**Two-tier component strategy:**
+
+| Tier | Scope | Approach |
+|------|-------|----------|
+| **Standard UI** | Buttons, modals, navigation, lists, cards, forms | React Native Reusables components, themed with custom dark tokens |
+| **Custom Core** | Video player, minimap view, POV/minimap toggle, clip creation flow, voice recording, timeline scrubber | Fully custom-built -- this is the product differentiator, no library covers it |
+
+### Customization Strategy
+
+- **Design tokens**: Define dark-first color palette, spacing scale, and typography through NativeWind/Tailwind config
+- **Standard components**: Use React Native Reusables defaults, customize theming to match game-adjacent aesthetic
+- **Custom components**: Build video player, minimap, clip creation from scratch -- these are the core product and deserve dedicated engineering
+- **Progressive customization**: Start with library defaults for non-core UI, refine as the product matures
