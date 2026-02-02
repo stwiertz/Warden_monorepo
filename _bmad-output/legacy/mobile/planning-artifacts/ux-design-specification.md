@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3, 4]
+stepsCompleted: [1, 2, 3, 4, 5]
 inputDocuments:
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
   - docs/planning-artifacts/prd.md
@@ -131,3 +131,61 @@ Secondary emotion is **momentum**: after clipping one moment, the feeling should
 3. **Full-screen tactical = full understanding.** The minimap is only useful if it dominates the screen. Tiny = useless = current reality.
 4. **The voice IS the tone.** Warden doesn't frame, label, or categorize feedback. The coach's voice recording carries whatever authority or casualness fits.
 5. **Review is play, not work.** The aesthetic and interaction speed should evoke competitive game analysis, not productivity software.
+
+## UX Pattern Analysis & Inspiration
+
+### Inspiring Products Analysis
+
+**Discord (Primary communication habitat)**
+- Dark, content-first UI with zero ceremony -- drop media, people see it
+- Inline video playback with tap-to-expand
+- No onboarding friction for consuming content
+- Warden clips will live here -- the export must feel native to this environment (just a video file, instant playback)
+
+**YouTube (Universal video UX baseline)**
+- Scrub bar with preview thumbnails -- users expect this for any video
+- Chapter markers / timestamp navigation -- maps to Warden's episode concept
+- Double-tap to skip forward/back -- muscle memory for video navigation
+- Fullscreen toggle that feels instant -- relevant for orientation-flexible design
+
+**No existing tool for minimap review** -- this is significant. There is no reference product for "tactical overhead view of a VR match with voice commentary." The format itself is novel, which means:
+- The minimap clip is inherently curiosity-generating in Discord/WhatsApp
+- No UX conventions to follow for this specific interaction -- we define them
+- The export format IS the viral hook -- no branding or watermark needed
+
+### Transferable UX Patterns
+
+| Source | Pattern | Warden Application |
+|--------|---------|-------------------|
+| YouTube | Scrub bar with thumbnails | Timeline scrubbing for episode navigation, visual preview of moments |
+| YouTube | Chapter markers | Auto-generated episode markers per map/round |
+| YouTube | Double-tap skip | Quick skip gesture for navigating within episodes |
+| Discord | Dark UI, content-first | Dark theme, minimal chrome, video dominates the screen |
+| Discord | Inline media playback | Exported clips must play inline without friction |
+| Netflix | Episode grid navigation | Map/round selection as an episode grid -- immediately understood paradigm |
+| Esport replays | Tactical overhead view | Full-screen minimap mode -- but Warden owns this pattern since no tool does it for EVA |
+
+### Anti-Patterns to Avoid
+
+- **Tiny overlay minimap** -- this is literally the current failure mode. If the tactical view isn't full-screen, Warden is just another bad review tool.
+- **Export friction** -- no "choose format," "set quality," "add title" before sharing. One tap to share, OS share sheet handles the rest.
+- **Onboarding tutorials** -- Discord and YouTube never taught users how to watch a video. Warden shouldn't teach users how to watch a clip. The UI must be self-evident.
+- **Social features inside the app** -- Discord is the social layer. Warden is a tool. Don't compete with where users already live.
+- **Productivity UX language** -- no "projects," "workspaces," "dashboards." This is match review, not project management.
+
+### Design Inspiration Strategy
+
+**Adopt:**
+- YouTube's video navigation conventions (scrub, skip, fullscreen) -- zero learning curve
+- Discord's dark, content-first aesthetic -- feels like home for the target audience
+- Netflix's episode grid mental model -- maps perfectly to rounds/maps
+
+**Invent:**
+- Full-screen minimap toggle -- no reference exists, Warden defines this interaction
+- Voice-over-clip creation flow -- scoped, linear, unique to Warden
+- Auto-sliced episode presentation -- video imported, episodes appear, no configuration
+
+**Avoid:**
+- Any UI pattern that feels like productivity software
+- Social features that duplicate Discord
+- Tiny tactical overlays that repeat the current failure
