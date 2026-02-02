@@ -1,7 +1,7 @@
-import { createMMKV, type MMKV } from "react-native-mmkv";
+import { MMKV } from "react-native-mmkv";
 import { type StateStorage } from "zustand/middleware";
 
-export const mmkv: MMKV = createMMKV({ id: "warden-storage" });
+export const mmkv = new MMKV({ id: "warden-storage" });
 
 // MMKV key conventions: dot.notation grouped
 // auth.token, auth.user, auth.expiresAt

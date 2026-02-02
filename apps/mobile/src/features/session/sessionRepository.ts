@@ -1,8 +1,9 @@
+import * as Crypto from "expo-crypto";
 import { getDatabase } from "../../shared/services/database";
 import type { Session } from "../../shared/types";
 
 function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return Crypto.randomUUID();
 }
 
 function nowISO(): string {

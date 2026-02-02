@@ -29,6 +29,9 @@ export const authService = {
       );
       const authUser = await mapFirebaseUser(credential.user);
       setUser(authUser);
+      if (!authUser.isPaid) {
+        setError("Your subscription is inactive. Please subscribe to access Warden.");
+      }
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "Login failed";

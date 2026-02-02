@@ -34,6 +34,7 @@ export const useAuthStore = create<AuthState>()(
         set({
           user,
           isAuthenticated: user !== null && user.isPaid,
+          isLoading: false,
           error: null,
           cachedAt: user ? Date.now() : null,
         }),
