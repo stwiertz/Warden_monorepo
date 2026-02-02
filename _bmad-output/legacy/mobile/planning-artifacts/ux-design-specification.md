@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 inputDocuments:
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
   - docs/planning-artifacts/prd.md
@@ -667,3 +667,87 @@ All segments optional. Silent clips skip all voice segments.
 | Component | Rationale |
 |-----------|-----------|
 | Export Queue (Option 3) | Background encoding for momentum |
+
+## UX Consistency Patterns
+
+### Feedback Patterns
+
+| Type | Pattern | Behavior |
+|------|---------|----------|
+| **Success** | Subtle toast, bottom of screen | Auto-dismiss after 3s. No blocking. Example: "Clip shared" with green accent. |
+| **Minor error** | Toast with error styling | Auto-dismiss after 5s. Example: "Export failed -- try again." Red accent. |
+| **Critical error** | Modal dialog, blocks UI | Requires user action to dismiss. Example: "Incompatible video format -- only MP4 (H.264) is supported." |
+| **Processing (short)** | Inline progress bar | Export encoding: progress bar with percentage. No navigation away until complete (MVP). |
+| **Processing (long)** | Full-screen progress with tips | Auto-slice processing: progress bar + rotating tips about app features. |
+
+**Toast rules:**
+- Always bottom of screen (doesn't interfere with video controls at top)
+- Never stacks -- new toast replaces previous
+- Tappable to dismiss early
+- No action buttons in toasts -- keep them informational only
+
+### Processing Screen (Auto-Slice)
+
+**During video processing (up to 2 minutes):**
+- Full-screen dark background with progress bar and percentage
+- Rotating tips cycle every 5-8 seconds:
+  - "Double tap the top left corner to instantly switch to minimap mode"
+  - "Drag the clip handles to adjust your clip boundaries"
+  - "Add voice before, during, or after your clip"
+  - "Sort maps by closest score to find the most important rounds"
+  - "Your review progress is saved automatically -- pick up where you left off"
+- No user action possible during processing -- this is a wait screen
+- On completion: auto-navigates to Card View with episodes ready
+
+### Navigation Patterns
+
+| Context | Pattern |
+|---------|---------|
+| **Cold start** | Two clear paths: "Resume last review" / "Import new session". Always present. |
+| **Card View → Cinema Mode** | Tap card, full-screen transition |
+| **Cinema Mode → Card View** | "Maps" button in controls overlay |
+| **Cinema Mode → Next/Previous** | Explicit buttons in controls overlay, follows sort order |
+| **Cinema Mode → Clip creation** | "Clip" button in controls overlay, bottom sheet slides up |
+| **Clip creation → Export** | Confirm button in clip bottom sheet |
+| **Export → Cinema Mode** | Auto-return to timeline position after share (MVP: after encoding + share) |
+
+**Navigation principle:** Every screen has exactly one "back" path and one or more "forward" paths. No ambiguity, no dead ends.
+
+### Overlay & Bottom Sheet Patterns
+
+| Element | Behavior |
+|---------|----------|
+| **Controls overlay** | Tap to show, auto-hide after 4s inactivity. Semi-transparent dark background. All Cinema Mode controls live here. |
+| **Clip creation sheet** | Bottom sheet, slides up over video. Video stays visible above. Contains: clip handles, voice slot buttons (before/on clip/after), confirm/cancel. |
+| **Voice recording overlay** | Replaces clip creation sheet during recording. Shows blinking mic + red dot, clip preview (still frame or playing video depending on slot), tap-to-stop target. |
+| **Export progress (MVP)** | Modal overlay, centered. Progress bar + percentage. Cannot dismiss until complete or cancel. |
+
+**Bottom sheet rules:**
+- Never covers more than 40% of screen -- video stays visible
+- Drag down to dismiss (cancel action)
+- Dark surface color with orange accent separator at top
+
+### Loading & Empty States
+
+| State | Visual |
+|-------|--------|
+| **First launch (no sessions)** | Dark screen with single prominent button: "Import your first training session." |
+| **No sessions after deletion** | Same: "Import your last training session." |
+| **Auto-slice processing** | Progress bar + rotating tips (see Processing Screen above) |
+| **Export encoding (MVP)** | Modal progress bar with percentage |
+| **Video loading** | Spinner centered on black background, transitions to video playback when ready |
+
+**Empty state principle:** Always one clear action. Never a blank screen with no guidance.
+
+### Gesture Patterns
+
+| Gesture | Context | Action |
+|---------|---------|--------|
+| **Single tap** | Cinema Mode (video area) | Toggle controls overlay visibility |
+| **Double-tap top-left** | Cinema Mode | Toggle minimap/POV (power-user shortcut) |
+| **Drag horizontal** | Timeline scrubber | Seek within episode |
+| **Drag handles** | Clip region on timeline | Adjust clip start/end boundaries |
+| **Drag down** | Bottom sheet | Dismiss / cancel action |
+| **Tap** | Card View (episode card) | Enter Cinema Mode for that episode |
+
+**Gesture principle:** No hidden gestures required for core functionality. Every gesture has a button equivalent. Gestures are shortcuts, not the only path.
