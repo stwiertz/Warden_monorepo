@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 inputDocuments:
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
   - docs/planning-artifacts/prd.md
@@ -542,3 +542,128 @@ Can create clips to share with teammates if desired
 2. **Export doesn't break flow**: Whether MVP (wait) or Goal (background), after exporting Thomas is back at the same timeline position, ready for the next clip.
 3. **No dead ends**: Every screen has a clear "what's next" action. Card View -> Cinema Mode -> Clip -> Share -> back to Cinema Mode.
 4. **Journeys are subsets, not separate flows**: Maxime's journey is Thomas's without export. Lucas's journey is outside the app entirely. One UI serves all users.
+
+## Component Strategy
+
+### Design System Components (React Native Reusables)
+
+| Component | Usage in Warden |
+|-----------|----------------|
+| **Card** | Episode cards in Card View (themed with dark tokens + orange accent shadow) |
+| **Button / IconButton** | All action buttons (clip, share, export, navigation) |
+| **Bottom Sheet** | Clip creation panel, voice recording panel, export progress |
+| **Dialog** | Confirmations, error messages |
+| **Progress** | Export encoding progress bar |
+| **Dropdown** | Sort order selection in Card View |
+| **Text** | All typography via themed text components |
+
+### Custom Components
+
+#### Video Player (Cinema Mode)
+
+**Purpose:** Full-screen video playback with reveal-on-tap controls overlay. Core workspace for all review activity.
+
+**Content:** Source video (POV or Minimap ROI crop), playback controls, timeline
+**Actions:** Play/pause, seek, toggle minimap/POV, create clip, navigate episodes
+**States:**
+- Clean (video only, no UI)
+- Controls visible (tap to reveal, auto-hide after inactivity)
+- Clip creation active (timeline shows clip region + handles)
+- Voice recording active (blinking mic + red dot)
+
+**Gestures:**
+- Single tap: toggle controls overlay
+- Double-tap top-left: minimap/POV toggle (power-user shortcut)
+
+#### Timeline Scrubber
+
+**Purpose:** Episode-aware video timeline with playback position and clip region display.
+
+**Content:** Full episode duration, playback position indicator, clip region highlight
+**Actions:** Seek by drag, scrub preview
+**States:**
+- Default (playback position only)
+- Clip active (orange highlighted region with bracket handles)
+
+#### Clip Region Selector
+
+**Purpose:** Define clip boundaries on the timeline for export.
+
+**Content:** 30-second default region centered on current playback position
+**Actions:** Drag start/end bracket handles to adjust boundaries
+**States:**
+- Defining (handles visible, region adjustable)
+- Locked (boundaries confirmed, ready for voice or export)
+
+**Behavior:** Tap "clip" -> 30s region appears -> drag to refine -> confirm.
+
+#### Voice Recorder
+
+**Purpose:** Record voice commentary over a clip in three optional slots.
+
+**Slots:**
+
+| Slot | Trigger | Visual during recording | Exported result |
+|------|---------|------------------------|----------------|
+| **Before clip** | Tap "before" | Still frame (first frame of clip) + blinking mic + red dot | Audio over still frame, plays before clip video |
+| **During clip** | Tap "on clip" -> countdown -> clip plays | Clip video playing + blinking mic + red dot. If coach keeps talking past clip end, **last frame freezes** while audio continues. | Audio overlaid on clip video + frozen last frame extension |
+| **After clip** | Tap "after" | Still frame (last frame of clip) + blinking mic + red dot | Audio over still frame, plays after "during" voice ends |
+
+**Recording control:** Tap to start, **tap to stop**. No auto-stop, no silence detection. Coach controls when he's done.
+
+**All three slots available on same clip.** Coach can use any combination: just "during", all three, or none (silent clip).
+
+**Exported clip structure:**
+```
+[Before voice + still frame] → [Clip video + during voice] → [Frozen frame + during voice overflow] → [After voice + still frame]
+```
+All segments optional. Silent clips skip all voice segments.
+
+#### Episode Card
+
+**Purpose:** Display a map/round in the Card View grid with result frame for triage.
+
+**Content:** Static result frame thumbnail (extracted during auto-slice), map name, optional metadata (if performance allows)
+**Actions:** Tap to enter Cinema Mode for that episode
+**States:**
+- Default (dark surface, result frame thumbnail)
+
+#### Sort Dropdown
+
+**Purpose:** Control episode ordering in Card View.
+
+**Content:** Four sort options: Orange biggest win, Blue biggest win, Closest map, Temporal order
+**Component:** Standard dropdown input (React Native Reusables, themed)
+**Behavior:** Selection reorders Card View grid AND sets next/previous order in Cinema Mode
+
+#### Export Progress
+
+**Purpose:** Show clip encoding status.
+
+**States (MVP - Option 1):**
+- Processing: "Preparing clip..." + progress bar
+- Complete: share sheet opens automatically
+
+**States (Goal - Option 3):**
+- Queue indicator in controls overlay: "2 ready, 1 processing"
+- Tap queue to see list, share individual clips when ready
+
+### Component Implementation Strategy
+
+**Phase 1 -- MVP Core (minimum to complete Journey 1):**
+
+| Priority | Component | Rationale |
+|----------|-----------|-----------|
+| 1 | Video Player | Can't review without it |
+| 2 | Timeline Scrubber | Can't navigate within episodes |
+| 3 | Episode Card + Card View | Can't select which map to review |
+| 4 | Clip Region Selector | Can't create clips |
+| 5 | Voice Recorder | Can't add commentary |
+| 6 | Export Progress (Option 1) | Can't export clips |
+| 7 | Sort Dropdown | Triage capability |
+
+**Phase 2 -- Enhancement:**
+
+| Component | Rationale |
+|-----------|-----------|
+| Export Queue (Option 3) | Background encoding for momentum |
