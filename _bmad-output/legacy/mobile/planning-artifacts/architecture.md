@@ -123,6 +123,8 @@ npx create-expo-app@latest Warden --template blank-typescript
 | `zustand` | State management | Choix utilisateur |
 | FFmpeg (fork/custom) | Video processing | Core feature - fork communautaire car ffmpeg-kit-react-native deprecated (jan 2025) |
 | OpenCV (native module) | Template matching | Via Expo Modules API |
+| `nativewind` + `tailwindcss` | Styling | Utility classes Tailwind, design tokens config-driven |
+| `react-native-reusables` | UI components | Composants standard (cards, sheets, dialogs) -- copy-paste ownership |
 
 ### Risk Alert: ffmpeg-kit-react-native Deprecated
 
@@ -147,6 +149,9 @@ npx create-expo-app@latest Warden --template blank-typescript
 
 **Deferred Decisions (Post-MVP):**
 - iOS-specific optimizations, analytics, advanced monitoring
+- Export queue background encoding (Option 3 UX spec) -- architecture supports evolution via isolated `exportPipeline.ts`, extensible Zustand store (`clipQueue` state), et foreground service Android réutilisable
+- OCR extraction de scores (peuple `score_orange`/`score_blue` dans `map_segments`) -- active les tris Card View par score
+- Multi-view clip export (switch POV/minimap dans un même clip exporté) -- nécessite multi-segment FFmpeg encoding
 
 ### Data Architecture
 
@@ -182,6 +187,8 @@ npx create-expo-app@latest Warden --template blank-typescript
 | **Audio recording** | `expo-av` (Audio.Recording) | Même lib, enregistrement AAC/.m4a |
 | **Format audio** | AAC (.m4a) | Compatible pipeline FFmpeg -- mux sans ré-encoding |
 | **Toggle POV/Minimap** | Changement de style/crop sur même source | Pas de changement de player, juste crop ROI = < 100ms (NFR2) |
+| **Modèle voix** | 3 slots par clip : before / during / after | Aligné avec UX spec -- coach peut commenter avant, pendant, et après le clip |
+| **Export multi-segment** | FFmpeg concat : still frame + clip vidéo + frozen frame + still frame | Chaque segment optionnel, clips silencieux sautent tous les segments voix |
 
 ### Authentication & Security
 
@@ -191,6 +198,26 @@ npx create-expo-app@latest Warden --template blank-typescript
 | **Modèle** | Reader App (0% commission stores) | Login only dans l'app, paiement web Stripe |
 | **Offline** | Cache auth local MMKV, 30j validité (NFR9) | Processing 100% offline après premier login |
 | **Validation abo** | Au login + périodique si online | Check `user.isPaid` via Firebase |
+
+### UI Components & Styling
+
+| Décision | Choix | Rationale |
+|----------|-------|-----------|
+| **Composants UI** | React Native Reusables (shadcn/ui pour RN) | Modèle copy-paste, ownership total, dark theme intégré, pas de Material Design |
+| **Styling** | NativeWind (Tailwind CSS pour RN) | Utility classes, design tokens via config, itération rapide |
+| **Theming** | Dark-first, tokens configurables | Un seul `tailwind.config.ts` définit palette, spacing, typographie |
+| **Composants standard** | Cards, sheets, dialogs, buttons via React Native Reusables | Themés avec tokens dark + accent orange |
+| **Composants custom** | Video player, minimap, clip creation, voice recorder, timeline | Construits sur mesure -- différenciateur produit, aucune lib ne les couvre |
+
+**Dépendances additionnelles :**
+
+| Package | Usage | Raison |
+|---------|-------|--------|
+| `nativewind` | Utility classes Tailwind pour RN | Styling cohérent, config-driven |
+| `tailwindcss` | Système de tokens et config | Design tokens centralisés |
+| `react-native-reusables` | Composants UI de base | Cards, sheets, dialogs, buttons -- ownership total |
+
+**Note :** NativeWind nécessite un plugin Babel + config plugin Expo. Impact sur le pipeline de build.
 
 ### Infrastructure & Deployment
 
@@ -214,6 +241,8 @@ npx create-expo-app@latest Warden --template blank-typescript
 | react-native-fast-opencv | JSI/C++ partagé | JSI/C++ partagé |
 | MMKV | natif | natif |
 | expo-sqlite | natif | natif |
+| NativeWind | JS + Babel plugin | JS + Babel plugin |
+| React Native Reusables | JS pur | JS pur |
 
 **Seule action supplémentaire pour iOS :** Tester le build et valider les config plugins FFmpeg côté iOS.
 
@@ -221,14 +250,15 @@ npx create-expo-app@latest Warden --template blank-typescript
 
 **Implementation Sequence:**
 1. Init projet Expo + TypeScript
-2. Setup navigation (React Navigation) + state (Zustand)
-3. Setup data layer (MMKV + SQLite)
-4. Intégration FFmpeg (fork + config plugin)
-5. Intégration OpenCV (react-native-fast-opencv)
-6. Video player (expo-av) + UI custom
-7. Audio recording (expo-av)
-8. Auth Firebase + validation abo
-9. Pipeline export (FFmpeg mux vidéo + audio)
+2. Setup NativeWind + React Native Reusables + design tokens (tailwind.config.ts)
+3. Setup navigation (React Navigation) + state (Zustand)
+4. Setup data layer (MMKV + SQLite + schema)
+5. Intégration FFmpeg (fork + config plugin)
+6. Intégration OpenCV (react-native-fast-opencv)
+7. Video player (expo-av) + UI custom Cinema Mode
+8. Audio recording (expo-av) -- modèle 3 slots (before/during/after)
+9. Auth Firebase + validation abo
+10. Pipeline export (FFmpeg concat multi-segment : still frames + clip vidéo + audio overlay)
 
 **Cross-Component Dependencies:**
 - FFmpeg + OpenCV → Pipeline de traitement vidéo (processing)
@@ -264,7 +294,7 @@ npx create-expo-app@latest Warden --template blank-typescript
 
 | Élément | Convention | Exemple |
 |---------|-----------|---------|
-| Keys | dot.notation groupée | `auth.token`, `session.current.position`, `prefs.exportQuality` |
+| Keys | dot.notation groupée | `auth.token`, `session.current.position`, `prefs.exportQuality`, `prefs.sortOrder` |
 
 ### Structure Patterns
 
@@ -338,6 +368,7 @@ Warden/
 ├── package.json
 ├── tsconfig.json
 ├── eas.json                             # Config EAS Build (dev/preview/prod)
+├── tailwind.config.ts                  # Design tokens : palette dark, spacing, typographie
 ├── .gitignore
 ├── .env.example
 ├── plugins/
@@ -432,6 +463,68 @@ Warden/
 - MMKV : `auth.*`, `session.current.*`, `prefs.*` (état rapide, cache)
 - Filesystem : fichiers vidéo source (in-place, pas de copie), fichiers audio .m4a (commentaires)
 
+### SQLite Schema
+
+```sql
+-- Sessions de review importées
+sessions (
+  id              TEXT PRIMARY KEY,
+  video_file_path TEXT NOT NULL,
+  name            TEXT,
+  duration_ms     INTEGER,
+  status          TEXT CHECK(status IN ('importing', 'processing', 'ready', 'error')),
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+)
+
+-- Segments de carte détectés par le processing pipeline
+map_segments (
+  id                TEXT PRIMARY KEY,
+  session_id        TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  map_index         INTEGER NOT NULL,
+  start_time_ms     INTEGER NOT NULL,
+  end_time_ms       INTEGER NOT NULL,
+  map_name          TEXT,
+  result_frame_path TEXT,          -- chemin vers screenshot scoreboard extrait
+  score_orange      INTEGER,      -- nullable, extraction OCR post-MVP
+  score_blue        INTEGER,      -- nullable, extraction OCR post-MVP
+  created_at        TEXT NOT NULL
+)
+
+-- Clips créés par le coach
+clip_exports (
+  id              TEXT PRIMARY KEY,
+  session_id      TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  map_segment_id  TEXT NOT NULL REFERENCES map_segments(id) ON DELETE CASCADE,
+  start_time_ms   INTEGER NOT NULL,
+  end_time_ms     INTEGER NOT NULL,
+  view_mode       TEXT CHECK(view_mode IN ('pov', 'minimap')) NOT NULL,
+  status          TEXT CHECK(status IN ('defining', 'locked', 'exporting', 'ready', 'shared')) NOT NULL,
+  export_quality  TEXT CHECK(export_quality IN ('mobile', 'hd')),
+  file_path       TEXT,           -- NULL jusqu'à export terminé
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+)
+
+-- Commentaires audio -- modèle 3 slots (before/during/after) par clip
+audio_comments (
+  id              TEXT PRIMARY KEY,
+  clip_export_id  TEXT NOT NULL REFERENCES clip_exports(id) ON DELETE CASCADE,
+  slot            TEXT CHECK(slot IN ('before', 'during', 'after')) NOT NULL,
+  file_path       TEXT NOT NULL,
+  duration_ms     INTEGER NOT NULL,
+  created_at      TEXT NOT NULL
+)
+```
+
+**Notes schema :**
+- `result_frame_path` : extrait à la fin du processing pipeline (dernière frame avant écran noir)
+- `score_orange` / `score_blue` : NULL en MVP, peuplés quand OCR implémenté (post-MVP)
+- Tri Card View : temporal order disponible immédiatement, tris par score disponibles quand OCR activé
+- `clip_exports.status` : suit le lifecycle clip (defining → locked → exporting → ready → shared)
+- `audio_comments` : 0 à 3 enregistrements par clip, un par slot. Clips silencieux n'ont aucun audio_comment.
+- Export MP4 assemblé : `[before + still frame] → [clip vidéo + during voice] → [frozen frame + overflow during] → [after + still frame]` -- tous segments optionnels
+
 ### Requirements to Structure Mapping
 
 | Feature | FRs | Fichiers clés |
@@ -482,6 +575,8 @@ Toutes les technologies choisies sont compatibles entre elles :
 - Zustand + MMKV persist middleware fonctionne nativement
 - Firebase JS SDK (modular) fonctionne avec Expo sans module natif additionnel
 - Toutes les libs sont cross-platform (Android + iOS ready)
+- NativeWind (Babel plugin) + React Native Reusables compatibles avec Expo dev-client
+- UX spec (design system, voice 3-slot, clip lifecycle, Card View sorting) alignée avec les décisions architecturales
 
 **Pattern Consistency :**
 - Conventions de nommage cohérentes à travers tous les layers (code, DB, storage)
@@ -531,7 +626,7 @@ Toutes les technologies choisies sont compatibles entre elles :
 | # | Point | Impact | Résolution |
 |---|-------|--------|------------|
 | 1 | Versions libs non spécifiées | Faible | Fixées à l'init projet, Expo gère la compatibilité |
-| 2 | Schema SQLite non défini | Faible | Défini lors de l'implémentation du data layer, conventions établies |
+| 2 | ~~Schema SQLite non défini~~ | ~~Faible~~ | **Résolu** -- schema défini dans section "SQLite Schema" (sessions, map_segments, clip_exports, audio_comments) |
 | 3 | Templates carte OpenCV | Moyen | Images de référence à capturer, stockées dans `assets/images/map-templates/` |
 | 4 | Foreground Service Android | Moyen | Config plugin Expo additionnel ou `expo-task-manager` à évaluer |
 
