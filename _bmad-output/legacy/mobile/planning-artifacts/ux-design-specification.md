@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8]
+stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8, 9]
 inputDocuments:
   - docs/planning-artifacts/product-brief-warden-2026-01-26.md
   - docs/planning-artifacts/prd.md
@@ -369,3 +369,69 @@ Soft white text on dark backgrounds. No thin font weights -- minimum medium weig
 - 44x44px minimum touch targets
 - Respect system font size preferences
 - Double-tap minimap shortcut has visible button alternative in controls overlay
+
+## Design Direction Decision
+
+### Design Directions Explored
+
+Four layout directions were evaluated:
+- **A: Cinema Mode** -- fully immersive, no navigation structure
+- **B: Editor Lite** -- persistent timeline, editor feel
+- **C: Card Flow** -- browse-then-dive with episode cards + Cinema Mode for review
+- **D: Hybrid** -- simple list shell around Cinema Mode
+
+### Chosen Direction
+
+**Direction C: Card Flow + Cinema Mode** -- selected for its natural triage capability and clear separation between navigation and review.
+
+**Two-layer architecture:**
+
+| Layer | Purpose | UX Model |
+|-------|---------|----------|
+| **Card View (Home)** | Episode triage -- scan results, prioritize which maps to review | Netflix-style grid with map result frames as thumbnails |
+| **Cinema Mode (Review)** | Immersive review -- full-screen video, reveal-on-tap controls | YouTube fullscreen with Warden-specific clip creation |
+
+### Card View Details
+
+**Episode cards show:**
+- Map result frame as thumbnail (scoreboard/outcome screenshot)
+- Map name
+- Additional metadata if extractable without performance cost (duration, score, etc.)
+
+**Sorting options (triage-first navigation):**
+- **Orange biggest win** -- maps where orange team dominated
+- **Blue biggest win** -- maps where blue team dominated
+- **Closest map** -- tightest scores, most likely to have critical plays
+- **Temporal order** -- chronological (default)
+
+Sorting reorders the card grid AND sets the next/previous episode order within Cinema Mode.
+
+### Cinema Mode Details
+
+**Navigation within Cinema Mode (explicit buttons, no swipe gestures):**
+- **Next button** -- go to next episode (follows current sort order)
+- **Previous button** -- go to previous episode
+- **Maps button** -- return to card view to pick a different episode
+
+**Rationale for buttons over swipe:** Swipe gestures conflict with video scrubbing and timeline interaction. Explicit buttons eliminate accidental navigation and are unambiguous.
+
+**Controls (reveal-on-tap):**
+- Video fills 100% of screen by default
+- Tap to reveal: play/pause, timeline, minimap toggle, clip button, next/previous/maps navigation
+- Double-tap top-left: power-user minimap toggle shortcut
+- Auto-hide after inactivity
+
+### Design Rationale
+
+- Card View enables **triage** -- coaches with limited time can prioritize the most important maps first
+- Sorting by outcome transforms navigation from "what happened first" to "what matters most"
+- Cinema Mode preserves immersion -- once you're reviewing, the video owns the screen
+- Button-based navigation prevents gesture conflicts with video controls
+- Clear separation: browsing is browsing, reviewing is reviewing -- no hybrid state
+
+### Implementation Approach
+
+- Card View: React Native Reusables card components, themed with dark tokens + orange accent shadows
+- Cinema Mode: Fully custom video player with reveal-on-tap overlay system
+- Sort state persists across sessions (part of state persistence design)
+- Navigation order in Cinema Mode follows the active sort -- next/previous respects the sorted sequence
