@@ -1,0 +1,46 @@
+# Warden Desktop Pipeline Configuration
+# All tunable parameters for the video analysis tools
+
+# Reference resolution — ROI coordinates below are defined at this resolution
+# and will be scaled proportionally when processing at a different resolution
+reference_resolution:
+  width: 1920
+  height: 1080
+
+# Processing resolution — frames are downscaled to this height for analysis
+# Lower = faster processing, higher = more accurate detection
+processing:
+  target_height: 360
+
+# Black screen detection settings
+black_detection:
+  # Brightness threshold (0-255). A grayscale ROI region with mean pixel value
+  # below this threshold is considered "black".
+  brightness_threshold: 15
+
+  # Seconds to skip after detecting a black screen, to avoid duplicate
+  # detections from consecutive loading frames in the same transition.
+  skip_duration: 15.0
+
+  # ROI zones — both must be simultaneously black to confirm a transition.
+  # Coordinates are at reference_resolution (1920x1080).
+  roi_zones:
+    - name: minimap
+      x: 104
+      y: 0
+      width: 38
+      height: 234
+
+    - name: map_name
+      x: 827
+      y: 79
+      width: 264
+      height: 22
+
+# Output settings
+output:
+  # Default output directory for extracted frames
+  default_dir: ./output
+
+  # Filename format uses timestamp: frame_MMmSSs.png
+  image_format: png
