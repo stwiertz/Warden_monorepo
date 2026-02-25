@@ -42,5 +42,5 @@ output:
   # Default output directory for extracted frames
   default_dir: ./output
 
-  # Filename format uses timestamp: frame_MMmSSs.png
+  # Filename format: MMmSSs_type_seq.png (e.g. 07m12s_end_001.png)
   image_format: png

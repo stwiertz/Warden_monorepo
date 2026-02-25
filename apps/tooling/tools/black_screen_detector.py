@@ -157,7 +157,7 @@ def run(video_path, output_dir, config, threshold_override=None):
                 # Export the PREVIOUS frame (last non-black frame = end-of-round screen).
                 detection_seq += 1
                 ts_str = format_timestamp(prev_timestamp)
-                fname = f"end_{ts_str}_{detection_seq:03d}.png"
+                fname = f"{ts_str}_end_{detection_seq:03d}.png"
                 out_path = os.path.join(output_dir, fname)
                 cv2.imwrite(out_path, prev_frame)
                 exported.append({"filename": fname, "type": "end", "timestamp": prev_timestamp})
@@ -177,7 +177,7 @@ def run(video_path, output_dir, config, threshold_override=None):
                 # Export the CURRENT frame (first gameplay frame).
                 detection_seq += 1
                 ts_str = format_timestamp(timestamp)
-                fname = f"start_{ts_str}_{detection_seq:03d}.png"
+                fname = f"{ts_str}_start_{detection_seq:03d}.png"
                 out_path = os.path.join(output_dir, fname)
                 cv2.imwrite(out_path, frame)
                 exported.append({"filename": fname, "type": "start", "timestamp": timestamp})
