@@ -1,8 +1,8 @@
-"""Black Screen Detector — CLI tool for extracting end-of-round frames.
+"""Black Screen Detector — CLI tool for extracting start-of-round and end-of-round frames.
 
-Iterates through I-frames of an EVA session recording, detects black screen
-transitions by checking two ROI zones, and exports the preceding I-frame
-(the end-of-round screen) as a PNG.
+Iterates through I-frames of an EVA session recording, uses a two-state machine
+to detect game-end transitions (non-black -> black) and game-start transitions
+(black -> non-black), and exports the relevant frame for each event as a PNG.
 
 Usage:
     python tools/black_screen_detector.py <video_path> [-o OUTPUT_DIR] [-c CONFIG] [--threshold N]
@@ -45,8 +45,9 @@ def run(video_path, output_dir, config, threshold_override=None):
         threshold_override: Optional brightness threshold override.
 
     Returns:
-        tuple: (exported_filenames, frame_count) where exported_filenames
-               is a list of str and frame_count is the total I-frames processed.
+        tuple: (exported_list, frame_count) where exported_list is a list of
+               dicts with keys 'filename', 'type' ('start' or 'end'), and
+               'timestamp', and frame_count is the total I-frames processed.
     """
     # Extract config values
     ref_h = config["reference_resolution"]["height"]
@@ -61,17 +62,27 @@ def run(video_path, output_dir, config, threshold_override=None):
     # scale factor which we use to re-scale ROIs on the first frame.
     ref_scale = target_height / ref_h
     scaled_rois = [scale_roi(roi, ref_scale) for roi in roi_zones]
+    # Separate minimap ROI for start detection (minimap is black during lobby,
+    # non-black during gameplay; map_name has text in both lobby and gameplay)
+    minimap_roi = next(r for r in scaled_rois if r["name"] == "minimap")
     rois_calibrated = False
 
     # Ensure output directory exists (AC 8)
     os.makedirs(output_dir, exist_ok=True)
 
-    exported = []
+    exported = []  # list of dicts: {filename, type, timestamp}
     prev_frame = None
     prev_timestamp = None
     skip_until = -1.0  # timestamp until which we skip detection
     # F6: sequence counter for unique filenames when timestamps collide
     detection_seq = 0
+
+    # State machine: tracks round lifecycle to prevent consecutive end detections.
+    # "waiting_for_end"   = game is (assumed) in progress, looking for end blackscreen
+    # "waiting_for_start" = game ended, looking for start blackscreen (black -> non-black)
+    # Initial state is determined on the first frame: if it's black, we start in
+    # "waiting_for_start" (video begins before game); otherwise "waiting_for_end".
+    state = None  # set on first frame
 
     print(f"Processing: {video_path}")
     print(f"Config: threshold={threshold}, skip={skip_duration}s, target_height={target_height}px")
@@ -108,10 +119,21 @@ def run(video_path, output_dir, config, threshold_override=None):
                     )
             rois_calibrated = True
 
-        # Skip logic — after a detection, skip frames within skip_duration (AC 4)
+        # Determine initial state from first frame using minimap ROI only.
+        # Minimap is black during lobby/countdown and non-black during gameplay.
+        if state is None:
+            small_first, _ = downscale(frame, target_height)
+            gray_first = to_grayscale(small_first)
+            minimap_black = is_black(extract_roi(gray_first, minimap_roi), threshold)
+            if minimap_black:
+                state = "waiting_for_start"
+                print(f"  First frame: minimap is black — starting in waiting_for_start")
+            else:
+                state = "waiting_for_end"
+                print(f"  First frame: minimap is not black — starting in waiting_for_end")
+
+        # Skip logic — after an end detection, skip frames within skip_duration (AC 4)
         if timestamp < skip_until:
-            # F5: only store the last frame before skip ends (not every frame)
-            next_would_clear_skip = True  # optimistic — update prev on last skip frame
             prev_frame = frame.copy()
             prev_timestamp = timestamp
             continue
@@ -128,19 +150,42 @@ def run(video_path, output_dir, config, threshold_override=None):
                 all_black = False
                 break
 
-        if all_black and prev_frame is not None:
-            # Black screen detected — export the PREVIOUS frame (AC 1)
-            detection_seq += 1
-            ts_str = format_timestamp(prev_timestamp)
-            # F6: append sequence number to guarantee unique filenames
-            fname = f"frame_{ts_str}_{detection_seq:03d}.png"
-            out_path = os.path.join(output_dir, fname)
-            cv2.imwrite(out_path, prev_frame)
-            exported.append(fname)
-            print(f"  Detected transition at {timestamp:.1f}s -> exported {fname} (prev frame at {prev_timestamp:.1f}s)")
+        # --- State machine ---
+        if state == "waiting_for_end":
+            if all_black and prev_frame is not None:
+                # Non-black -> black transition: end blackscreen detected.
+                # Export the PREVIOUS frame (last non-black frame = end-of-round screen).
+                detection_seq += 1
+                ts_str = format_timestamp(prev_timestamp)
+                fname = f"end_{ts_str}_{detection_seq:03d}.png"
+                out_path = os.path.join(output_dir, fname)
+                cv2.imwrite(out_path, prev_frame)
+                exported.append({"filename": fname, "type": "end", "timestamp": prev_timestamp})
+                print(f"  END at {timestamp:.1f}s -> exported {fname} (prev frame at {prev_timestamp:.1f}s)")
 
-            # Skip forward to avoid duplicates (AC 4)
-            skip_until = timestamp + skip_duration
+                state = "waiting_for_start"
+                skip_until = timestamp + skip_duration
+
+        elif state == "waiting_for_start":
+            # For start detection, check only the minimap ROI.
+            # During lobby/countdown the minimap area is black; when the game
+            # loads the minimap appears and becomes non-black.
+            minimap_region = extract_roi(gray, minimap_roi)
+            minimap_is_black = is_black(minimap_region, threshold)
+            if not minimap_is_black:
+                # Minimap appeared — game has started.
+                # Export the CURRENT frame (first gameplay frame).
+                detection_seq += 1
+                ts_str = format_timestamp(timestamp)
+                fname = f"start_{ts_str}_{detection_seq:03d}.png"
+                out_path = os.path.join(output_dir, fname)
+                cv2.imwrite(out_path, frame)
+                exported.append({"filename": fname, "type": "start", "timestamp": timestamp})
+                print(f"  START at {timestamp:.1f}s -> exported {fname}")
+
+                state = "waiting_for_end"
+            # If minimap still black: ignore (still in lobby/loading).
+            # This prevents consecutive end detections — solves trailing dead air.
 
         # Store current frame as previous for next iteration
         prev_frame = frame.copy()
@@ -151,7 +196,7 @@ def run(video_path, output_dir, config, threshold_override=None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Detect black screen transitions in EVA recordings and export end-of-round frames."
+        description="Detect black screen transitions in EVA recordings and export start/end-of-round frames."
     )
     parser.add_argument(
         "video",
@@ -201,12 +246,16 @@ def main():
     print("=" * 50)
     print(f"Summary:")
     print(f"  I-frames processed: {frame_count}")
-    print(f"  Transitions detected: {len(exported)}")
+    end_count = sum(1 for e in exported if e["type"] == "end")
+    start_count = sum(1 for e in exported if e["type"] == "start")
+    print(f"  Game ends detected: {end_count}")
+    print(f"  Game starts detected: {start_count}")
+    print(f"  Total events: {len(exported)}")
     print(f"  Output directory: {os.path.abspath(output_dir)}")
     if exported:
         print(f"  Exported frames:")
-        for fname in exported:
-            print(f"    - {fname}")
+        for entry in exported:
+            print(f"    - {entry['filename']}  ({entry['type']} at {entry['timestamp']:.1f}s)")
     else:
         print(f"  No transitions found.")
     print("=" * 50)
