@@ -70,6 +70,7 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
     target_height = config["processing"]["target_height"]
     threshold = threshold_override if threshold_override is not None else config["black_detection"]["brightness_threshold"]
     skip_duration = config["black_detection"]["skip_duration"]
+    start_confirm_frames = config["black_detection"].get("start_confirm_frames", 2)
     roi_zones = config["black_detection"]["roi_zones"]
 
     # F2: warn if source aspect ratio differs from reference resolution.
@@ -116,9 +117,12 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
     state = "undetermined"
     prev_is_end_loading = None  # tracks previous frame's end-loading status for undetermined state
     prev_start_rois_black = None  # tracks previous frame's start-ROIs status for undetermined state
+    start_confirm_count = 0  # consecutive frames passing start validation
+    start_candidate_timestamp = None  # timestamp of first confirming frame
+    saw_black_in_wait = False  # gate: must see loading screen before accepting start
 
     print(f"Processing: {video_path}")
-    print(f"Config: threshold={threshold}, skip={skip_duration}s, target_height={target_height}px")
+    print(f"Config: threshold={threshold}, skip={skip_duration}s, target_height={target_height}px, start_confirm={start_confirm_frames}")
     print(f"ROI zones: {[r['name'] for r in roi_zones]}")
     print()
 
@@ -177,6 +181,7 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
                 extraction_requests.append({"timestamp": prev_timestamp, "type": "end", "filename": fname})
                 state = "waiting_for_start"
                 skip_until = timestamp + skip_duration
+                saw_black_in_wait = False
                 print(f"  First transition: endLoading at {prev_timestamp:.1f}s")
 
             # startLoading detection: start-ROIs black -> non-black transition
@@ -187,6 +192,8 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
                     fname = f"{ts_str}_start_{detection_seq:03d}.png"
                     extraction_requests.append({"timestamp": timestamp, "type": "start", "filename": fname})
                     state = "waiting_for_end"
+                    start_confirm_count = 0
+                    start_candidate_timestamp = None
                     print(f"  First transition: startLoading at {timestamp:.1f}s")
 
             prev_is_end_loading = is_end_loading
@@ -203,22 +210,45 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
 
                 state = "waiting_for_start"
                 skip_until = timestamp + skip_duration
+                start_confirm_count = 0
+                start_candidate_timestamp = None
+                saw_black_in_wait = False
 
         elif state == "waiting_for_start":
             # Reuse minimap_region/vertical_region extracted above.
-            start_rois_non_black = (
-                not is_black(minimap_region, threshold)
-                and not is_black(vertical_region, threshold)
+            start_rois_black = (
+                is_black(minimap_region, threshold)
+                and is_black(vertical_region, threshold)
             )
-            if start_rois_non_black:
-                # Both minimap and vertical are non-black — game has started.
-                # Defer export — record the CURRENT timestamp for batch extraction.
-                detection_seq += 1
-                ts_str = format_timestamp(timestamp)
-                fname = f"{ts_str}_start_{detection_seq:03d}.png"
-                extraction_requests.append({"timestamp": timestamp, "type": "start", "filename": fname})
 
-                state = "waiting_for_end"
+            # Gate: must witness a loading screen (minimap+vertical black)
+            # before accepting a start. This skips lobby screens that appear
+            # between the end detection and the actual game loading screen.
+            if start_rois_black:
+                saw_black_in_wait = True
+                start_confirm_count = 0
+                start_candidate_timestamp = None
+            elif saw_black_in_wait:
+                start_rois_non_black = (
+                    not is_black(minimap_region, threshold)
+                    and not is_black(vertical_region, threshold)
+                )
+                if start_rois_non_black:
+                    start_confirm_count += 1
+                    if start_candidate_timestamp is None:
+                        start_candidate_timestamp = timestamp
+                    if start_confirm_count >= start_confirm_frames:
+                        # Confirmed start — use timestamp of first confirming frame.
+                        detection_seq += 1
+                        ts_str = format_timestamp(start_candidate_timestamp)
+                        fname = f"{ts_str}_start_{detection_seq:03d}.png"
+                        extraction_requests.append({"timestamp": start_candidate_timestamp, "type": "start", "filename": fname})
+                        state = "waiting_for_end"
+                        start_confirm_count = 0
+                        start_candidate_timestamp = None
+                else:
+                    start_confirm_count = 0
+                    start_candidate_timestamp = None
 
         prev_timestamp = timestamp
 

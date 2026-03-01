@@ -22,14 +22,18 @@ black_detection:
   # detections from consecutive loading frames in the same transition.
   skip_duration: 15.0
 
+  # Number of consecutive keyframes that must pass start validation before
+  # firing startLoading. Prevents triggering on transient lobby frames.
+  start_confirm_frames: 2
+
   # ROI zones — both must be simultaneously black to confirm a transition.
   # Coordinates are at reference_resolution (1920x1080).
   roi_zones:
     - name: minimap
       x: 104
       y: 0
-      width: 38
-      height: 234
+      width: 234
+      height: 38
 
     - name: map_name
       x: 827
