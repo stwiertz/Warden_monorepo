@@ -114,7 +114,8 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
     # "waiting_for_end"   = game is in progress, looking for end blackscreen
     # "waiting_for_start" = game ended, looking for start blackscreen (black -> non-black)
     state = "undetermined"
-    prev_all_black = None  # tracks previous frame's all-black status for undetermined state
+    prev_is_end_loading = None  # tracks previous frame's end-loading status for undetermined state
+    prev_start_rois_black = None  # tracks previous frame's start-ROIs status for undetermined state
 
     print(f"Processing: {video_path}")
     print(f"Config: threshold={threshold}, skip={skip_duration}s, target_height={target_height}px")
@@ -142,60 +143,57 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
         # Check all ROI zones — all must be black simultaneously (AC 3)
         if profile_stats is not None:
             t0 = time.perf_counter()
-        all_black = True
+        is_end_loading = True
         for sroi in scaled_rois:
             region = extract_roi(gray, sroi)
             if not is_black(region, threshold):
-                all_black = False
+                is_end_loading = False
                 break
+        # Extract minimap+vertical ROIs (used by undetermined and waiting_for_start)
+        minimap_region = extract_roi(gray, minimap_roi)
+        vertical_region = extract_roi(gray, vertical_roi)
         if profile_stats is not None:
             profile_stats["roi_check"] += time.perf_counter() - t0
 
         # --- State machine ---
         if state == "undetermined":
-            if prev_all_black is None:
-                # First frame — if already non-black, game is in progress
-                prev_all_black = all_black
-                if not all_black:
-                    state = "waiting_for_end"
-                    print(f"  First frame: not all black — assuming game in progress")
-                else:
-                    print(f"  First frame: all black")
+            # start_rois_black: both minimap+vertical black (lobby screen).
+            # "not start_rois_black" means at least one is non-black (De Morgan's),
+            # so the inner guard below must verify BOTH are individually non-black.
+            start_rois_black = is_black(minimap_region, threshold) and is_black(vertical_region, threshold)
+            if prev_is_end_loading is None:
+                # First frame — record state, do not assume anything
+                prev_is_end_loading = is_end_loading
+                prev_start_rois_black = start_rois_black
+                print("  First frame: recording state")
                 prev_timestamp = timestamp
                 continue
-            else:
-                if not prev_all_black and all_black and prev_timestamp is not None:
-                    # Non-black -> all-black transition: end detected
+
+            # endLoading detection: non-end-loading -> end-loading transition
+            if not prev_is_end_loading and is_end_loading and prev_timestamp is not None:
+                detection_seq += 1
+                ts_str = format_timestamp(prev_timestamp)
+                fname = f"{ts_str}_end_{detection_seq:03d}.png"
+                extraction_requests.append({"timestamp": prev_timestamp, "type": "end", "filename": fname})
+                state = "waiting_for_start"
+                skip_until = timestamp + skip_duration
+                print(f"  First transition: endLoading at {prev_timestamp:.1f}s")
+
+            # startLoading detection: start-ROIs black -> non-black transition
+            elif prev_start_rois_black and not start_rois_black:
+                if not is_black(minimap_region, threshold) and not is_black(vertical_region, threshold):
                     detection_seq += 1
-                    ts_str = format_timestamp(prev_timestamp)
-                    fname = f"{ts_str}_end_{detection_seq:03d}.png"
-                    extraction_requests.append({"timestamp": prev_timestamp, "type": "end", "filename": fname})
-                    state = "waiting_for_start"
-                    skip_until = timestamp + skip_duration
-                    print(f"  First transition: end at {prev_timestamp:.1f}s")
-                elif prev_all_black and not all_black:
-                    # Black -> non-black transition: check if start ROIs confirm it
-                    if profile_stats is not None:
-                        t0 = time.perf_counter()
-                    minimap_region = extract_roi(gray, minimap_roi)
-                    vertical_region = extract_roi(gray, vertical_roi)
-                    start_rois_non_black = (
-                        not is_black(minimap_region, threshold)
-                        and not is_black(vertical_region, threshold)
-                    )
-                    if profile_stats is not None:
-                        profile_stats["roi_check"] += time.perf_counter() - t0
-                    if start_rois_non_black:
-                        detection_seq += 1
-                        ts_str = format_timestamp(timestamp)
-                        fname = f"{ts_str}_start_{detection_seq:03d}.png"
-                        extraction_requests.append({"timestamp": timestamp, "type": "start", "filename": fname})
-                        state = "waiting_for_end"
-                        print(f"  First transition: start at {timestamp:.1f}s")
-                prev_all_black = all_black
+                    ts_str = format_timestamp(timestamp)
+                    fname = f"{ts_str}_start_{detection_seq:03d}.png"
+                    extraction_requests.append({"timestamp": timestamp, "type": "start", "filename": fname})
+                    state = "waiting_for_end"
+                    print(f"  First transition: startLoading at {timestamp:.1f}s")
+
+            prev_is_end_loading = is_end_loading
+            prev_start_rois_black = start_rois_black
 
         elif state == "waiting_for_end":
-            if all_black and prev_timestamp is not None:
+            if is_end_loading and prev_timestamp is not None:
                 # Non-black -> black transition: end blackscreen detected.
                 # Defer export — record the PREVIOUS timestamp for batch extraction.
                 detection_seq += 1
@@ -207,17 +205,11 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
                 skip_until = timestamp + skip_duration
 
         elif state == "waiting_for_start":
-            # For start detection, check both minimap and vertical ROIs.
-            if profile_stats is not None:
-                t0 = time.perf_counter()
-            minimap_region = extract_roi(gray, minimap_roi)
-            vertical_region = extract_roi(gray, vertical_roi)
+            # Reuse minimap_region/vertical_region extracted above.
             start_rois_non_black = (
                 not is_black(minimap_region, threshold)
                 and not is_black(vertical_region, threshold)
             )
-            if profile_stats is not None:
-                profile_stats["roi_check"] += time.perf_counter() - t0
             if start_rois_non_black:
                 # Both minimap and vertical are non-black — game has started.
                 # Defer export — record the CURRENT timestamp for batch extraction.
