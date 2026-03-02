@@ -3,8 +3,8 @@ title: 'Warden Image Inspector Tool'
 slug: 'warden-image-inspector'
 created: '2026-03-02'
 status: 'in-progress'
-stepsCompleted: [1]
-tech_stack: ['Python']
+stepsCompleted: [1, 2]
+tech_stack: ['Python', 'tkinter', 'Pillow', 'OpenCV']
 files_to_modify: []
 code_patterns: []
 test_patterns: []
@@ -61,10 +61,13 @@ _(New tool — no existing files to reference)_
 
 ### Technical Decisions
 
-- **GUI Toolkit:** TBD — to be determined in Step 2 investigation (candidates: tkinter, PyQt, OpenCV highgui)
-- **Image handling:** OpenCV or Pillow for PNG loading and HSV conversion
+- **GUI Toolkit:** **tkinter** (stdlib) — zero-install, sufficient canvas/widget support for this tool's needs. PyQt rejected as overkill (75-150 MB, GPL). OpenCV highgui rejected (no toolbar/text inputs). Dear PyGui rejected (no built-in image viewer, requires GPU).
+- **Image loading & display:** **Pillow** — PNG loading, tkinter PhotoImage integration, canvas display
+- **Image processing:** **OpenCV (headless)** — `cv2.cvtColor()` for full-image HSV conversion, `cv2.inRange()` for mask generation, NumPy compositing for overlay
+- **Single-pixel HSV:** **colorsys** (stdlib) — `rgb_to_hsv()` for click-to-pick, scaled to H:0-360, S:0-100, V:0-100
 - **Coordinate system:** All coordinates reported in original image pixel space, regardless of display scaling/zoom level
-- **Log format:** TBD — simple text or structured (JSON/CSV)
+- **Zoom approach:** Tile-based — crop visible region from PIL Image at current zoom level, resize to canvas size. Pan via `canvas.scan_mark()`/`scan_dragto()`
+- **Log format:** JSON lines (one JSON object per line) — structured, easy to parse, appendable
 
 ## Implementation Plan
 
@@ -80,7 +83,17 @@ _(To be completed in Step 3)_
 
 ### Dependencies
 
-_(To be determined in Step 2)_
+```
+# requirements.txt
+Pillow>=10.0
+opencv-python-headless>=4.8
+```
+
+- **tkinter** — stdlib (may need `python3-tk` package on Linux)
+- **colorsys** — stdlib
+- **Pillow** ~3-5 MB — PNG loading, tkinter display integration
+- **opencv-python-headless** ~30-40 MB — HSV conversion, mask generation (headless = no highgui, smaller install)
+- **Total added footprint:** ~35-45 MB
 
 ### Testing Strategy
 
