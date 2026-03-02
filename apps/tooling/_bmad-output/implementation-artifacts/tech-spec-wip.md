@@ -5,7 +5,7 @@ created: '2026-03-02'
 status: 'review'
 stepsCompleted: [1, 2, 3]
 tech_stack: ['Python', 'tkinter', 'Pillow', 'OpenCV']
-files_to_modify: ['tools/image_inspector.py', 'tools/requirements.txt']
+files_to_modify: ['tools/image_inspector/__main__.py', 'tools/image_inspector/app.py', 'tools/image_inspector/canvas.py', 'tools/image_inspector/modes.py', 'tools/image_inspector/logger.py', 'tools/image_inspector/requirements.txt']
 code_patterns: []
 test_patterns: []
 ---
@@ -68,52 +68,57 @@ _(New tool — no existing files to reference)_
 - **Coordinate system:** All coordinates reported in original image pixel space, regardless of display scaling/zoom level
 - **Zoom approach:** Tile-based — crop visible region from PIL Image at current zoom level, resize to canvas size. Pan via `canvas.scan_mark()`/`scan_dragto()`
 - **Log format:** JSON lines (one JSON object per line) — structured, easy to parse, appendable
+- **Module structure:** Package (`tools/image_inspector/`) with 5 modules instead of a single file. Separation: `__main__.py` (CLI entry), `app.py` (window + toolbar + mode switching), `canvas.py` (zoom/pan/coordinate mapping), `modes.py` (3 mode classes), `logger.py` (JSON-lines writer). Runnable via `python -m tools.image_inspector` or `python tools/image_inspector`.
 
 ## Implementation Plan
 
 ### Tasks
 
 - [ ] Task 1: Project scaffolding and dependencies
-  - File: `tools/requirements.txt`
+  - File: `tools/image_inspector/requirements.txt`
   - Action: Create `requirements.txt` with `Pillow>=10.0` and `opencv-python-headless>=4.8`
-  - File: `tools/image_inspector.py`
-  - Action: Create main script with imports, argument parsing (accept PNG path via CLI arg or file dialog), and `if __name__ == "__main__"` entry point
-  - Notes: Single-file tool. Use `argparse` for optional CLI path, fall back to `tkinter.filedialog.askopenfilename()` if no arg provided.
+  - File: `tools/image_inspector/__main__.py`
+  - Action: Create entry point with `argparse` for optional PNG path CLI arg. If no arg, fall back to `tkinter.filedialog.askopenfilename()`. Import and launch `InspectorApp` from `app.py`.
+  - Notes: Runnable via `python -m tools.image_inspector` or `python tools/image_inspector`. Keep this file minimal (~30 lines) — just CLI parsing and app launch.
 
 - [ ] Task 2: Main window and image canvas with fit-to-window display
-  - File: `tools/image_inspector.py`
-  - Action: Create `InspectorApp(tk.Tk)` class with a `tk.Canvas` filling the window. Load PNG via Pillow, compute scale factor to fit canvas, display with `ImageTk.PhotoImage`. Store original PIL Image and current zoom/offset state.
-  - Notes: Canvas should expand on window resize. Maintain mapping between canvas coords and image pixel coords at all times.
+  - File: `tools/image_inspector/app.py`
+  - Action: Create `InspectorApp(tk.Tk)` class. Set up window with toolbar `tk.Frame` (top) and `ImageCanvas` widget (filling remaining space). Load PNG via Pillow, pass to `ImageCanvas`. Store original PIL Image reference for modes to read pixels from.
+  - File: `tools/image_inspector/canvas.py`
+  - Action: Create `ImageCanvas(tk.Canvas)` class. Accept PIL Image, compute scale factor to fit canvas, display with `ImageTk.PhotoImage`. Track zoom/offset state. Expose `canvas_to_image(cx, cy)` method for coordinate mapping.
+  - Notes: Canvas should expand on window resize. `ImageCanvas` owns all rendering; `InspectorApp` owns toolbar and mode orchestration.
 
 - [ ] Task 3: Zoom and pan
-  - File: `tools/image_inspector.py`
+  - File: `tools/image_inspector/canvas.py`
   - Action: Bind `<MouseWheel>` (and `<Button-4>`/`<Button-5>` for Linux) to zoom centered on cursor. Implement tile-based redraw: crop visible region from PIL Image at current zoom level, resize to canvas size. Bind middle-click or right-click drag for pan via `canvas.scan_mark()`/`scan_dragto()`. Clamp zoom-out to fit-to-window minimum.
   - Notes: Track `zoom_level` (float, 1.0 = fit-to-window) and `offset_x`/`offset_y` (image pixel coords of canvas top-left). Redraw on zoom/pan/resize.
 
 - [ ] Task 4: Top toolbar with mode switching
-  - File: `tools/image_inspector.py`
-  - Action: Create a `tk.Frame` toolbar at top of window. Add three `tk.Radiobutton` widgets for mode selection: "Color Picker", "HSV Filter", "ROI". Add a status `tk.Label` on the right side of the toolbar to show current results (HSV values, ROI coords). Mode variable controls which mouse bindings are active on the canvas.
-  - Notes: Default mode = Color Picker. Switching modes should unbind previous mode's handlers and bind new ones.
+  - File: `tools/image_inspector/app.py`
+  - Action: Build toolbar in `InspectorApp`: three `tk.Radiobutton` widgets for mode selection ("Color Picker", "HSV Filter", "ROI"), a status `tk.Label` for results, and a color swatch `tk.Canvas` rectangle. Mode variable triggers `on_mode_change()` which calls `deactivate()` on previous mode and `activate()` on new mode.
+  - File: `tools/image_inspector/modes.py`
+  - Action: Define base interface: each mode class has `activate(canvas, toolbar)`, `deactivate()`, and event handler methods. Create stubs for `ColorPickerMode`, `HSVFilterMode`, `ROIMode`.
+  - Notes: Default mode = Color Picker. Each mode registers/unregisters its own canvas bindings on activate/deactivate.
 
 - [ ] Task 5: Color Picker mode
-  - File: `tools/image_inspector.py`
-  - Action: On left-click, map canvas coords to image pixel coords, read RGB from original PIL Image at that pixel. Convert to HSV via `colorsys.rgb_to_hsv()`, scale to H:0-360, S:0-100, V:0-100. Display HSV + RGB in the status label. Draw a small color swatch rectangle on the toolbar (or update an existing `Canvas` rectangle) filled with the picked color.
+  - File: `tools/image_inspector/modes.py`
+  - Action: Implement `ColorPickerMode`. On left-click: use `ImageCanvas.canvas_to_image(cx, cy)` to get image coords, read RGB from PIL Image, convert to HSV via `colorsys.rgb_to_hsv()` (scaled H:0-360, S:0-100, V:0-100). Update status label with HSV + RGB + (x, y). Update color swatch in toolbar. Call `logger.log_entry()` for the pick.
   - Notes: Also display the image pixel coordinates (x, y) alongside the color values.
 
 - [ ] Task 6: HSV Filter Preview mode
-  - File: `tools/image_inspector.py`
-  - Action: Add input fields to toolbar (visible when HSV Filter mode is active): H, S, V center values + tolerance for each (6 `tk.Entry` widgets + labels). Add an "Apply" button. On apply: convert full image to HSV via `cv2.cvtColor()`, generate mask with `cv2.inRange()` using the specified range. Composite: pixels outside mask are grayed (e.g., 30% opacity grayscale blend). Display the composited result on canvas. Add a "Clear" button to restore original view.
-  - Notes: Pre-populate H/S/V fields from last color pick if available. Tolerance defaults: H±10, S±40, V±40. Use NumPy for the grayscale blend (no separate overlay layer needed — just rebuild the display image).
+  - File: `tools/image_inspector/modes.py`
+  - Action: Implement `HSVFilterMode`. On `activate()`: show 6 `tk.Entry` widgets (H, S, V center + tolerance) and "Apply"/"Clear" buttons in a filter frame within the toolbar. On "Apply": convert full image to HSV via `cv2.cvtColor()`, generate mask with `cv2.inRange()`, composite (pixels outside mask grayed at 30% opacity via NumPy blend), pass composited PIL Image to `ImageCanvas.set_display_image()`. On "Clear": restore original. On `deactivate()`: hide the filter frame. Call `logger.log_entry()` for filter applications.
+  - Notes: Pre-populate H/S/V fields from last color pick if available (read from app state). Tolerance defaults: H±10, S±40, V±40.
 
 - [ ] Task 7: ROI selection mode
-  - File: `tools/image_inspector.py`
-  - Action: On left-click-drag, draw a rectangle on the canvas. On release, compute image-pixel coordinates (x, y, width, height) and display in status label. Draw the rectangle outline on the canvas (dashed line, contrasting color). Support redrawing — each new drag replaces the previous ROI rectangle.
-  - Notes: Use `canvas.create_rectangle()` with `dash` option. Delete previous ROI item before drawing new one. Coordinates must be in original image pixel space.
+  - File: `tools/image_inspector/modes.py`
+  - Action: Implement `ROIMode`. On left-click-drag: draw rectangle on `ImageCanvas` via `canvas.create_rectangle()` with `dash` option. On release: use `ImageCanvas.canvas_to_image()` for both corners, compute (x, y, width, height) in image pixel space, display in status label. Delete previous ROI canvas item before drawing new one. Call `logger.log_entry()` for the ROI.
+  - Notes: Coordinates must be in original image pixel space. Contrasting color (e.g., red or cyan dashed outline).
 
 - [ ] Task 8: JSON-lines log file
-  - File: `tools/image_inspector.py`
-  - Action: On each color pick or ROI selection, append a JSON object to `inspector_log.jsonl` in the same directory as the inspected image. Format: `{"timestamp": "ISO8601", "image": "filename.png", "type": "color_pick"|"roi", "data": {...}}`. For color picks: `{"x": N, "y": N, "rgb": [R,G,B], "hsv": [H,S,V]}`. For ROIs: `{"x": N, "y": N, "width": N, "height": N}`. Also log HSV filter ranges when applied: `{"type": "hsv_filter", "data": {"h": [lo,hi], "s": [lo,hi], "v": [lo,hi]}}`.
-  - Notes: Use `json` stdlib module. Open file in append mode for each write. Include image filename (not full path) in each entry.
+  - File: `tools/image_inspector/logger.py`
+  - Action: Create `log_entry(image_path, entry_type, data)` function. Appends a JSON object to `inspector_log.jsonl` in the same directory as the inspected image. Format: `{"timestamp": "ISO8601", "image": "filename.png", "type": "color_pick"|"roi"|"hsv_filter", "data": {...}}`. For color picks: `{"x": N, "y": N, "rgb": [R,G,B], "hsv": [H,S,V]}`. For ROIs: `{"x": N, "y": N, "width": N, "height": N}`. For HSV filters: `{"h": [lo,hi], "s": [lo,hi], "v": [lo,hi]}`.
+  - Notes: Use `json` stdlib module. Open file in append mode for each write. Include image filename (not full path) in each entry. Keep this module standalone with no tkinter imports — pure I/O.
 
 ### Acceptance Criteria
 
@@ -133,7 +138,7 @@ _(New tool — no existing files to reference)_
 ### Dependencies
 
 ```
-# requirements.txt
+# tools/image_inspector/requirements.txt
 Pillow>=10.0
 opencv-python-headless>=4.8
 ```
