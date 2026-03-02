@@ -2,8 +2,8 @@
 title: 'Warden Image Inspector Tool'
 slug: 'warden-image-inspector'
 created: '2026-03-02'
-status: 'review'
-stepsCompleted: [1, 2, 3]
+status: 'ready-for-dev'
+stepsCompleted: [1, 2, 3, 4]
 tech_stack: ['Python', 'tkinter', 'Pillow', 'OpenCV']
 files_to_modify: ['tools/image_inspector/__main__.py', 'tools/image_inspector/app.py', 'tools/image_inspector/canvas.py', 'tools/image_inspector/modes.py', 'tools/image_inspector/logger.py', 'tools/image_inspector/requirements.txt']
 code_patterns: []
