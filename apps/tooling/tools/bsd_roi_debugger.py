@@ -17,16 +17,16 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 import cv2
 import numpy as np
-import yaml
 
-from utils.video import extract_iframes_scaled, get_video_info
+from utils.config import load_config
+from utils.video import (
+    extract_iframes_scaled,
+    extract_frames_at_interval,
+    get_gop_interval,
+    get_keyframe_timestamps,
+    get_video_info,
+)
 from utils.image import to_grayscale, scale_roi, extract_roi, is_black
-
-
-def load_config(config_path):
-    """Load and return the YAML configuration."""
-    with open(config_path, "r") as f:
-        return yaml.safe_load(f)
 
 
 def parse_range(range_str):
@@ -84,18 +84,35 @@ def run(video_path, output_dir, config, time_range, threshold_override=None):
     frame_count = 0
     frame_seq = 0
 
+    # Adaptive frame sampling: probe GOP to choose extraction strategy
+    gop_interval = get_gop_interval(video_path)
+    use_interval_mode = gop_interval > 2.0
+
     print(f"Processing: {video_path}")
     print(f"Config: threshold={threshold}, target_height={target_height}px")
     print(f"Range: {range_start:.1f}s - {range_end if range_end != float('inf') else 'end'}s")
     print(f"ROI zones: {[r['name'] for r in roi_zones]}")
+    if use_interval_mode:
+        print(f"Sampling: interval mode (GOP={gop_interval:.1f}s > 2.0s, extracting every 2.0s)")
+    else:
+        print(f"Sampling: I-frame mode (GOP={gop_interval:.1f}s <= 2.0s)")
     print()
 
-    for frame, timestamp in extract_iframes_scaled(video_path, target_height):
+    if use_interval_mode:
+        scan_end = int(range_end) + 30 if range_end != float("inf") else 300
+        iframe_timestamps = get_keyframe_timestamps(video_path, scan_duration=scan_end)
+        frame_iter = extract_frames_at_interval(
+            video_path, target_height, range_start, range_end,
+            interval=2.0, iframe_timestamps=iframe_timestamps,
+        )
+    else:
+        frame_iter = extract_iframes_scaled(video_path, target_height)
+
+    for frame, timestamp in frame_iter:
         if timestamp < range_start:
             continue
         if timestamp > range_end:
             break
-
         frame_count += 1
         frame_seq += 1
         gray = to_grayscale(frame)

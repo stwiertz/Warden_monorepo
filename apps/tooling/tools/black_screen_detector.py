@@ -18,16 +18,18 @@ import time
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import cv2
-import yaml
 
-from utils.video import extract_iframes_scaled, extract_frame_at_timestamp, get_video_info
-from utils.image import to_grayscale, scale_roi, extract_roi, is_black
-
-
-def load_config(config_path):
-    """Load and return the YAML configuration."""
-    with open(config_path, "r") as f:
-        return yaml.safe_load(f)
+from utils.config import load_config
+from utils.video import (
+    extract_frame_at_timestamp,
+    extract_frames_at_interval,
+    extract_iframes_scaled,
+    get_gop_interval,
+    get_keyframe_timestamps,
+    get_video_duration,
+    get_video_info,
+)
+from utils.image import to_grayscale, scale_roi, extract_roi, is_black, has_team_color
 
 
 def format_timestamp(seconds):
@@ -35,6 +37,79 @@ def format_timestamp(seconds):
     minutes = int(seconds) // 60
     secs = int(seconds) % 60
     return f"{minutes:02d}m{secs:02d}s"
+
+
+def prescan_team_bar(video_path, target_height, team_bar_roi, sat_threshold):
+    """Fast prescan using GOP I-frames to find in-game/not-in-game transitions.
+
+    Iterates I-frames via single-pipe extraction, checks the team bar ROI
+    for saturated color (team color bar present = in-game). Also collects
+    all I-frame timestamps for reuse in interval snapping (avoids a
+    separate full-video ffprobe scan).
+
+    Args:
+        video_path: Path to the input video.
+        target_height: Processing height in pixels.
+        team_bar_roi: Scaled ROI dict for the team bar region.
+        sat_threshold: Saturation threshold for has_team_color().
+
+    Returns:
+        tuple: (transitions, iframe_count, iframe_timestamps) where
+               transitions is a list of timestamps where state changes
+               occur, iframe_count is the total I-frames scanned, and
+               iframe_timestamps is a sorted list of all I-frame PTS times.
+    """
+    transitions = []
+    iframe_timestamps = []
+    prev_in_game = None
+    iframe_count = 0
+
+    for frame, timestamp in extract_iframes_scaled(video_path, target_height):
+        iframe_count += 1
+        iframe_timestamps.append(timestamp)
+        region = extract_roi(frame, team_bar_roi)
+        in_game = has_team_color(region, sat_threshold)
+
+        if prev_in_game is not None and in_game != prev_in_game:
+            transitions.append(timestamp)
+
+        prev_in_game = in_game
+
+    return transitions, iframe_count, iframe_timestamps
+
+
+def build_scan_windows(transitions, padding, duration):
+    """Build merged scan windows around transition timestamps.
+
+    Args:
+        transitions: List of transition timestamps in seconds.
+        padding: Seconds to pad around each transition.
+        duration: Total video duration in seconds.
+
+    Returns:
+        list[tuple[float, float]]: Merged (start, end) window pairs,
+            clamped to [0, duration].
+    """
+    if not transitions:
+        return []
+
+    # Create padded windows around each transition
+    windows = [
+        (max(0.0, t - padding), min(duration, t + padding))
+        for t in transitions
+    ]
+    windows.sort(key=lambda w: w[0])
+
+    # Merge overlapping/adjacent windows
+    merged = [windows[0]]
+    for start, end in windows[1:]:
+        prev_start, prev_end = merged[-1]
+        if start <= prev_end:
+            merged[-1] = (prev_start, max(prev_end, end))
+        else:
+            merged.append((start, end))
+
+    return merged
 
 
 def run(video_path, output_dir, config, threshold_override=None, profile=False):
@@ -48,11 +123,13 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
         profile: If True, collect per-phase timing data.
 
     Returns:
-        tuple: (exported_list, frame_count, profile_stats) where exported_list
-               is a list of dicts with keys 'filename', 'type' ('start' or
-               'end'), and 'timestamp', frame_count is the total I-frames
-               processed, and profile_stats is a dict of timing data (or None
-               when profiling is off).
+        tuple: (exported_list, frame_count, profile_stats, miss_reports) where
+               exported_list is a list of dicts with keys 'filename', 'type'
+               ('start' or 'end'), and 'timestamp', frame_count is the total
+               I-frames processed, profile_stats is a dict of timing data (or
+               None when profiling is off), and miss_reports is a list of dicts
+               with keys 'type' ('missed_end' or 'missed_start'),
+               'window_start', and 'window_end' (empty if no recoveries).
     """
     if profile:
         wall_start = time.perf_counter()
@@ -71,6 +148,8 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
     threshold = threshold_override if threshold_override is not None else config["black_detection"]["brightness_threshold"]
     skip_duration = config["black_detection"]["skip_duration"]
     start_confirm_frames = config["black_detection"].get("start_confirm_frames", 2)
+    pre_end_offset = config["black_detection"].get("pre_end_offset", 10.0)
+    max_game_duration = config["black_detection"].get("max_game_duration", 600)  # 10 min cap for miss windows
     roi_zones = config["black_detection"]["roi_zones"]
 
     # F2: warn if source aspect ratio differs from reference resolution.
@@ -89,24 +168,24 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
     # Scale ROIs from reference resolution to target processing resolution.
     ref_scale = target_height / ref_h
     scaled_rois = [scale_roi(roi, ref_scale) for roi in roi_zones]
-    # Separate minimap and vertical ROIs for start detection (both are black
-    # during lobby, non-black during gameplay; map_name has text in both)
-    try:
-        minimap_roi = next(r for r in scaled_rois if r["name"] == "minimap")
-        vertical_roi = next(r for r in scaled_rois if r["name"] == "vertical")
-    except StopIteration:
-        roi_names = [r["name"] for r in scaled_rois]
-        raise ValueError(
-            f"Config must define 'minimap' and 'vertical' ROI zones. Found: {roi_names}"
-        )
+    # Validate that required ROI zones exist (minimap+vertical are used for start detection)
+    roi_names = {r["name"] for r in scaled_rois}
+    for required in ("minimap", "vertical"):
+        if required not in roi_names:
+            raise ValueError(
+                f"Config must define 'minimap' and 'vertical' ROI zones. Found: {sorted(roi_names)}"
+            )
 
     # Ensure output directory exists (AC 8)
     os.makedirs(output_dir, exist_ok=True)
 
     exported = []  # list of dicts: {filename, type, timestamp}
     extraction_requests = []  # deferred full-res extraction requests
+    miss_reports = []  # list of dicts: {type, window_start, window_end}
     prev_timestamp = None
     skip_until = -1.0  # timestamp until which we skip detection
+    last_event_timestamp = 0.0  # timestamp of most recent detection (normal or recovery)
+    pre_end_safe_after = 0.0  # earliest safe timestamp for pre-end frames (avoids loading screens)
     # F6: sequence counter for unique filenames when timestamps collide
     detection_seq = 0
 
@@ -121,13 +200,79 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
     start_candidate_timestamp = None  # timestamp of first confirming frame
     saw_black_in_wait = False  # gate: must see loading screen before accepting start
 
+    # Adaptive frame sampling: probe GOP to choose extraction strategy
+    gop_interval = get_gop_interval(video_path)
+    use_interval_mode = gop_interval > 2.0
+
     print(f"Processing: {video_path}")
     print(f"Config: threshold={threshold}, skip={skip_duration}s, target_height={target_height}px, start_confirm={start_confirm_frames}")
     print(f"ROI zones: {[r['name'] for r in roi_zones]}")
+    if use_interval_mode:
+        print(f"Sampling: two-pass mode (GOP={gop_interval:.1f}s > 2.0s)")
+    else:
+        print(f"Sampling: I-frame mode (GOP={gop_interval:.1f}s <= 2.0s)")
     print()
 
+    if use_interval_mode:
+        duration = get_video_duration(video_path)
+
+        # --- Pass 1: prescan GOP I-frames for team bar transitions ---
+        sat_threshold = config.get("team_bar_detection", {}).get("saturation_threshold", 90)
+        window_padding = config.get("team_bar_detection", {}).get("window_padding", 30.0)
+
+        # Find and scale the team_bar ROI
+        team_bar_roi_raw = None
+        for roi in roi_zones:
+            if roi["name"] == "team_bar":
+                team_bar_roi_raw = roi
+                break
+        if team_bar_roi_raw is None:
+            raise ValueError(
+                "Config must define a 'team_bar' ROI zone for two-pass mode. "
+                f"Found: {[r['name'] for r in roi_zones]}"
+            )
+        team_bar_roi = scale_roi(team_bar_roi_raw, ref_scale)
+
+        if profile_stats is not None:
+            t0_prescan = time.perf_counter()
+
+        transitions, iframe_count, iframe_timestamps = prescan_team_bar(
+            video_path, target_height, team_bar_roi, sat_threshold,
+        )
+
+        if profile_stats is not None:
+            profile_stats["prescan"] = time.perf_counter() - t0_prescan
+
+        print(f"  Prescan: {len(transitions)} transitions found in {iframe_count} I-frames")
+
+        # --- Build scan windows ---
+        if transitions:
+            windows = build_scan_windows(transitions, window_padding, duration)
+        else:
+            windows = [(0.0, duration)]
+            print("  Prescan: no transitions found, falling back to full scan")
+
+        window_total = sum(end - start for start, end in windows)
+        window_strs = [f"[{s:.0f}s-{e:.0f}s]" for s, e in windows]
+        print(f"  Scan windows: {' '.join(window_strs)} ({window_total:.0f}s of {duration:.0f}s)")
+        print()
+
+        # --- Pass 2: targeted interval scanning within windows ---
+        # iframe_timestamps already collected during prescan (no extra ffprobe needed)
+
+        def _chain_windows():
+            for start, end in windows:
+                yield from extract_frames_at_interval(
+                    video_path, target_height, start, end,
+                    interval=2.0, iframe_timestamps=iframe_timestamps,
+                )
+
+        frame_iter = _chain_windows()
+    else:
+        frame_iter = extract_iframes_scaled(video_path, target_height, profile_stats=profile_stats)
+
     frame_count = 0
-    for frame, timestamp in extract_iframes_scaled(video_path, target_height, profile_stats=profile_stats):
+    for frame, timestamp in frame_iter:
         frame_count += 1
 
         # Skip logic — after an end detection, skip frames within skip_duration (AC 4)
@@ -144,27 +289,30 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
         if profile_stats is not None:
             profile_stats["grayscale"] += time.perf_counter() - t0
 
-        # Check all ROI zones — all must be black simultaneously (AC 3)
+        # Check brightness-based ROI zones and cache results (AC 3).
+        # Skip team_bar — it uses saturation detection, not brightness.
         if profile_stats is not None:
             t0 = time.perf_counter()
+        roi_black = {}
         is_end_loading = True
         for sroi in scaled_rois:
+            if sroi["name"] == "team_bar":
+                continue
             region = extract_roi(gray, sroi)
-            if not is_black(region, threshold):
+            black = is_black(region, threshold)
+            roi_black[sroi["name"]] = black
+            if not black:
                 is_end_loading = False
-                break
-        # Extract minimap+vertical ROIs (used by undetermined and waiting_for_start)
-        minimap_region = extract_roi(gray, minimap_roi)
-        vertical_region = extract_roi(gray, vertical_roi)
+        minimap_black = roi_black["minimap"]
+        vertical_black = roi_black["vertical"]
         if profile_stats is not None:
             profile_stats["roi_check"] += time.perf_counter() - t0
 
         # --- State machine ---
+        # start_rois_black: both minimap+vertical black (lobby/loading screen).
+        start_rois_black = minimap_black and vertical_black
+
         if state == "undetermined":
-            # start_rois_black: both minimap+vertical black (lobby screen).
-            # "not start_rois_black" means at least one is non-black (De Morgan's),
-            # so the inner guard below must verify BOTH are individually non-black.
-            start_rois_black = is_black(minimap_region, threshold) and is_black(vertical_region, threshold)
             if prev_is_end_loading is None:
                 # First frame — record state, do not assume anything
                 prev_is_end_loading = is_end_loading
@@ -179,14 +327,23 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
                 ts_str = format_timestamp(prev_timestamp)
                 fname = f"{ts_str}_end_{detection_seq:03d}.png"
                 extraction_requests.append({"timestamp": prev_timestamp, "type": "end", "filename": fname})
+                # Pre-end snapshot: extract frame at T-offset for score context
+                pre_end_ts = prev_timestamp - pre_end_offset
+                if pre_end_offset > 0 and pre_end_ts >= pre_end_safe_after:
+                    pre_ts_str = format_timestamp(pre_end_ts)
+                    pre_fname = f"{pre_ts_str}_end-{int(pre_end_offset)}s_{detection_seq:03d}.png"
+                    extraction_requests.append({"timestamp": pre_end_ts, "type": "pre-end", "filename": pre_fname})
                 state = "waiting_for_start"
                 skip_until = timestamp + skip_duration
                 saw_black_in_wait = False
+                last_event_timestamp = prev_timestamp
+                pre_end_safe_after = timestamp + skip_duration
                 print(f"  First transition: endLoading at {prev_timestamp:.1f}s")
 
             # startLoading detection: start-ROIs black -> non-black transition
+            # Inner guard: BOTH must be individually non-black (De Morgan's)
             elif prev_start_rois_black and not start_rois_black:
-                if not is_black(minimap_region, threshold) and not is_black(vertical_region, threshold):
+                if not minimap_black and not vertical_black:
                     detection_seq += 1
                     ts_str = format_timestamp(timestamp)
                     fname = f"{ts_str}_start_{detection_seq:03d}.png"
@@ -194,10 +351,9 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
                     state = "waiting_for_end"
                     start_confirm_count = 0
                     start_candidate_timestamp = None
+                    last_event_timestamp = timestamp
+                    pre_end_safe_after = timestamp
                     print(f"  First transition: startLoading at {timestamp:.1f}s")
-
-            prev_is_end_loading = is_end_loading
-            prev_start_rois_black = start_rois_black
 
         elif state == "waiting_for_end":
             if is_end_loading and prev_timestamp is not None:
@@ -207,20 +363,43 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
                 ts_str = format_timestamp(prev_timestamp)
                 fname = f"{ts_str}_end_{detection_seq:03d}.png"
                 extraction_requests.append({"timestamp": prev_timestamp, "type": "end", "filename": fname})
+                # Pre-end snapshot: extract frame at T-offset for score context
+                pre_end_ts = prev_timestamp - pre_end_offset
+                if pre_end_offset > 0 and pre_end_ts >= pre_end_safe_after:
+                    pre_ts_str = format_timestamp(pre_end_ts)
+                    pre_fname = f"{pre_ts_str}_end-{int(pre_end_offset)}s_{detection_seq:03d}.png"
+                    extraction_requests.append({"timestamp": pre_end_ts, "type": "pre-end", "filename": pre_fname})
 
                 state = "waiting_for_start"
                 skip_until = timestamp + skip_duration
                 start_confirm_count = 0
                 start_candidate_timestamp = None
                 saw_black_in_wait = False
+                last_event_timestamp = prev_timestamp
+                pre_end_safe_after = timestamp + skip_duration
+
+            elif prev_start_rois_black and not start_rois_black:
+                if not minimap_black and not vertical_black:
+                    # RECOVERY: detected a start while waiting for end.
+                    # This means we missed an end transition.
+                    window_start = max(last_event_timestamp, timestamp - max_game_duration)
+                    miss_reports.append({
+                        "type": "missed_end",
+                        "window_start": window_start,
+                        "window_end": timestamp,
+                    })
+                    detection_seq += 1
+                    ts_str = format_timestamp(timestamp)
+                    fname = f"{ts_str}_start_{detection_seq:03d}.png"
+                    extraction_requests.append({"timestamp": timestamp, "type": "start", "filename": fname})
+                    last_event_timestamp = timestamp
+                    pre_end_safe_after = timestamp
+                    # Stay in waiting_for_end — we just detected a start, next should be an end
+                    start_confirm_count = 0
+                    start_candidate_timestamp = None
+                    print(f"  RECOVERY: startLoading at {timestamp:.1f}s (missed end in [{window_start:.1f}s, {timestamp:.1f}s])")
 
         elif state == "waiting_for_start":
-            # Reuse minimap_region/vertical_region extracted above.
-            start_rois_black = (
-                is_black(minimap_region, threshold)
-                and is_black(vertical_region, threshold)
-            )
-
             # Gate: must witness a loading screen (minimap+vertical black)
             # before accepting a start. This skips lobby screens that appear
             # between the end detection and the actual game loading screen.
@@ -229,11 +408,7 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
                 start_confirm_count = 0
                 start_candidate_timestamp = None
             elif saw_black_in_wait:
-                start_rois_non_black = (
-                    not is_black(minimap_region, threshold)
-                    and not is_black(vertical_region, threshold)
-                )
-                if start_rois_non_black:
+                if not minimap_black and not vertical_black:
                     start_confirm_count += 1
                     if start_candidate_timestamp is None:
                         start_candidate_timestamp = timestamp
@@ -244,12 +419,43 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
                         fname = f"{ts_str}_start_{detection_seq:03d}.png"
                         extraction_requests.append({"timestamp": start_candidate_timestamp, "type": "start", "filename": fname})
                         state = "waiting_for_end"
+                        last_event_timestamp = start_candidate_timestamp
+                        pre_end_safe_after = start_candidate_timestamp
                         start_confirm_count = 0
                         start_candidate_timestamp = None
+                elif not prev_is_end_loading and is_end_loading:
+                    # RECOVERY: detected an end while waiting for start.
+                    # This means we missed a start transition (and possibly a full game).
+                    window_start = max(last_event_timestamp, prev_timestamp - max_game_duration)
+                    miss_reports.append({
+                        "type": "missed_start",
+                        "window_start": window_start,
+                        "window_end": prev_timestamp,
+                    })
+                    detection_seq += 1
+                    ts_str = format_timestamp(prev_timestamp)
+                    fname = f"{ts_str}_end_{detection_seq:03d}.png"
+                    extraction_requests.append({"timestamp": prev_timestamp, "type": "end", "filename": fname})
+                    # Pre-end snapshot: extract frame at T-offset for score context
+                    pre_end_ts = prev_timestamp - pre_end_offset
+                    if pre_end_offset > 0 and pre_end_ts >= pre_end_safe_after:
+                        pre_ts_str = format_timestamp(pre_end_ts)
+                        pre_fname = f"{pre_ts_str}_end-{int(pre_end_offset)}s_{detection_seq:03d}.png"
+                        extraction_requests.append({"timestamp": pre_end_ts, "type": "pre-end", "filename": pre_fname})
+                    last_event_timestamp = prev_timestamp
+                    # Stay in waiting_for_start — we just detected an end, next should be a start
+                    skip_until = timestamp + skip_duration
+                    pre_end_safe_after = timestamp + skip_duration
+                    start_confirm_count = 0
+                    start_candidate_timestamp = None
+                    saw_black_in_wait = False
+                    print(f"  RECOVERY: endLoading at {prev_timestamp:.1f}s (missed start in [{window_start:.1f}s, {prev_timestamp:.1f}s])")
                 else:
                     start_confirm_count = 0
                     start_candidate_timestamp = None
 
+        prev_is_end_loading = is_end_loading
+        prev_start_rois_black = start_rois_black
         prev_timestamp = timestamp
 
     if frame_count == 0:
@@ -257,6 +463,8 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
 
     # --- Post-detection batch extraction phase ---
     if extraction_requests:
+        # Sort by timestamp for sequential seeking (pre-end frames interleave with end frames)
+        extraction_requests.sort(key=lambda r: r["timestamp"])
         if profile_stats is not None:
             t0 = time.perf_counter()
         print(f"\n  Extracting {len(extraction_requests)} full-resolution frames...")
@@ -267,6 +475,8 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
             exported.append({"filename": req["filename"], "type": req["type"], "timestamp": req["timestamp"]})
             if req["type"] == "end":
                 print(f"  END -> exported {req['filename']} (frame at {req['timestamp']:.1f}s) [{i}/{len(extraction_requests)}]")
+            elif req["type"] == "pre-end":
+                print(f"  PRE-END -> exported {req['filename']} (frame at {req['timestamp']:.1f}s) [{i}/{len(extraction_requests)}]")
             else:
                 print(f"  START -> exported {req['filename']} (frame at {req['timestamp']:.1f}s) [{i}/{len(extraction_requests)}]")
         if profile_stats is not None:
@@ -279,7 +489,7 @@ def run(video_path, output_dir, config, threshold_override=None, profile=False):
         profile_stats["frames_skipped"] = frames_skipped
         profile_stats["frames_processed"] = frame_count - frames_skipped
 
-    return exported, frame_count, profile_stats
+    return exported, frame_count, profile_stats, miss_reports
 
 
 def _print_profile_report(ps):
@@ -290,13 +500,16 @@ def _print_profile_report(ps):
     skipped = ps["frames_skipped"]
 
     # Phases to report, with their per-frame divisor (None = one-time, show dash)
-    phase_divisors = {
+    phase_divisors = {}
+    if "prescan" in ps:
+        phase_divisors["prescan"] = None
+    phase_divisors.update({
         "ffprobe_info": None,
         "ffmpeg_read": total_frames,
         "grayscale": processed,
         "roi_check": processed,
         "fullres_extract": None,
-    }
+    })
 
     # Build rows sorted by total time descending
     rows = []
@@ -383,8 +596,12 @@ def main():
     # F12: resolve output directory — CLI arg > config default (relative to CWD)
     output_dir = args.output_dir if args.output_dir else config["output"]["default_dir"]
 
+    # Create video-named subfolder inside output directory
+    video_stem = os.path.splitext(os.path.basename(args.video))[0]
+    output_dir = os.path.join(output_dir, video_stem)
+
     try:
-        exported, frame_count, profile_stats = run(
+        exported, frame_count, profile_stats, miss_reports = run(
             args.video, output_dir, config, args.threshold, profile=args.profile
         )
     except Exception as e:
@@ -395,10 +612,12 @@ def main():
     print()
     print("=" * 50)
     print(f"Summary:")
-    print(f"  I-frames processed: {frame_count}")
+    print(f"  Frames processed: {frame_count}")
     end_count = sum(1 for e in exported if e["type"] == "end")
     start_count = sum(1 for e in exported if e["type"] == "start")
+    pre_end_count = sum(1 for e in exported if e["type"] == "pre-end")
     print(f"  Game ends detected: {end_count}")
+    print(f"  Pre-end snapshots: {pre_end_count}")
     print(f"  Game starts detected: {start_count}")
     print(f"  Total events: {len(exported)}")
     print(f"  Output directory: {os.path.abspath(output_dir)}")
@@ -408,6 +627,13 @@ def main():
             print(f"    - {entry['filename']}  ({entry['type']} at {entry['timestamp']:.1f}s)")
     else:
         print(f"  No transitions found.")
+    if miss_reports:
+        print(f"  Recovery events: {len(miss_reports)}")
+        print(f"  Missed transitions:")
+        for mr in miss_reports:
+            window_start_str = format_timestamp(mr['window_start'])
+            window_end_str = format_timestamp(mr['window_end'])
+            print(f"    - {mr['type']}: estimated between {window_start_str} ({mr['window_start']:.1f}s) and {window_end_str} ({mr['window_end']:.1f}s)")
     print("=" * 50)
 
     # Print profiling report if --profile was passed
