@@ -99,7 +99,7 @@ points_detection:
   skip_duration: 15.0  # Seconds to skip after detecting an end transition
   start_confirm_frames: 2   # Consecutive white frames to confirm a start transition
   end_confirm_frames: 3     # Consecutive non-white frames to confirm an end transition
-  score_offset: 14.5        # Seconds after last in-game points frame to extract score screen
+  score_offset: 14.5        # Seconds after last in-game KDA frame to extract score screen
 
 # Team bar detection — used by the two-pass prescan for interval-mode videos
 team_bar_detection:

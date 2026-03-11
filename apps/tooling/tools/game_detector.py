@@ -1,8 +1,8 @@
 """Game Detector — CLI tool for detecting game rounds and capturing score screens.
 
-Uses points ROI white-pixel detection to find game start/end boundaries, then
+Uses kda ROI white-pixel detection to find game start/end boundaries, then
 captures the score screen by extracting a frame at a fixed offset after the last
-confirmed in-game points frame. Combines the reliability of points-based detection
+confirmed in-game kda frame. Combines the reliability of kda-based detection
 with automatic score screen capture.
 
 Usage:
@@ -70,16 +70,16 @@ def run(video_path, output_dir, config, profile=False):
     end_confirm_frames = pd_config["end_confirm_frames"]
     score_offset = pd_config["score_offset"]
 
-    # Find the points ROI from config
+    # Find the KDA ROI from config
     roi_zones = config["black_detection"]["roi_zones"]
-    points_roi_raw = None
+    kda_roi_raw = None
     for roi in roi_zones:
-        if roi["name"] == "points":
-            points_roi_raw = roi
+        if roi["name"] == "kda":
+            kda_roi_raw = roi
             break
-    if points_roi_raw is None:
+    if kda_roi_raw is None:
         raise ValueError(
-            f"Config must define a 'points' ROI zone. "
+            f"Config must define a 'kda' ROI zone. "
             f"Found: {[r['name'] for r in roi_zones]}"
         )
 
@@ -97,7 +97,7 @@ def run(video_path, output_dir, config, profile=False):
 
     # Scale ROI from reference resolution to processing resolution
     ref_scale = target_height / ref_h
-    points_roi = scale_roi(points_roi_raw, ref_scale)
+    kda_roi = scale_roi(kda_roi_raw, ref_scale)
 
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
@@ -123,8 +123,8 @@ def run(video_path, output_dir, config, profile=False):
           f"skip={skip_duration}s, start_confirm={start_confirm_frames}, "
           f"end_confirm={end_confirm_frames}, score_offset={score_offset}s, "
           f"target_height={target_height}px")
-    print(f"ROI: points ({points_roi_raw['x']},{points_roi_raw['y']} "
-          f"{points_roi_raw['width']}x{points_roi_raw['height']} @ {ref_w}x{ref_h})")
+    print(f"ROI: kda ({kda_roi_raw['x']},{kda_roi_raw['y']} "
+          f"{kda_roi_raw['width']}x{kda_roi_raw['height']} @ {ref_w}x{ref_h})")
     print()
 
     frame_count = 0
@@ -138,10 +138,10 @@ def run(video_path, output_dir, config, profile=False):
             prev_timestamp = timestamp
             continue
 
-        # Extract points ROI (BGR, no grayscale needed)
+        # Extract KDA ROI (BGR, no grayscale needed)
         if profile_stats is not None:
             t0 = time.perf_counter()
-        region = extract_roi(frame, points_roi)
+        region = extract_roi(frame, kda_roi)
         white_detected = has_white_pixels(region, sat_max, val_min, min_ratio)
         if profile_stats is not None:
             profile_stats["roi_check"] += time.perf_counter() - t0
@@ -330,7 +330,7 @@ def _print_profile_report(ps):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Detect game rounds via points ROI and capture score screens."
+        description="Detect game rounds via kda ROI and capture score screens."
     )
     parser.add_argument(
         "video",
