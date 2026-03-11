@@ -42,15 +42,42 @@ python tools/black_screen_detector.py source/astera.mp4 --threshold 20
 
 Output frames are saved as `end_MMmSSs_NNN.png` (end-of-round) and `start_MMmSSs_NNN.png` (start-of-round).
 
-### 2. Frame Labeler *(planned)*
+### 2. Map Config Generator
+
+Generates a `map_config.json` with perceptual hashes for each EVA map. Crops the map-name ROI, resizes to a 64x64 canvas, and computes 64-bit phashes. Checks for hash collisions via Hamming Distance.
+
+```bash
+python tools/map_config_generator.py --images <maps_dir> [options]
+python tools/map_config_generator.py --video <map_name> <video_path> [options]
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--images DIR` | — | Directory with one subdirectory per map containing reference images |
+| `--video NAME PATH` | — | Map name + video path pair (repeatable) |
+| `-o, --output-dir` | `./output` | Directory for `map_config.json` and previews |
+| `-c, --config` | `config/config.yaml` | Path to config file |
+| `--preview` | off | Write 64x64 canvas PNGs f or visual verification |
+
+**Examples:**
+
+```bash
+# From pre-extracted images (one subdir per map)
+python tools/map_config_generator.py --images maps/ --preview
+
+# From video files
+python tools/map_config_generator.py --video frostbite source/frostbite.mp4 --video reactor source/reactor.mp4
+```
+
+### 3. Frame Labeler *(planned)*
 
 Categorize extracted frames by map into labeled folders.
 
-### 3. Pixel Finder *(planned)*
+### 4. Pixel Finder *(planned)*
 
 Analyze labeled frames to find discriminating pixels that reliably distinguish maps. Outputs a JSON config with pixel coordinates, RGB values, and tolerances.
 
-### 4. Validator *(planned)*
+### 5. Validator *(planned)*
 
 Validate the full pipeline accuracy against ground truth labels.
 

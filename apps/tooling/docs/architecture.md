@@ -31,7 +31,7 @@ The project follows a modular CLI pipeline architecture with four planned tools,
 | Frame processing | Downscale to 360p before analysis | Speed optimization — full resolution unnecessary for detection |
 | ROI strategy | Dual-zone check (minimap + map_name) | Full-frame check produces false positives; specific regions are reliable |
 | Configuration | External YAML file | All tunable parameters centralized, easily adjustable |
-| State machine | Two-state (waiting_for_end / waiting_for_start) | Prevents consecutive end detections; enables start detection |
+| State machine | Three-state (undetermined / waiting_for_end / waiting_for_start) | Neutral start handles first transition; prevents consecutive end detections |
 | Skip logic | 15-second skip after end detection | Avoids duplicate detections from consecutive loading frames |
 | Resolution scaling | Reference resolution (1920x1080) with proportional scaling | ROI coordinates defined once, scaled automatically |
 
@@ -53,25 +53,24 @@ The project follows a modular CLI pipeline architecture with four planned tools,
 
 - Parses CLI arguments (video path, output dir, config path, threshold override)
 - Loads YAML config and resolves output directory
-- Iterates I-frames via `utils.video.extract_iframes()`
-- Calibrates ROI scaling on first frame (handles non-reference resolutions)
-- Checks all ROI zones for simultaneous blackness
-- Uses a two-state machine (`waiting_for_end` / `waiting_for_start`) to track round lifecycle
+- Iterates I-frames via `utils.video.extract_iframes_scaled()`
+- Scales ROI coordinates from reference resolution to processing resolution
+- Checks all ROI zones and caches per-zone results for state machine logic
+- Uses a three-state machine (`undetermined` / `waiting_for_end` / `waiting_for_start`) to track round lifecycle
 - Detects game ends (non-black → black): exports previous frame as `end_*.png`
 - Detects game starts (black → non-black): exports current frame as `start_*.png`
 - Prevents consecutive end detections without an intervening start (filters trailing dead air)
 - Applies skip logic after end detections to avoid duplicates
 - Prints summary report with start/end breakdown and exported filenames
 
-### utils/video.py (~182 lines)
+### utils/video.py
 **Role:** FFmpeg subprocess wrapper for I-frame extraction.
 
-- `extract_iframes(video_path)` — Generator yielding `(frame, timestamp)` tuples
-- Uses `ffprobe` to get video metadata (duration, frame count, codec)
-- Runs `ffmpeg` with keyframe-only filter (`-skip_frame nokey`)
-- Parses raw frame bytes and timestamps from FFmpeg output
-- Handles stderr via temp file to avoid pipe deadlock
-- Includes frame count mismatch detection between ffprobe and actual extraction
+- `extract_iframes_scaled(video_path, target_height)` — Generator yielding `(frame, timestamp)` tuples, pre-scaled to target height
+- `extract_frame_at_timestamp(video_path, timestamp, width, height)` — Extract a single full-resolution frame at a given timestamp
+- `get_video_info(video_path)` — Returns `(width, height)` via ffprobe
+- Uses `ffmpeg` with keyframe-only filter (`-skip_frame nokey`) and showinfo filter for timestamp parsing
+- Parses raw frame bytes and timestamps from FFmpeg output via stderr reader thread
 
 ### utils/image.py (~117 lines)
 **Role:** Stateless image processing functions.
@@ -81,6 +80,11 @@ The project follows a modular CLI pipeline architecture with four planned tools,
 - `scale_roi(roi, scale)` — Scale ROI coordinates from reference to processing resolution
 - `extract_roi(frame, roi)` — Extract ROI region with bounds checking and truncation warnings
 - `is_black(region, threshold)` — Check if mean pixel value is below brightness threshold
+
+### utils/config.py
+**Role:** Shared configuration loading.
+
+- `load_config(config_path)` — Load and return the YAML configuration dict
 
 ### config/config.yaml
 **Role:** All tunable pipeline parameters.
@@ -134,10 +138,8 @@ No formal test suite exists. The project's validation strategy is built into **T
 
 ## Robustness Features
 
-- FFmpeg stderr redirected to temp file (avoids pipe deadlock on large outputs)
 - Aspect ratio validation with warning for non-standard source resolutions
 - ROI bounds checking with truncation warnings when extraction exceeds frame dimensions
-- Frame count mismatch detection between ffprobe metadata and actual extraction
 - Sequence counters in filenames prevent collisions when timestamps are identical
 - Graceful handling of videos with zero transitions (prints summary, exits cleanly)
 
