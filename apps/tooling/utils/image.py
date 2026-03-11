@@ -114,3 +114,51 @@ def is_black(region, threshold):
     """
     # F10: use <= for intuitive "at or below threshold" semantics
     return float(np.mean(region)) <= threshold
+
+
+def has_team_color(region, saturation_threshold):
+    """Check if a BGR region contains a saturated team color bar.
+
+    Args:
+        region: BGR numpy array (height, width, 3).
+        saturation_threshold: Minimum mean saturation (0-255) to detect bar.
+
+    Returns:
+        bool: True if mean saturation exceeds the threshold.
+
+    Raises:
+        ValueError: If region is not a 3-channel BGR array.
+    """
+    if region.ndim != 3 or region.shape[2] != 3:
+        raise ValueError(
+            f"has_team_color requires a 3-channel BGR region, got shape {region.shape}"
+        )
+    hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+    return float(np.mean(hsv[:, :, 1])) > saturation_threshold
+
+
+def has_white_pixels(region, sat_max=12, val_min=230, min_ratio=0.05):
+    """Check if a BGR region contains enough white pixels (low saturation, high value).
+
+    Args:
+        region: BGR numpy array (height, width, 3).
+        sat_max: Maximum saturation (0-255) for a pixel to count as white.
+        val_min: Minimum value (0-255) for a pixel to count as white.
+        min_ratio: Minimum fraction of white pixels to return True.
+
+    Returns:
+        bool: True if the ratio of white pixels meets or exceeds min_ratio.
+
+    Raises:
+        ValueError: If region is not a 3-channel BGR array.
+    """
+    if region.ndim != 3 or region.shape[2] != 3:
+        raise ValueError(
+            f"has_white_pixels requires a 3-channel BGR region, got shape {region.shape}"
+        )
+    if region.shape[0] == 0 or region.shape[1] == 0:
+        return False
+    hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+    mask = (hsv[:, :, 1] <= sat_max) & (hsv[:, :, 2] >= val_min)
+    ratio = np.count_nonzero(mask) / mask.size
+    return ratio >= min_ratio

@@ -10,7 +10,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 
@@ -68,139 +67,97 @@ def get_video_info(video_path):
     return int(stream["width"]), int(stream["height"])
 
 
-def _get_keyframe_timestamps(video_path):
-    """Get PTS timestamps (in seconds) of all keyframes using ffprobe.
+def get_video_duration(video_path):
+    """Get video duration in seconds using ffprobe.
 
     Returns:
-        list[float]: Sorted list of keyframe timestamps in seconds.
+        float: Duration of the video stream in seconds.
+
+    Raises:
+        RuntimeError: If duration cannot be determined.
     """
+    check_ffmpeg()
     cmd = [
         "ffprobe",
         "-v", "error",
         "-select_streams", "v:0",
-        "-skip_frame", "nokey",
-        "-show_entries", "frame=pts_time",
-        "-of", "csv=p=0",
+        "-show_entries", "format=duration",
+        "-of", "json",
         str(video_path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    timestamps = []
-    for line in result.stdout.strip().split("\n"):
-        line = line.strip().rstrip(",")
-        if line:
-            timestamps.append(float(line))
-    return timestamps
+    info = json.loads(result.stdout)
+    duration_str = info.get("format", {}).get("duration")
+    if duration_str is None:
+        raise RuntimeError(
+            f"Could not determine duration for '{video_path}'. "
+            "Ensure the file is a valid video."
+        )
+    return float(duration_str)
 
 
-def extract_iframes(video_path, profile_stats=None):
-    """Yield (numpy_array, timestamp_seconds) for each I-frame in a video.
-
-    Uses ffprobe to get keyframe timestamps and video dimensions, then
-    pipes raw BGR24 frames from ffmpeg (keyframes only) via stdout.
+def get_keyframe_timestamps(video_path, scan_duration=30):
+    """Get I-frame timestamps from the first N seconds of a video.
 
     Args:
         video_path: Path to the input video file.
-        profile_stats: Optional dict to accumulate timing data into.
-            When None (default), no timing overhead is added.
+        scan_duration: How many seconds to scan from the start (default 30).
 
-    Yields:
-        tuple: (frame, timestamp) where frame is a numpy array of shape
-               (height, width, 3) in BGR color order, and timestamp is
-               the frame's position in seconds.
+    Returns:
+        list[float]: Sorted list of keyframe PTS timestamps in seconds.
+
+    Raises:
+        RuntimeError: If ffprobe returns no frame data.
     """
     check_ffmpeg()
-
-    if profile_stats is not None:
-        t0 = time.perf_counter()
-    width, height = get_video_info(video_path)
-    if profile_stats is not None:
-        profile_stats["ffprobe_info"] = time.perf_counter() - t0
-
-    if profile_stats is not None:
-        t0 = time.perf_counter()
-    timestamps = _get_keyframe_timestamps(video_path)
-    if profile_stats is not None:
-        profile_stats["ffprobe_keyframes"] = time.perf_counter() - t0
-
-    if not timestamps:
-        print("Warning: No keyframes found in video.", file=sys.stderr)
-        return
-
-    frame_size = width * height * 3  # BGR24
-
     cmd = [
-        "ffmpeg",
-        "-skip_frame", "nokey",
-        "-i", str(video_path),
-        "-vsync", "0",
-        "-f", "rawvideo",
-        "-pix_fmt", "bgr24",
-        "pipe:1",
+        "ffprobe",
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-read_intervals", f"%+{scan_duration}",
+        "-show_frames",
+        "-show_entries", "frame=pts_time,key_frame",
+        "-of", "json",
+        str(video_path),
     ]
-
-    # F9: redirect stderr to a temp file to avoid pipe buffer deadlock
-    # while still capturing diagnostics for error reporting
-    stderr_file = tempfile.TemporaryFile(mode="w+b")
-
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=stderr_file,
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    data = json.loads(result.stdout)
+    frames = data.get("frames", [])
+    if not frames:
+        raise RuntimeError(
+            f"No frame data returned by ffprobe for '{video_path}'. "
+            "Ensure the file is a valid video."
+        )
+    return sorted(
+        float(f["pts_time"])
+        for f in frames
+        if f.get("key_frame") == 1
     )
 
-    if profile_stats is not None:
-        profile_stats["ffmpeg_read"] = 0.0
 
-    frames_read = 0
-    try:
-        for i, ts in enumerate(timestamps):
-            if profile_stats is not None:
-                t0 = time.perf_counter()
-            raw = proc.stdout.read(frame_size)
-            if len(raw) < frame_size:
-                # Fewer frames than expected from ffprobe — end of stream
-                break
-            frame = np.frombuffer(raw, dtype=np.uint8).reshape((height, width, 3))
-            if profile_stats is not None:
-                profile_stats["ffmpeg_read"] += time.perf_counter() - t0
-            frames_read += 1
-            yield frame, ts
-    finally:
-        # Check for extra data in pipe (ffmpeg produced more frames than ffprobe)
-        leftover = proc.stdout.read(frame_size)
-        has_extra = len(leftover) >= frame_size
+def get_gop_interval(video_path, scan_duration=30):
+    """Compute the median keyframe interval (GOP) for a video.
 
-        proc.stdout.close()
-        proc.terminate()
-        proc.wait()
+    Args:
+        video_path: Path to the input video file.
+        scan_duration: How many seconds to scan from the start (default 30).
 
-        # F1: warn on frame count mismatch between ffprobe and ffmpeg
-        if frames_read != len(timestamps) or has_extra:
-            print(
-                f"Warning: Frame count mismatch — ffprobe reported {len(timestamps)} keyframes, "
-                f"ffmpeg produced {'more' if has_extra else frames_read}. "
-                "Timestamps may be inaccurate for some frames.",
-                file=sys.stderr,
-            )
-
-        # F9: log ffmpeg errors if process failed
-        if proc.returncode and proc.returncode not in (0, -15, 255):
-            # -15 = SIGTERM (expected from our terminate()), 255 = pipe closed
-            print(f"Warning: ffmpeg exited with code {proc.returncode}", file=sys.stderr)
-            # Read last portion of stderr for diagnostics
-            try:
-                stderr_file.seek(0, 2)  # seek to end
-                size = stderr_file.tell()
-                # Read last 2KB of stderr
-                stderr_file.seek(max(0, size - 2048))
-                stderr_tail = stderr_file.read().decode("utf-8", errors="replace").strip()
-                if stderr_tail:
-                    for line in stderr_tail.split("\n")[-5:]:
-                        print(f"  ffmpeg: {line}", file=sys.stderr)
-            except Exception:
-                pass
-
-        stderr_file.close()
+    Returns:
+        float: Median interval between consecutive keyframes in seconds.
+               Returns 0.0 if fewer than 2 keyframes are found.
+    """
+    timestamps = get_keyframe_timestamps(video_path, scan_duration)
+    if len(timestamps) < 2:
+        return 0.0
+    intervals = [
+        timestamps[i + 1] - timestamps[i]
+        for i in range(len(timestamps) - 1)
+    ]
+    intervals.sort()
+    mid = len(intervals) // 2
+    if len(intervals) % 2 == 0:
+        return (intervals[mid - 1] + intervals[mid]) / 2
+    return intervals[mid]
 
 
 def _stderr_timestamp_reader(stderr_pipe, ts_queue):
@@ -353,3 +310,109 @@ def extract_frame_at_timestamp(video_path, timestamp, width, height):
             f"expected {expected_size} ({width}x{height} BGR24)"
         )
     return np.frombuffer(result.stdout, dtype=np.uint8).reshape((height, width, 3))
+
+
+def extract_frame_at_timestamp_scaled(video_path, timestamp, target_height):
+    """Extract a single frame at a timestamp, scaled to target height.
+
+    Uses input seeking (-ss before -i) for fast seeking. Scales in the
+    ffmpeg pipeline to avoid decoding full resolution.
+
+    Args:
+        video_path: Path to the input video file.
+        timestamp: PTS timestamp in seconds (float).
+        target_height: Desired output height in pixels.
+
+    Returns:
+        numpy array of shape (scaled_h, scaled_w, 3) in BGR color order.
+
+    Raises:
+        RuntimeError: If the extracted frame size doesn't match expected dimensions.
+    """
+    check_ffmpeg()
+    src_w, src_h = get_video_info(video_path)
+    scaled_w = round(src_w * target_height / src_h / 2) * 2
+    scaled_h = target_height
+
+    cmd = [
+        "ffmpeg",
+        "-v", "error",
+        "-ss", f"{timestamp:.6f}",
+        "-i", str(video_path),
+        "-vf", f"scale={scaled_w}:{scaled_h}",
+        "-frames:v", "1",
+        "-f", "rawvideo",
+        "-pix_fmt", "bgr24",
+        "pipe:1",
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, check=True)
+    expected_size = scaled_w * scaled_h * 3
+    if len(result.stdout) != expected_size:
+        raise RuntimeError(
+            f"Frame extraction at {timestamp:.6f}s returned {len(result.stdout)} bytes, "
+            f"expected {expected_size} ({scaled_w}x{scaled_h} BGR24)"
+        )
+    return np.frombuffer(result.stdout, dtype=np.uint8).reshape(
+        (scaled_h, scaled_w, 3)
+    )
+
+
+def extract_frames_at_interval(video_path, target_height, start, end,
+                                interval=2.0, iframe_timestamps=None,
+                                snap_tolerance=0.5):
+    """Yield (frame, timestamp) at regular intervals with I-frame snapping.
+
+    Builds a list of target timestamps spaced by `interval` seconds. For each
+    target, if an I-frame timestamp is within `snap_tolerance`, the I-frame
+    timestamp is used instead (cheaper to seek to). Duplicates are removed.
+
+    Args:
+        video_path: Path to the input video file.
+        target_height: Desired output height in pixels.
+        start: Start of time range in seconds.
+        end: End of time range in seconds.
+        interval: Seconds between target frames (default 2.0).
+        iframe_timestamps: Optional sorted list of known I-frame PTS times.
+            If None, no snapping is performed.
+        snap_tolerance: Max distance in seconds to snap to an I-frame (default 0.5).
+
+    Yields:
+        tuple: (frame, timestamp) where frame is BGR numpy array at target_height.
+    """
+    if end == float("inf"):
+        raise ValueError(
+            "extract_frames_at_interval requires a finite 'end' value. "
+            "Pass an explicit end timestamp."
+        )
+
+    # Build target timestamp grid
+    targets = []
+    t = start
+    while t <= end:
+        targets.append(t)
+        t += interval
+
+    # Snap to nearest I-frame within tolerance
+    if iframe_timestamps:
+        snapped = []
+        for target in targets:
+            best = target
+            best_dist = snap_tolerance
+            for iframe_ts in iframe_timestamps:
+                dist = abs(iframe_ts - target)
+                if dist <= best_dist:
+                    best = iframe_ts
+                    best_dist = dist
+            snapped.append(best)
+        # Deduplicate while preserving order
+        seen = set()
+        targets = []
+        for ts in snapped:
+            if ts not in seen:
+                seen.add(ts)
+                targets.append(ts)
+
+    for ts in targets:
+        frame = extract_frame_at_timestamp_scaled(video_path, ts, target_height)
+        yield frame, ts
