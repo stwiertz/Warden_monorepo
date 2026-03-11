@@ -10,7 +10,7 @@ reference_resolution:
 # Processing resolution — frames are downscaled to this height for analysis
 # Lower = faster processing, higher = more accurate detection
 processing:
-  target_height: 360
+  target_height: 720
 
 # Black screen detection settings
 black_detection:
@@ -21,6 +21,10 @@ black_detection:
   # Seconds to skip after detecting a black screen, to avoid duplicate
   # detections from consecutive loading frames in the same transition.
   skip_duration: 15.0
+
+  # Seconds before an end detection to also export a "pre-end" snapshot.
+  # Useful for capturing score state before the black screen. Set to 0 to disable.
+  pre_end_offset: 10.0
 
   # Number of consecutive keyframes that must pass start validation before
   # firing startLoading. Prevents triggering on transient lobby frames.
@@ -46,6 +50,81 @@ black_detection:
       y: 0
       width: 22
       height: 264
+
+    - name: team_bar
+      x: 430
+      y: 1015
+      width: 1060
+      height: 65
+    
+    - name: personnalbar
+      x: 648
+      y: 990
+      width: 12
+      height: 20
+    
+    - name: points 
+      x: 956
+      y: 42
+      width: 6
+      height: 15
+
+    - name: kda
+      x: 1197
+      y: 1000
+      width: 10
+      height: 16
+
+
+color: 
+  orange:
+    h: 31
+    s: 100
+    v: 91
+  bleu:
+    h: 214
+    s: 89
+    v: 100
+  white:
+    h: 0
+    s: 0
+    v: 100
+
+
+# Points ROI white detection — classifies in-game vs lobby by white text presence
+points_detection:
+  sat_max: 12          # Max saturation (0-255) for white classification
+  val_min: 230         # Min value (0-255) for white classification
+  min_ratio: 0.01      # Min fraction of white pixels to classify as in-game
+  skip_duration: 15.0  # Seconds to skip after detecting an end transition
+  start_confirm_frames: 2   # Consecutive white frames to confirm a start transition
+  end_confirm_frames: 3     # Consecutive non-white frames to confirm an end transition
+  score_offset: 14.5        # Seconds after last in-game points frame to extract score screen
+
+# Team bar detection — used by the two-pass prescan for interval-mode videos
+team_bar_detection:
+  saturation_threshold: 90
+  window_padding: 30.0
+
+# Map identification — perceptual hashing for map name recognition
+map_identification:
+  # ROI for the map name text (at reference_resolution 1920x1080)
+  roi:
+    name: map_name_hash
+    x: 827
+    y: 79
+    width: 264
+    height: 22
+
+  # Standard canvas: ROI is resized to this fixed square before hashing
+  canvas_size: 64
+
+  # Perceptual hash size (hash_size=8 produces a 64-bit hash)
+  hash_size: 8
+
+  # Minimum Hamming Distance between any two map hashes.
+  # Below this threshold, maps are considered "too similar" and a warning is emitted.
+  collision_threshold: 12
 
 # Output settings
 output:
