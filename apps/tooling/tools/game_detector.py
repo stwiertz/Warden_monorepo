@@ -69,6 +69,7 @@ def run(video_path, output_dir, config, profile=False):
     start_confirm_frames = pd_config["start_confirm_frames"]
     end_confirm_frames = pd_config["end_confirm_frames"]
     score_offset = pd_config["score_offset"]
+    hud_brightness_max = pd_config["hud_brightness_max"]
 
     # Find the KDA ROI from config
     roi_zones = config["black_detection"]["roi_zones"]
@@ -80,6 +81,18 @@ def run(video_path, output_dir, config, profile=False):
     if kda_roi_raw is None:
         raise ValueError(
             f"Config must define a 'kda' ROI zone. "
+            f"Found: {[r['name'] for r in roi_zones]}"
+        )
+
+    # Find the notkda ROI from config
+    notkda_roi_raw = None
+    for roi in roi_zones:
+        if roi["name"] == "notkda":
+            notkda_roi_raw = roi
+            break
+    if notkda_roi_raw is None:
+        raise ValueError(
+            f"Config must define a 'notkda' ROI zone. "
             f"Found: {[r['name'] for r in roi_zones]}"
         )
 
@@ -98,6 +111,7 @@ def run(video_path, output_dir, config, profile=False):
     # Scale ROI from reference resolution to processing resolution
     ref_scale = target_height / ref_h
     kda_roi = scale_roi(kda_roi_raw, ref_scale)
+    notkda_roi = scale_roi(notkda_roi_raw, ref_scale)
 
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
@@ -125,6 +139,9 @@ def run(video_path, output_dir, config, profile=False):
           f"target_height={target_height}px")
     print(f"ROI: kda ({kda_roi_raw['x']},{kda_roi_raw['y']} "
           f"{kda_roi_raw['width']}x{kda_roi_raw['height']} @ {ref_w}x{ref_h})")
+    print(f"ROI: notkda ({notkda_roi_raw['x']},{notkda_roi_raw['y']} "
+          f"{notkda_roi_raw['width']}x{notkda_roi_raw['height']} @ {ref_w}x{ref_h}) "
+          f"hud_brightness_max={hud_brightness_max}")
     print()
 
     frame_count = 0
@@ -143,6 +160,10 @@ def run(video_path, output_dir, config, profile=False):
             t0 = time.perf_counter()
         region = extract_roi(frame, kda_roi)
         white_detected = has_white_pixels(region, sat_max, val_min, min_ratio)
+        if white_detected:
+            notkda_region = extract_roi(frame, notkda_roi)
+            notkda_gray = cv2.cvtColor(notkda_region, cv2.COLOR_BGR2GRAY)
+            white_detected = notkda_gray.mean() < hud_brightness_max
         if profile_stats is not None:
             profile_stats["roi_check"] += time.perf_counter() - t0
 
