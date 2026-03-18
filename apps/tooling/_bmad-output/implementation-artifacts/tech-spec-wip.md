@@ -3,11 +3,11 @@ title: 'Hashing Workflow for Map Identification (Tool 3)'
 slug: 'hashing-workflow-tool3'
 created: '2026-03-18'
 status: 'in-progress'
-stepsCompleted: [1]
-tech_stack: ['python', 'imagehash', 'opencv', 'pillow']
-files_to_modify: []
-code_patterns: []
-test_patterns: []
+stepsCompleted: [1, 2]
+tech_stack: ['python3.8+', 'imagehash>=4.2', 'opencv>=4.8', 'pillow', 'numpy', 'pyyaml']
+files_to_modify: ['tools/hash_comparator.py (new)', 'tools/frame_labeler.py', 'config/config.yaml']
+code_patterns: ['modular CLI in tools/', 'shared utils in utils/', 'config-driven via YAML', 'ROI at 1920x1080 reference resolution', 'argparse CLI pattern', 'file-based I/O between tools']
+test_patterns: ['none established']
 ---
 
 # Tech-Spec: Hashing Workflow for Map Identification (Tool 3)
@@ -49,29 +49,33 @@ Cela implique aussi une évolution de Tool 2 (Frame Labeler) pour exporter les f
 
 ### Codebase Patterns
 
-- Modular CLI Pipeline : chaque tool est un CLI indépendant dans `tools/`
-- ROI définie à résolution de référence 1920×1080, scalée au runtime
-- Config-driven : tous les paramètres dans `config/config.yaml`
-- File-based I/O entre tools (Tool 2 produit les frames labelisées → Tool 3 les consomme)
-- `map_config_generator.py` est un précédent direct — utilise pHash sur ROI texte du nom de carte
+- Modular CLI Pipeline : chaque tool est un CLI indépendant dans `tools/`, avec `argparse`
+- ROI définie à résolution de référence 1920×1080, scalée au runtime via `utils/image.scale_roi()`
+- Config-driven : tous les paramètres dans `config/config.yaml`, chargés via `utils/config.load_config()`
+- File-based I/O entre tools : Tool 1 exporte des frames PNG nommées `*start*`, `*end*`, `*score*` → Tool 2 les labellise dans `<output>/labeled/<map_name>/` → Tool 3 les consomme
+- Pattern d'import : `sys.path.insert(0, ...)` pour accéder à `utils/` depuis `tools/`
+- `imagehash` library : supporte `ahash()`, `dhash()`, `phash()` — toutes retournent un `ImageHash` avec opérateur `-` pour la Hamming Distance
 
 ### Files to Reference
 
 | File | Purpose |
 | ---- | ------- |
-| `tools/map_config_generator.py` | Implémentation existante pHash — base de référence |
-| `tools/frame_labeler.py` | Tool 2 actuel — à modifier pour exporter start/end/score |
-| `config/config.yaml` | Configuration centralisée (ROI, paramètres hash) |
-| `utils/image.py` | Utilitaires image (grayscale, ROI extraction, downscale) |
-| `description.md` | Spec originale Tool 3 (approche pixel — remplacée) |
-| `_bmad-output/implementation-artifacts/tech-spec-map-config-generator.md` | Tech spec du map_config_generator |
+| `tools/map_config_generator.py` | Implémentation existante pHash — pattern de référence pour le pipeline crop→grayscale→canvas→hash |
+| `tools/frame_labeler.py` | Tool 2 — filtre actuellement `*score*.png` uniquement (ligne 57), à étendre pour `*start*` et `*end*` |
+| `config/config.yaml` | Config centralisée — section `map_identification` existante avec ROI `map_name_hash` |
+| `utils/image.py` | `extract_roi()`, `scale_roi()`, `to_grayscale()`, `downscale()` — réutilisables sans modification |
+| `utils/video.py` | `extract_iframes_scaled()`, `get_video_info()` — si input vidéo nécessaire |
+| `utils/config.py` | `load_config()` — chargement YAML standard |
 
 ### Technical Decisions
 
 - **Hashing vs Pixels** : Le hashing est plus robuste aux variations de background derrière les éléments transparents du HUD. L'approche pixel-par-pixel est abandonnée.
-- **Multi-hash comparison** : Tester aHash, dHash et pHash permet de choisir la méthode la plus fiable empiriquement.
-- **ROI flexible** : Deux stratégies à tester — ROI sur le nom de map dans le HUD (toutes les I-frames) vs ROI sur l'écran de score (plus stable mais dépendant de la détection score).
-- **Resolution sweep optionnel** : Pas de gain de performance significatif attendu, mais potentiellement utile pour la qualité du hash.
+- **Nouveau fichier `tools/hash_comparator.py`** : Tool 3 sera un outil séparé du `map_config_generator.py`. Il pourra réutiliser les mêmes utils mais aura sa propre logique de comparaison multi-hash.
+- **Multi-hash comparison** : Tester aHash, dHash et pHash via `imagehash.ahash()`, `imagehash.dhash()`, `imagehash.phash()`. Toutes retournent un `ImageHash` compatible avec l'opérateur `-` (Hamming Distance).
+- **ROI flexible** : Deux stratégies à tester — ROI sur le nom de map dans le HUD (toutes les I-frames) vs ROI sur l'écran de score (plus stable mais dépendant de la détection score). Les deux ROIs seront définies dans `config.yaml`.
+- **Tool 2 étendu** : `frame_labeler.py` doit supporter les frames `*start*`, `*end*` en plus de `*score*`, pour fournir les données d'entrée à Tool 3 sur tous les types de frames.
+- **Resolution sweep optionnel** : Pas de gain de performance significatif attendu, mais potentiellement utile pour la qualité du hash. Paramètre CLI optionnel.
+- **Pas de tests formels** : Aucun framework de test n'est établi dans le projet. La validation se fait via Tool 4 (accuracy reports).
 
 ## Implementation Plan
 
