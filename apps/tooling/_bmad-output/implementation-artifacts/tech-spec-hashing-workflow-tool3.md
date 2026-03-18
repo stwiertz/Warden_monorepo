@@ -2,8 +2,8 @@
 title: 'Hashing Workflow for Map Identification (Tool 3)'
 slug: 'hashing-workflow-tool3'
 created: '2026-03-18'
-status: 'review'
-stepsCompleted: [1, 2, 3]
+status: 'ready-for-dev'
+stepsCompleted: [1, 2, 3, 4]
 tech_stack: ['python3.8+', 'imagehash>=4.2', 'opencv>=4.8', 'pillow', 'numpy', 'pyyaml']
 files_to_modify: ['tools/hash_comparator.py (new)', 'tools/frame_labeler.py', 'config/config.yaml']
 code_patterns: ['modular CLI in tools/', 'shared utils in utils/', 'config-driven via YAML', 'ROI at 1920x1080 reference resolution', 'argparse CLI pattern', 'file-based I/O between tools']
