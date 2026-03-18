@@ -8,7 +8,7 @@ Validate video analysis algorithms on desktop and generate the map identificatio
 
 - Python 3 | FFmpeg (I-frame extraction) | OpenCV (image processing only)
 - Output: JSON config + validation reports
-- No UI — CLI tools only
+- No UI — CLI tools only (except Tool 2: tkinter GUI for frame labeling)
 
 ## Pipeline Overview
 
@@ -17,7 +17,7 @@ Tools are sequential. Each tool's output feeds the next.
 ```
 [Tool 1: Black Screen Detector] → extracted frames
         ↓
-[Tool 2: Frame Labeling]        → organized labeled folders (manual)
+[Tool 2: Frame Labeling]        → organized labeled folders (GUI tool)
         ↓
 [Tool 3: Pixel Finder]          → map-identification JSON config
         ↓
@@ -29,7 +29,7 @@ Tools are sequential. Each tool's output feeds the next.
 | #  | Tool                         | Status      | Quick-Spec | Notes |
 |----|------------------------------|-------------|------------|-------|
 | 1  | Black Screen Detector        | Not Started | —          | I-frame iteration, ROI-based black detection, 15s skip logic. Reference impl for mobile. |
-| 2  | Frame Labeling (manual step) | Not Started | —          | Manual folder organization. May only need a helper script or instructions, not a full tool. |
+| 2  | Frame Labeling (GUI tool)    | Done        | —          | Tkinter GUI (`frame_labeler.py`). Displays score frames, keyboard/button labeling into 14 per-map folders. Undo support. Scope expanded from manual/helper-script to full GUI. |
 | 3  | Discriminating Pixel Finder  | Not Started | —          | Intra-map compositing, cross-map comparison, resolution sweep, pixel set selection. Most complex tool. |
 | 4  | Validation & Accuracy Testing| Not Started | —          | End-to-end and map-ID-only modes. Generates accuracy reports. |
 
@@ -46,6 +46,8 @@ Decisions made during development that affect multiple tools. Update as specs ar
 | HUD exclusion mask        | TBD         | Tool 3     |
 | Brightness threshold      | TBD         | Tool 1     |
 | Skip duration after black | ~15s        | Tool 1     |
+| Map count                 | 14          | Tool 2     |
+| Labeled output structure  | `<out>/<map_name>/<file>.png` | Tool 2 |
 
 ## Success Criteria
 
