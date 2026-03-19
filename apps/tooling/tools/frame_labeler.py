@@ -1,14 +1,18 @@
-"""Frame Labeler — GUI tool for manually labeling extracted score frames by map name.
+"""Frame Labeler — GUI tool for manually labeling extracted frames by map name.
 
 Scans the output directory for PNG files with 'score' in the filename,
 displays them one by one, and lets the user assign a map label via buttons.
-Labeled images are copied into per-map subdirectories under a configurable
+When a score frame is labeled, the matching start and end frames from the same
+game session are automatically co-exported. All three files are named
+{counter:03d}_{type}.png and placed flat in labeled/<map>/. Labeled images are
+copied (non-destructive) into per-map subdirectories under a configurable
 labeled-data folder.
 """
 
 import argparse
 import glob
 import os
+import re
 import shutil
 import sys
 import tkinter as tk
@@ -17,20 +21,20 @@ from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 
 MAP_LABELS = [
-    "horizon",
-    "engine",
-    "outlaw",
-    "ceres",
     "artefact",
-    "silva",
-    "bastion",
-    "polaris",
-    "coliseum",
-    "the_cliff",
-    "helios",
     "atlantis",
-    "the_rock",
+    "bastion",
+    "ceres",
+    "coliseum",
+    "engine",
+    "helios",
+    "horizon",
     "lunar_outpost",
+    "outlaw",
+    "polaris",
+    "silva",
+    "the_cliff",
+    "the_rock",
 ]
 
 # Display names for buttons (title-cased, spaces preserved)
@@ -58,6 +62,62 @@ def find_score_images(source_dir):
     paths = glob.glob(pattern, recursive=True)
     paths.sort()
     return paths
+
+
+def parse_seq_num(filename):
+    """Return the trailing sequence integer from a filename like '00m14s_start_001.png', or None."""
+    match = re.search(r'_(\d+)\.png$', filename)
+    return int(match.group(1)) if match else None
+
+
+def find_linked_frames(score_path):
+    """Find the start and end frames that belong to the same game session as the given score frame.
+
+    Scans the same directory as score_path. Uses the global sequence number
+    embedded in filenames to identify the most recent start/end before the score.
+    Returns (start_path, end_path); either may be None if not found.
+    """
+    score_seq = parse_seq_num(os.path.basename(score_path))
+    if score_seq is None:
+        return None, None
+
+    scan_dir = os.path.dirname(score_path) or "."
+    start_candidates = []  # (seq, full_path)
+    end_candidates = []
+
+    try:
+        entries = os.listdir(scan_dir)
+    except OSError:
+        return None, None
+
+    for fname in entries:
+        if not fname.endswith('.png'):
+            continue
+        seq = parse_seq_num(fname)
+        if seq is None or seq >= score_seq:
+            continue
+        full = os.path.join(scan_dir, fname)
+        if re.search(r'_start_\d+\.png$', fname):
+            start_candidates.append((seq, full))
+        elif re.search(r'_end_\d+\.png$', fname):
+            end_candidates.append((seq, full))
+
+    start_path = max(start_candidates, key=lambda x: x[0])[1] if start_candidates else None
+    start_seq = parse_seq_num(os.path.basename(start_path)) if start_path else -1
+
+    valid_ends = [(s, p) for s, p in end_candidates if s > start_seq]
+    end_path = max(valid_ends, key=lambda x: x[0])[1] if valid_ends else None
+
+    return start_path, end_path
+
+
+def next_game_counter(dest_dir):
+    """Return the next sequential game counter for a labeled map directory.
+
+    Counts existing *_score.png files to determine the next number.
+    """
+    existing = glob.glob(os.path.join(dest_dir, '*_score.png'))
+    return len(existing) + 1
 
 
 class FrameLabelerApp(tk.Tk):
@@ -142,7 +202,7 @@ class FrameLabelerApp(tk.Tk):
 
         self._tk_image = None  # prevent GC
         self._pil_image = None
-        self._last_action = None  # (src_path, dest_path) for undo
+        self._last_action = None  # list of dest paths for undo
 
         # Keyboard shortcuts: 1-9, 0, q, w, e, r for the 14 maps
         keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "q", "w", "e", "r"]
@@ -215,22 +275,48 @@ class FrameLabelerApp(tk.Tk):
 
         src = self.images[self.current_index]
         dest_dir = os.path.join(self.output_dir, label)
-        dest = os.path.join(dest_dir, os.path.basename(src))
+        counter = next_game_counter(dest_dir)
+        start_src, end_src = find_linked_frames(src)
 
-        shutil.copy2(src, dest)
-        self._last_action = (src, dest)
+        score_dest = os.path.join(dest_dir, f"{counter:03d}_score.png")
+        copied = []
+        try:
+            shutil.copy2(src, score_dest)
+            copied.append(score_dest)
+            if start_src:
+                start_dest = os.path.join(dest_dir, f"{counter:03d}_start.png")
+                shutil.copy2(start_src, start_dest)
+                copied.append(start_dest)
+            if end_src:
+                end_dest = os.path.join(dest_dir, f"{counter:03d}_end.png")
+                shutil.copy2(end_src, end_dest)
+                copied.append(end_dest)
+        except Exception as exc:
+            for path in copied:
+                if os.path.exists(path):
+                    os.remove(path)
+            messagebox.showerror("Error", f"Failed to copy frames:\n{exc}")
+            return
+
+        if not start_src or not end_src:
+            missing = [t for t, p in [('start', start_src), ('end', end_src)] if not p]
+            print(f"  [warn] no {'/'.join(missing)} found for {os.path.basename(src)}")
+
+        linked = [t for t, p in [('start', start_src), ('end', end_src)] if p]
+        extra = f"(+ {', '.join(linked)})" if linked else "(score only)"
+        print(f"  [{label}] {counter:03d}_score.png {extra}")
+
+        self._last_action = copied
         self._btn_undo.config(state=tk.NORMAL)
-
-        print(f"  [{label}] {os.path.basename(src)}")
         self._next()
 
     def _undo(self):
         if self._last_action is None:
             return
-        _, dest = self._last_action
-        if os.path.exists(dest):
-            os.remove(dest)
-            print(f"  [undo] removed {dest}")
+        for dest in self._last_action:
+            if os.path.exists(dest):
+                os.remove(dest)
+                print(f"  [undo] removed {os.path.basename(dest)}")
         self._last_action = None
         self._btn_undo.config(state=tk.DISABLED)
         if self.current_index > 0:
