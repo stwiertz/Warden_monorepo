@@ -36,7 +36,7 @@ import numpy as np
 from PIL import Image
 
 from utils.config import load_config
-from utils.image import downscale, extract_roi, find_text_anchor, scale_roi, to_grayscale
+from utils.image import apply_threshold, downscale, extract_roi, find_text_anchor, scale_roi, to_grayscale
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp"}
 REF_HEIGHT = 1080  # reference resolution height for ROI coordinates
@@ -172,7 +172,7 @@ def tile_into_canvas(gray, canvas_size, n_cols):
     return cv2.resize(stacked, (canvas_size, canvas_size), interpolation=cv2.INTER_AREA)
 
 
-def build_canvases(frames, ref_roi, canvas_size, target_h, tile_cols=1, text_anchor_width=None):
+def build_canvases(frames, ref_roi, canvas_size, target_h, tile_cols=1, text_anchor_width=None, threshold_hash=False):
     """Crop ROI, optionally downscale, and build a square canvas for each frame.
 
     Args:
@@ -187,9 +187,12 @@ def build_canvases(frames, ref_roi, canvas_size, target_h, tile_cols=1, text_anc
         text_anchor_width: If set, scan the ROI for the first white pixel column and
                            extract a sub-ROI of this width (in pixels @1080p) from that
                            anchor. None or 0 = disabled (use full ROI).
+        threshold_hash: If True, apply Otsu's adaptive threshold after grayscale
+                        conversion, binarizing the crop before hashing.
+                        Default False (function level); config default is True.
 
     Returns:
-        list: (filename, grayscale canvas numpy array) tuples, skipping failed frames.
+        list: (filename, grayscale or binary canvas numpy array) tuples, skipping failed frames.
     """
     canvases = []
     for fname, frame in frames:
@@ -232,6 +235,8 @@ def build_canvases(frames, ref_roi, canvas_size, target_h, tile_cols=1, text_anc
             cropped = cropped[:, anchor_x:right]
 
         gray = to_grayscale(cropped)
+        if threshold_hash:
+            gray = apply_threshold(gray)
         # Tiling is disabled when anchor cropping is active: the sub-ROI is already
         # narrow and tiling would amplify anchor jitter (1px shift → large hash diff).
         if tile_cols > 1 and not text_anchor_width:
@@ -316,7 +321,7 @@ def check_collisions(distances, threshold):
 def run_comparison(
     images_dir, rois, methods, canvas_size, hash_size, collision_threshold,
     resolutions=None, tile_cols=1, text_anchor_width=None, shift_tolerance=0,
-    preview=False, preview_dir=None
+    threshold_hash=False, preview=False, preview_dir=None
 ):
     """Run multi-hash comparison across all ROIs, methods, and optional resolutions.
 
@@ -332,6 +337,9 @@ def run_comparison(
         text_anchor_width: If set, anchor sub-ROI extraction to first white pixel column
                            (pixels @1080p). None or 0 = disabled.
         shift_tolerance: Max horizontal bit-shift to absorb when comparing hashes (0 = exact).
+        threshold_hash: If True, apply Otsu's adaptive threshold after grayscale conversion
+                        before hashing. Matches the setting used in warden_analyzer.py at
+                        inference time. Default False.
         preview: If True, write canvas images to preview_dir.
         preview_dir: Directory for preview images.
 
@@ -366,7 +374,7 @@ def run_comparison(
             # Build canvases for each map
             map_canvases = {}
             for map_name, frames in all_frames.items():
-                canvases = build_canvases(frames, roi_config, canvas_size, target_h, tile_cols, text_anchor_width=text_anchor_width)
+                canvases = build_canvases(frames, roi_config, canvas_size, target_h, tile_cols, text_anchor_width=text_anchor_width, threshold_hash=threshold_hash)
                 map_canvases[map_name] = canvases
 
                 if preview and preview_dir and canvases:
@@ -627,6 +635,19 @@ def main():
              "(0 = exact, default: from config). Each unit ≈ 1/hash_size of ROI width.",
     )
     parser.add_argument(
+        "--threshold-hash",
+        dest="threshold_hash",
+        default=None,
+        action="store_true",
+        help="Binarize the grayscale crop with Otsu's threshold before hashing (overrides config).",
+    )
+    parser.add_argument(
+        "--no-threshold-hash",
+        dest="threshold_hash",
+        action="store_false",
+        help="Disable threshold binarization before hashing (overrides config).",
+    )
+    parser.add_argument(
         "--preview",
         action="store_true",
         help="Write processed canvas images to output dir for visual inspection",
@@ -688,6 +709,7 @@ def main():
     tile_cols = args.tile_cols if args.tile_cols is not None else map_id.get("tile_cols", 3)
     text_anchor_width = map_id.get("text_anchor_width") or None
     shift_tolerance = args.shift_tolerance if args.shift_tolerance is not None else map_id.get("shift_tolerance", 0)
+    threshold_hash = args.threshold_hash if args.threshold_hash is not None else map_id.get("threshold_hash", False)
 
     # Resolve output directory
     output_dir = args.output_dir or config["output"]["default_dir"]
@@ -706,6 +728,7 @@ def main():
     print(f"  Tile cols:   {tile_cols}")
     print(f"  Anchor width: {f'{text_anchor_width}px @1080p' if text_anchor_width else 'disabled'}")
     print(f"  Shift tolerance: {shift_tolerance} bit(s)")
+    print(f"  Threshold hash: {threshold_hash}")
 
     try:
         results = run_comparison(
@@ -719,6 +742,7 @@ def main():
             tile_cols=tile_cols,
             text_anchor_width=text_anchor_width,
             shift_tolerance=shift_tolerance,
+            threshold_hash=threshold_hash,
             preview=args.preview,
             preview_dir=output_dir if args.preview else None,
         )

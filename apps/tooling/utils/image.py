@@ -46,6 +46,23 @@ def to_grayscale(frame):
     return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
 
+def apply_threshold(gray):
+    """Binarize a grayscale image using Otsu's adaptive threshold.
+
+    Converts white text on a variable-brightness background to pure binary
+    (255 = text, 0 = background). Otsu's method computes the optimal split
+    threshold automatically from the pixel histogram — no fixed value needed.
+
+    Args:
+        gray: Single-channel grayscale numpy array (height, width).
+
+    Returns:
+        numpy array (height, width) — binary image with values 0 or 255.
+    """
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return binary
+
+
 def scale_roi(roi, scale_factor):
     """Scale an ROI dict from reference resolution to processing resolution.
 
@@ -162,3 +179,27 @@ def has_white_pixels(region, sat_max=12, val_min=230, min_ratio=0.05):
     mask = (hsv[:, :, 1] <= sat_max) & (hsv[:, :, 2] >= val_min)
     ratio = np.count_nonzero(mask) / mask.size
     return ratio >= min_ratio
+
+
+def find_text_anchor(bgr_crop, sat_max=12, val_min=230):
+    """Scan the crop left-to-right and return the x of the first column containing a white pixel.
+
+    A pixel is considered white if its HSV saturation <= sat_max and value >= val_min.
+
+    Args:
+        bgr_crop: BGR numpy array (height, width, 3).
+        sat_max: Maximum saturation (0-255) for a pixel to count as white.
+        val_min: Minimum value (0-255) for a pixel to count as white.
+
+    Returns:
+        int: x index of the first column with at least one white pixel, or -1 if none found.
+    """
+    if bgr_crop.ndim != 3 or bgr_crop.shape[2] != 3:
+        return -1
+    if bgr_crop.shape[0] == 0 or bgr_crop.shape[1] == 0:
+        return -1
+    hsv = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2HSV)
+    white_mask = (hsv[:, :, 1] <= sat_max) & (hsv[:, :, 2] >= val_min)
+    cols_with_white = np.any(white_mask, axis=0)
+    matches = np.where(cols_with_white)[0]
+    return int(matches[0]) if len(matches) > 0 else -1

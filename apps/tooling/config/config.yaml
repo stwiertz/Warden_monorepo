@@ -41,8 +41,8 @@ black_detection:
 
     - name: map_name
       x: 827
-      y: 79
-      width: 264
+      y: 81
+      width: 267
       height: 22
 
     - name: vertical
@@ -113,13 +113,22 @@ team_bar_detection:
 
 # Map identification — perceptual hashing for map name recognition
 map_identification:
-  # ROI for the map name text (at reference_resolution 1920x1080)
+  # Legacy single ROI — kept for backward compatibility with map_config_generator.py
   roi:
     name: map_name_hash
     x: 827
-    y: 79
-    width: 264
+    y: 81
+    width: 267
     height: 22
+
+  # ROI list for hash_comparator.py (multi-ROI comparison)
+  # All coordinates at reference_resolution (1920x1080)
+  rois:
+    - name: map_name_hud
+      x: 827
+      y: 81
+      width: 267
+      height: 22
 
   # Standard canvas: ROI is resized to this fixed square before hashing
   canvas_size: 64
@@ -127,9 +136,39 @@ map_identification:
   # Perceptual hash size (hash_size=8 produces a 64-bit hash)
   hash_size: 8
 
+  # Hash methods to compare in hash_comparator.py
+  hash_methods: [ahash, dhash, phash]
+
+  # Tiling strategy for canvas construction.
+  # Split the ROI strip into this many equal columns and stack vertically before hashing.
+  # 3 = split 267px wide strip into 3×89px columns → 89×66 tiled → resize to 64×64.
+  # 1 = disabled (plain resize, old behavior).
+  tile_cols: 3
+
+  # Width in pixels @reference resolution (1920x1080) of the sub-ROI to hash,
+  # anchored to the first white pixel column found in the ROI.
+  # Set to 0 or omit to disable anchor cropping (use full ROI).
+  text_anchor_width: 52
+
   # Minimum Hamming Distance between any two map hashes.
   # Below this threshold, maps are considered "too similar" and a warning is emitted.
   collision_threshold: 12
+
+  # Max horizontal bit-shift to tolerate when comparing hashes.
+  # 0 = exact match only. 1-2 = absorb sub-pixel text anchor variance across videos.
+  # Each unit ≈ 1/hash_size of the ROI width (e.g. shift=2 on a 52px anchor @720p ≈ 13px).
+  shift_tolerance: 2
+
+  # Binarize the grayscale crop before hashing using Otsu's adaptive threshold.
+  # Recommended for white text on variable-brightness backgrounds (e.g. map name HUD).
+  threshold_hash: true
+
+  # Minimum Hamming Distance to accept a map match. Scores >= this are marked 'unrecognized'.
+  recognition_threshold: 10
+
+  # Optional resolution sweep for hash_comparator.py.
+  # Empty list = use source resolution only. Example: [1080, 720, 540, 360]
+  resolutions: []
 
 # Output settings
 output:
