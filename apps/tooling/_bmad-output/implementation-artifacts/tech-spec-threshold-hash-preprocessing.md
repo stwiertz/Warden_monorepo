@@ -196,3 +196,14 @@ No automated test framework exists in this project. Manual verification steps:
 - Resolution approach: auto-fix
 - Fixed: F1 (missing docstring Args), F2 (--threshold-hash CLI flag), F3 (mismatch warning), F4 (startup print), F5 (docstring returns text), F7 (default asymmetry documented)
 - Skipped: F6, F8 (undecided), F9, F10 (noise)
+
+## Empirical Validation
+
+Tested on 10 labeled maps at 720p with dhash + 52px text anchor:
+
+| Setting | dhash min dist | dhash collisions |
+|---------|---------------|-----------------|
+| threshold_hash: true | 0 | 3 |
+| threshold_hash: false | 21 | 0 |
+
+**Outcome:** Binarization is harmful for perceptual hashing. dhash and phash rely on pixel gradients; Otsu binarization destroys gradient information. The anchor crop (~34×15px at 720p) is also too small for reliable bimodal histogram splitting. Config default changed to `threshold_hash: false`. The feature remains available via CLI flag for future experimentation.

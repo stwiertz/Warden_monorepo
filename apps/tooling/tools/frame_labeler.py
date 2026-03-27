@@ -56,12 +56,34 @@ LABEL_DISPLAY = {
 }
 
 
-def find_score_images(source_dir):
-    """Return sorted list of PNG paths containing 'score' in the filename."""
-    pattern = os.path.join(source_dir, "**", "*score*.png")
-    paths = glob.glob(pattern, recursive=True)
+def find_frame_images(source_dir, frame_type="all"):
+    """Return sorted list of PNG paths matching the given frame type.
+
+    Args:
+        source_dir: Directory to scan recursively.
+        frame_type: One of 'score', 'start', 'end', 'all'.
+    """
+    type_patterns = {
+        "score": ["*_score*.png"],
+        "start": ["*_start*.png"],
+        "end":   ["*_end*.png"],
+        "all":   ["*_score*.png", "*_start*.png", "*_end*.png"],
+    }
+    patterns = type_patterns.get(frame_type, type_patterns["all"])
+    seen = set()
+    paths = []
+    for pattern in patterns:
+        for p in glob.glob(os.path.join(source_dir, "**", pattern), recursive=True):
+            if p not in seen:
+                seen.add(p)
+                paths.append(p)
     paths.sort()
     return paths
+
+
+def find_score_images(source_dir):
+    """Backward-compatible alias for find_frame_images with frame_type='score'."""
+    return find_frame_images(source_dir, frame_type="score")
 
 
 def parse_seq_num(filename):
@@ -120,21 +142,37 @@ def next_game_counter(dest_dir):
     return len(existing) + 1
 
 
+def next_frame_counter(dest_dir, frame_type):
+    """Return the next counter for a non-score frame type in a labeled map directory."""
+    existing = glob.glob(os.path.join(dest_dir, f'*_{frame_type}.png'))
+    return len(existing) + 1
+
+
+def detect_frame_type(basename):
+    """Detect frame type ('score', 'start', 'end') from a filename, defaulting to 'score'."""
+    if re.search(r'_start[_.]', basename):
+        return 'start'
+    if re.search(r'_end[_.]', basename):
+        return 'end'
+    return 'score'
+
+
 class FrameLabelerApp(tk.Tk):
     """Main labeling window."""
 
-    def __init__(self, source_dir, output_dir):
+    def __init__(self, source_dir, output_dir, frame_type="all"):
         super().__init__()
 
         self.source_dir = source_dir
         self.output_dir = output_dir
-        self.images = find_score_images(source_dir)
+        self.frame_type = frame_type
+        self.images = find_frame_images(source_dir, frame_type)
         self.current_index = 0
 
         if not self.images:
             messagebox.showinfo(
                 "No images",
-                f"No PNG files with 'score' in name found in:\n{source_dir}",
+                f"No PNG files matching type '{frame_type}' found in:\n{source_dir}",
             )
             self.destroy()
             sys.exit(0)
@@ -275,36 +313,50 @@ class FrameLabelerApp(tk.Tk):
 
         src = self.images[self.current_index]
         dest_dir = os.path.join(self.output_dir, label)
-        counter = next_game_counter(dest_dir)
-        start_src, end_src = find_linked_frames(src)
-
-        score_dest = os.path.join(dest_dir, f"{counter:03d}_score.png")
+        ftype = detect_frame_type(os.path.basename(src))
         copied = []
-        try:
-            shutil.copy2(src, score_dest)
-            copied.append(score_dest)
-            if start_src:
-                start_dest = os.path.join(dest_dir, f"{counter:03d}_start.png")
-                shutil.copy2(start_src, start_dest)
-                copied.append(start_dest)
-            if end_src:
-                end_dest = os.path.join(dest_dir, f"{counter:03d}_end.png")
-                shutil.copy2(end_src, end_dest)
-                copied.append(end_dest)
-        except Exception as exc:
-            for path in copied:
-                if os.path.exists(path):
-                    os.remove(path)
-            messagebox.showerror("Error", f"Failed to copy frames:\n{exc}")
-            return
 
-        if not start_src or not end_src:
-            missing = [t for t, p in [('start', start_src), ('end', end_src)] if not p]
-            print(f"  [warn] no {'/'.join(missing)} found for {os.path.basename(src)}")
+        if ftype == 'score':
+            # Score frame: auto-link and export start/end from the same session
+            counter = next_game_counter(dest_dir)
+            start_src, end_src = find_linked_frames(src)
+            score_dest = os.path.join(dest_dir, f"{counter:03d}_score.png")
+            try:
+                shutil.copy2(src, score_dest)
+                copied.append(score_dest)
+                if start_src:
+                    start_dest = os.path.join(dest_dir, f"{counter:03d}_start.png")
+                    shutil.copy2(start_src, start_dest)
+                    copied.append(start_dest)
+                if end_src:
+                    end_dest = os.path.join(dest_dir, f"{counter:03d}_end.png")
+                    shutil.copy2(end_src, end_dest)
+                    copied.append(end_dest)
+            except Exception as exc:
+                for path in copied:
+                    if os.path.exists(path):
+                        os.remove(path)
+                messagebox.showerror("Error", f"Failed to copy frames:\n{exc}")
+                return
 
-        linked = [t for t, p in [('start', start_src), ('end', end_src)] if p]
-        extra = f"(+ {', '.join(linked)})" if linked else "(score only)"
-        print(f"  [{label}] {counter:03d}_score.png {extra}")
+            if not start_src or not end_src:
+                missing = [t for t, p in [('start', start_src), ('end', end_src)] if not p]
+                print(f"  [warn] no {'/'.join(missing)} found for {os.path.basename(src)}")
+
+            linked = [t for t, p in [('start', start_src), ('end', end_src)] if p]
+            extra = f"(+ {', '.join(linked)})" if linked else "(score only)"
+            print(f"  [{label}] {counter:03d}_score.png {extra}")
+        else:
+            # Non-score frame (start/end): copy single frame
+            counter = next_frame_counter(dest_dir, ftype)
+            dest = os.path.join(dest_dir, f"{counter:03d}_{ftype}.png")
+            try:
+                shutil.copy2(src, dest)
+                copied.append(dest)
+            except Exception as exc:
+                messagebox.showerror("Error", f"Failed to copy frame:\n{exc}")
+                return
+            print(f"  [{label}] {counter:03d}_{ftype}.png")
 
         self._last_action = copied
         self._btn_undo.config(state=tk.NORMAL)
@@ -340,6 +392,13 @@ def main():
         default=None,
         help="Directory for labeled output (default: <source>/labeled).",
     )
+    parser.add_argument(
+        "--type",
+        dest="frame_type",
+        choices=["score", "start", "end", "all"],
+        default="all",
+        help="Frame type to scan for labeling (default: all).",
+    )
     args = parser.parse_args()
 
     source_dir = args.source
@@ -357,10 +416,11 @@ def main():
 
     print(f"Source:  {source_dir}")
     print(f"Output:  {output_dir}")
-    print(f"Found {len(find_score_images(source_dir))} score images.\n")
+    found = find_frame_images(source_dir, args.frame_type)
+    print(f"Found {len(found)} '{args.frame_type}' frame(s).\n")
     print("Keyboard shortcuts: 1-9, 0, q, w, e, r  |  Left/Right = nav  |  Backspace = undo\n")
 
-    app = FrameLabelerApp(source_dir, output_dir)
+    app = FrameLabelerApp(source_dir, output_dir, frame_type=args.frame_type)
     app.mainloop()
 
 

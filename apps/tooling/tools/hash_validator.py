@@ -90,7 +90,9 @@ def predict_map(canvas, ref_hashes, hash_size, method, shift_tolerance):
 
     Args:
         canvas: Single-channel grayscale numpy canvas.
-        ref_hashes: dict {map_name: imagehash.ImageHash}
+        ref_hashes: dict {map_name: list[imagehash.ImageHash]}
+            Each map may have multiple reference hashes (e.g. from different video sources).
+            The minimum distance across all hashes for a map is used.
         hash_size: Hash dimension.
         method: Hash method string ('ahash', 'dhash', 'phash').
         shift_tolerance: Max horizontal bit-shift for Hamming distance comparison.
@@ -103,12 +105,12 @@ def predict_map(canvas, ref_hashes, hash_size, method, shift_tolerance):
     best_name = None
     best_dist = None
 
-    for map_name in ref_hashes:  # insertion order is alphabetical (sorted at build time in run_validation)
-        ref_hash = ref_hashes[map_name]
-        dist = hamming_shift_tolerant(frame_hash, ref_hash, shift_tolerance)
-        if best_dist is None or dist < best_dist:
-            best_dist = dist
-            best_name = map_name
+    for map_name, hashes in ref_hashes.items():  # insertion order is alphabetical (sorted at build time)
+        for ref_hash in hashes:
+            dist = hamming_shift_tolerant(frame_hash, ref_hash, shift_tolerance)
+            if best_dist is None or dist < best_dist:
+                best_dist = dist
+                best_name = map_name
 
     return best_name, best_dist
 
@@ -143,11 +145,14 @@ def run_validation(labeled_frames, map_config, shift_tolerance, resolution, all_
     tile_cols = map_config.get("tile_cols", 3)
 
     # Sort alphabetically at build time so iteration order is stable (alphabetical tie-break)
-    # without needing sorted() on every per-frame predict call (F4)
-    ref_hashes = {
-        name: imagehash.hex_to_hash(h)
-        for name, h in sorted(map_config["maps"].items())
-    }
+    # without needing sorted() on every per-frame predict call (F4).
+    # Values may be a single hex string or a list of hex strings (multi-source hashes).
+    ref_hashes = {}
+    for name, h in sorted(map_config["maps"].items()):
+        if isinstance(h, list):
+            ref_hashes[name] = [imagehash.hex_to_hash(x) for x in h]
+        else:
+            ref_hashes[name] = [imagehash.hex_to_hash(h)]
 
     # Use all_map_names if provided so empty dirs (no start/end frames yet) are captured
     candidate_names = all_map_names if all_map_names is not None else set(labeled_frames.keys())

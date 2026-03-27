@@ -270,6 +270,75 @@ def flow_tool3() -> tuple[list[str], str | None]:
 
 
 # ---------------------------------------------------------------------------
+# Tool 4 — hash_validator
+# ---------------------------------------------------------------------------
+
+
+def flow_tool4() -> tuple[list[str], str | None]:
+    """Collect arguments for hash_validator.py.
+
+    Returns (args_list, None) — no video_path for this tool.
+    """
+    args = ["tools/hash_validator.py"]
+
+    images_dir = questionary.text(
+        "Labeled images directory (--images)  [blank = output/labeled]:"
+    ).ask()
+    if images_dir:
+        args += ["--images", images_dir]
+
+    map_config = questionary.text(
+        "Map config path (--map-config)  [blank = output/map_config.json]:"
+    ).ask()
+    if map_config:
+        args += ["--map-config", map_config]
+
+    shift_tolerance = questionary.text(
+        "Shift tolerance (--shift-tolerance)  [blank = 2]:"
+    ).ask()
+    if shift_tolerance:
+        args += ["--shift-tolerance", shift_tolerance]
+
+    resolution = questionary.text(
+        "Processing resolution height (--resolution)  [blank = 720]:"
+    ).ask()
+    if resolution:
+        args += ["--resolution", resolution]
+
+    output_dir = questionary.text("Output directory (-o)  [blank = output]:").ask()
+    if output_dir:
+        args += ["-o", output_dir]
+
+    return args, None
+
+
+# ---------------------------------------------------------------------------
+# Tool 5 — warden_analyzer
+# ---------------------------------------------------------------------------
+
+
+def flow_tool5() -> tuple[list[str], str | None]:
+    """Collect arguments for warden_analyzer.py.
+
+    Returns (args_list, video_path).
+    """
+    video_path = browse_video_file("Select video file for Tool 5 — Analyze Rounds:")
+    args = ["tools/warden_analyzer.py", video_path]
+
+    map_config = questionary.text(
+        "Map config path (--map-config)  [blank = output/map_config.json]:"
+    ).ask()
+    if map_config:
+        args += ["--map-config", map_config]
+
+    output_dir = questionary.text("Output directory (-o)  [blank = default]:").ask()
+    if output_dir:
+        args += ["-o", output_dir]
+
+    return args, video_path
+
+
+# ---------------------------------------------------------------------------
 # Dev tool flows
 # ---------------------------------------------------------------------------
 
@@ -365,9 +434,11 @@ def menu_dev() -> None:
 # ---------------------------------------------------------------------------
 
 _TOOL_MAP = {
-    "game_detector":        ("Tool 1 — Extract Rounds",     flow_tool1),
-    "frame_labeler":        ("Tool 2 — Label Frames",        flow_tool2),
-    "map_config_generator": ("Tool 3 — Generate Map Config", flow_tool3),
+    "game_detector":        ("Tool 1 — Extract Rounds",          flow_tool1),
+    "frame_labeler":        ("Tool 2 — Label Frames",             flow_tool2),
+    "map_config_generator": ("Tool 3 — Generate Map Config",      flow_tool3),
+    "hash_validator":       ("Tool 4 — Validate Hash Accuracy",   flow_tool4),
+    "warden_analyzer":      ("Tool 5 — Analyze Rounds",           flow_tool5),
 }
 
 
@@ -389,6 +460,13 @@ def _reprompt_source(
         # last_args layout: ["tools/frame_labeler.py", <source_dir>, ...]
         new_args = [last_args[0], new_source] + last_args[2:]
         return new_args, None
+    elif tool_key == "hash_validator":
+        return flow_tool4()
+    elif tool_key == "warden_analyzer":
+        new_video = browse_video_file("Select new video file:")
+        # last_args layout: ["tools/warden_analyzer.py", <video>, ...]
+        new_args = [last_args[0], new_video] + last_args[2:]
+        return new_args, new_video
     else:
         # map_config_generator: arg structure varies too much; run full flow
         return flow_tool3()
@@ -445,6 +523,8 @@ def menu_main() -> None:
         "Tool 1 — Extract Rounds",
         "Tool 2 — Label Frames",
         "Tool 3 — Generate Map Config",
+        "Tool 4 — Validate Hash Accuracy",
+        "Tool 5 — Analyze Rounds",
         "Dev Tools",
         "Quit",
     ]
@@ -495,6 +575,35 @@ def menu_main() -> None:
                         args,
                         video_path,
                     )
+
+        elif choice == "Tool 4 — Validate Hash Accuracy":
+            args, video_path = flow_tool4()
+            if not args:
+                continue
+            confirmed = questionary.confirm(
+                f"Run: {exe_name} {' '.join(args)}?", default=True
+            ).ask()
+            if confirmed:
+                returncode = run_tool(args)
+                if returncode == 0:
+                    save_last_run(
+                        "hash_validator",
+                        "Tool 4 — Validate Hash Accuracy",
+                        args,
+                        video_path,
+                    )
+
+        elif choice == "Tool 5 — Analyze Rounds":
+            args, video_path = flow_tool5()
+            if not args:
+                continue
+            confirmed = questionary.confirm(
+                f"Run: {exe_name} {' '.join(args)}?", default=True
+            ).ask()
+            if confirmed:
+                returncode = run_tool(args)
+                if returncode == 0:
+                    save_last_run("warden_analyzer", "Tool 5 — Analyze Rounds", args, video_path)
 
         elif choice == "Dev Tools":
             menu_dev()
