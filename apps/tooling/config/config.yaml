@@ -131,13 +131,18 @@ map_identification:
       height: 22
 
   # Standard canvas: ROI is resized to this fixed square before hashing
-  canvas_size: 64
+  canvas_size: 128
 
   # Perceptual hash size (hash_size=8 produces a 64-bit hash)
-  hash_size: 8
+  hash_size: 16
 
   # Hash methods to compare in hash_comparator.py
   hash_methods: [ahash, dhash, phash]
+
+  # Preferred hash method for map_config.json output.
+  # Overrides auto-selection from hash_comparator.py comparison results.
+  # Set to null or omit to use auto-selection. CLI --force-method takes precedence.
+  preferred_method: dhash
 
   # Tiling strategy for canvas construction.
   # Split the ROI strip into this many equal columns and stack vertically before hashing.
@@ -161,7 +166,7 @@ map_identification:
 
   # Binarize the grayscale crop before hashing using Otsu's adaptive threshold.
   # Recommended for white text on variable-brightness backgrounds (e.g. map name HUD).
-  threshold_hash: true
+  threshold_hash: false
 
   # Minimum Hamming Distance to accept a map match. Scores >= this are marked 'unrecognized'.
   recognition_threshold: 10

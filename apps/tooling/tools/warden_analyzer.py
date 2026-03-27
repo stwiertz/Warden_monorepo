@@ -122,7 +122,18 @@ def run(video_path, output_dir, config, map_config, map_config_path):
     hud_brightness_max = pd["hud_brightness_max"]
 
     mi = config["map_identification"]
-    recognition_threshold = mi.get("recognition_threshold", 10)
+    if "recognition_threshold" in map_config:
+        recognition_threshold = map_config["recognition_threshold"]
+        threshold_source = "map_config"
+    else:
+        recognition_threshold = mi.get("recognition_threshold", 10)
+        threshold_source = "config.yaml"
+        print(
+            f"Warning: recognition_threshold not found in map_config.json — "
+            f"using config.yaml value ({recognition_threshold}). "
+            "Regenerate map_config.json with hash_comparator.py for a calibrated threshold.",
+            file=sys.stderr,
+        )
     shift_tolerance = mi.get("shift_tolerance", 2)
     text_anchor_width = mi.get("text_anchor_width") or None
     threshold_hash = mi.get("threshold_hash", False)
@@ -174,7 +185,7 @@ def run(video_path, output_dir, config, map_config, map_config_path):
     print(f"Processing: {video_path}")
     print(f"Map config: {map_config_path}  ({len(map_config['maps'])} maps)")
     print(f"Output: {output_dir}")
-    print(f"Config: recognition_threshold={recognition_threshold}, "
+    print(f"Config: recognition_threshold={recognition_threshold} (from {threshold_source}), "
           f"shift_tolerance={shift_tolerance}, score_offset={score_offset}s, "
           f"threshold_hash={threshold_hash}")
     if threshold_hash:

@@ -40,6 +40,7 @@ from utils.image import apply_threshold, downscale, extract_roi, find_text_ancho
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp"}
 REF_HEIGHT = 1080  # reference resolution height for ROI coordinates
+VALID_METHODS = ["ahash", "dhash", "phash"]
 
 
 # ---------------------------------------------------------------------------
@@ -528,7 +529,7 @@ def generate_report(results, output_dir, best_combo, best_min, shift_tolerance=0
     return report_path
 
 
-def generate_map_config(results, best_combo, config, output_dir, tile_cols=1):
+def generate_map_config(results, best_combo, config, output_dir, tile_cols=1, recognition_threshold_base=10):
     """Write map_config.json using the best-performing method+ROI combination.
 
     Format matches map_config_generator.py output (adds 'hash_method' field).
@@ -559,6 +560,8 @@ def generate_map_config(results, best_combo, config, output_dir, tile_cols=1):
         )
 
     ref_res = config["reference_resolution"]
+    hash_size = config["map_identification"]["hash_size"]
+    scaled_threshold = round(recognition_threshold_base * (hash_size / 8) ** 2)
     output = {
         "reference_resolution": ref_res,
         "roi": {
@@ -568,9 +571,10 @@ def generate_map_config(results, best_combo, config, output_dir, tile_cols=1):
             "height": roi_entry.get("height", 0),
         },
         "canvas_size": config["map_identification"]["canvas_size"],
-        "hash_size": config["map_identification"]["hash_size"],
+        "hash_size": hash_size,
         "hash_method": method,
         "tile_cols": tile_cols,
+        "recognition_threshold": scaled_threshold,
         "maps": method_data["hashes"],
     }
 
@@ -579,6 +583,7 @@ def generate_map_config(results, best_combo, config, output_dir, tile_cols=1):
         json.dump(output, f, indent=2)
 
     print(f"  map_config.json written: {os.path.abspath(output_path)}")
+    print(f"  recognition_threshold: {scaled_threshold} (base={recognition_threshold_base}, hash_size={hash_size})")
 
 
 # ---------------------------------------------------------------------------
@@ -606,7 +611,7 @@ def main():
         "--methods",
         nargs="+",
         metavar="METHOD",
-        choices=["ahash", "dhash", "phash"],
+        choices=VALID_METHODS,
         default=None,
         help="Hash methods to test (default: all from config)",
     )
@@ -648,6 +653,17 @@ def main():
         help="Disable threshold binarization before hashing (overrides config).",
     )
     parser.add_argument(
+        "--force-method",
+        metavar="METHOD",
+        choices=VALID_METHODS,
+        default=None,
+        help=(
+            "Force a specific method into map_config.json output, bypassing "
+            "auto-selection. The comparison report still runs all methods. "
+            "(Overrides config preferred_method.)"
+        ),
+    )
+    parser.add_argument(
         "--preview",
         action="store_true",
         help="Write processed canvas images to output dir for visual inspection",
@@ -676,6 +692,7 @@ def main():
 
     config = load_config(args.config)
     map_id = config["map_identification"]
+    force_method = args.force_method or map_id.get("preferred_method") or None
 
     # Resolve ROIs
     rois = map_id.get("rois", [])
@@ -755,6 +772,36 @@ def main():
 
     best_combo, best_min = select_best_combination(results)
 
+    if force_method:
+        # Find the best (roi, resolution) for the forced method — mirrors select_best_combination() tie-break
+        forced_combo = None
+        forced_min = -1
+        forced_collisions = float("inf")
+        for roi_name, res_data in results.items():
+            for resolution, method_data in res_data.items():
+                if force_method in method_data:
+                    stats = method_data[force_method]["stats"]
+                    min_dist = stats["min"]
+                    col = stats["collision_count"]
+                    if min_dist > forced_min or (min_dist == forced_min and col < forced_collisions):
+                        forced_combo = (roi_name, resolution, force_method)
+                        forced_min = min_dist
+                        forced_collisions = col
+        if forced_combo:
+            print(
+                f"  (forced method '{force_method}' — auto-selected: {best_combo[2] if best_combo else 'none'})",
+                file=sys.stderr,
+            )
+            best_combo = forced_combo
+            best_min = forced_min
+        else:
+            print(
+                f"Warning: --force-method '{force_method}' not found in results "
+                f"(was it excluded from --methods or hash_methods in config?). "
+                "Falling back to auto-selection.",
+                file=sys.stderr,
+            )
+
     print(f"\n{'='*60}")
     if best_combo:
         roi_name, resolution, method = best_combo
@@ -766,7 +813,11 @@ def main():
     print(f"{'='*60}")
 
     generate_report(results, output_dir, best_combo, best_min, shift_tolerance)
-    generate_map_config(results, best_combo, config, output_dir, tile_cols=tile_cols)
+    generate_map_config(
+        results, best_combo, config, output_dir,
+        tile_cols=tile_cols,
+        recognition_threshold_base=map_id.get("recognition_threshold", 10),
+    )
 
     print("\nDone.")
 
