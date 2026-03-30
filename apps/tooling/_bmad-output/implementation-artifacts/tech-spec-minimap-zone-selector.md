@@ -2,8 +2,8 @@
 title: 'Minimap Zone Selector Tool'
 slug: 'minimap-zone-selector'
 created: '2026-03-30'
-status: 'review'
-stepsCompleted: [1, 2, 3]
+status: 'ready-for-dev'
+stepsCompleted: [1, 2, 3, 4]
 tech_stack: ['Python 3.8+', 'Tkinter', 'PIL/Pillow', 'OpenCV 4.8+', 'NumPy', 'PyYAML']
 files_to_modify:
   - config/config.yaml
