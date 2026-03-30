@@ -2,8 +2,8 @@
 title: 'Minimap Zone Selector Tool'
 slug: 'minimap-zone-selector'
 created: '2026-03-30'
-status: 'in-progress'
-stepsCompleted: [1, 2]
+status: 'review'
+stepsCompleted: [1, 2, 3]
 tech_stack: ['Python 3.8+', 'Tkinter', 'PIL/Pillow', 'OpenCV 4.8+', 'NumPy', 'PyYAML']
 files_to_modify:
   - config/config.yaml
@@ -17,8 +17,16 @@ files_to_create:
   - tools/minimap_zone_selector/config_manager.py
   - tools/minimap_zone_selector/hsv_editor.py
   - tools/minimap_zone_selector/stats_panel.py
-code_patterns: []
-test_patterns: []
+code_patterns:
+  - 'tk.Tk subclass with toolbar + canvas layout (frame_labeler, image_inspector)'
+  - 'ImageCanvas reuse from tools/image_inspector/canvas.py'
+  - 'HSV center+tolerance pattern from HSVFilterMode (modes.py)'
+  - 'extract_roi/scale_roi from utils/image.py'
+  - 'yaml.safe_load + yaml.dump preserve-other-keys pattern'
+  - 'MAP_LABELS list from frame_labeler.py'
+test_patterns:
+  - 'No test framework present — manual validation only'
+  - 'zone_fires() is a pure function testable with synthetic numpy arrays'
 ---
 
 # Tech-Spec: Minimap Zone Selector Tool
@@ -176,158 +184,216 @@ minimap_identification:
 
 ### Tasks (dependency order — lowest level first)
 
-**T1 — Package skeleton**
-- Create `tools/minimap_zone_selector/__init__.py` (empty)
-- Create `tools/minimap_zone_selector/__main__.py`: parse args, construct app, call
-  `mainloop()`. CLI: `python -m tools.minimap_zone_selector --labeled <dir>
-  [--config <path>]` (config default: `config/config.yaml`)
+- [ ] **T1: Create package skeleton**
+  - File: `tools/minimap_zone_selector/__init__.py`
+  - Action: Create empty file to make it a package.
+  - File: `tools/minimap_zone_selector/__main__.py`
+  - Action: `argparse` entry point — `--labeled <dir>` (required), `--config <path>`
+    (default `config/config.yaml`). Construct `MinimapZoneSelectorApp`, call
+    `mainloop()`. Run with `python -m tools.minimap_zone_selector --labeled <dir>`.
 
-**T2 — `data_loader.py`**
-- `MinimapDataLoader(labeled_dir, minimap_roi_ref, ref_w=1920, ref_h=1080)`
-- On init: scan `<labeled_dir>/<map>/` for each label in `MAP_LABELS`; load all PNGs
-  as BGR numpy arrays via `cv2.imread`; skip missing map dirs with a warning.
-- `get_frames(map_name) -> list[np.ndarray]` — all full-frame BGR arrays for that map
-- `get_minimap_crops(map_name) -> list[np.ndarray]` — each frame cropped to minimap
-  ROI (scaled to frame resolution with `scale_roi`)
-- `get_reference_image(map_name) -> PIL.Image | None` — first image as PIL RGB, for
-  canvas display
-- `all_map_names() -> list[str]` — maps with ≥1 image found
+- [ ] **T2: Implement `data_loader.py`**
+  - File: `tools/minimap_zone_selector/data_loader.py`
+  - Action: Implement `MinimapDataLoader(labeled_dir, minimap_roi_ref, ref_w=1920,
+    ref_h=1080)`.
+    - On init: scan `<labeled_dir>/<map>/` for each of the 14 `MAP_LABELS` (import
+      from `tools.frame_labeler`); load all PNGs as BGR numpy arrays via
+      `cv2.imread`; print warning to stderr for missing dirs.
+    - `get_frames(map_name) -> list[np.ndarray]` — all full-frame BGR arrays.
+    - `get_all_frames() -> dict[str, list[np.ndarray]]` — all maps.
+    - `get_reference_image(map_name, index=0) -> PIL.Image | None` — frame at index
+      as PIL RGB (for canvas display).
+    - `frame_count(map_name) -> int`.
+    - `all_map_names() -> list[str]` — maps with ≥1 image found.
 
-**T3 — `zone_model.py`**
-- `Zone` dataclass:
-  ```python
-  @dataclass
-  class Zone:
-      zone_id: str
-      x: int; y: int; width: int; height: int  # full-frame ref coords
-      h_center: int; h_tol: int   # 0–360
-      s_center: int; s_tol: int   # 0–100
-      v_center: int; v_tol: int   # 0–100
-      min_ratio: float
-      weight: float               # auto-computed or manual
-      weight_override: bool
-  ```
-- `zone_fires(zone, bgr_frame, frame_w, frame_h, ref_w=1920, ref_h=1080) -> bool`:
-  1. Scale zone coords to frame resolution
-  2. `extract_roi(bgr_frame, scaled_zone)`
-  3. Convert region to HSV; build mask via `cv2.inRange` (with hue wraparound)
-  4. Return `mask.sum() / mask.size >= zone.min_ratio`
-- `MinimapConfig` dataclass: `id`, `roi` (dict), `identification_threshold` (float),
-  `maps` (dict[str, list[Zone]])
+- [ ] **T3: Implement `zone_model.py`**
+  - File: `tools/minimap_zone_selector/zone_model.py`
+  - Action: Define the following dataclasses and helpers.
+    ```python
+    @dataclass
+    class Zone:
+        zone_id: str
+        x: int; y: int; width: int; height: int  # full-frame ref coords (1920×1080)
+        h_center: int; h_tol: int   # user-space: 0–360
+        s_center: int; s_tol: int   # user-space: 0–100
+        v_center: int; v_tol: int   # user-space: 0–100
+        min_ratio: float
+        weight: float
+        weight_override: bool
 
-**T4 — `validator.py`**
-- `ZoneStats` dataclass: `tp_rate`, `fp_rate`, `auto_weight`
-- `MapStats` dataclass: `accuracy` (fraction of images correctly identified),
-  `coverage_sim_accuracy` (worst-case with one zone knocked out)
-- `ValidationResult` dataclass: `zone_stats: dict[str, ZoneStats]` (keyed by
-  `zone_id`), `map_stats: dict[str, MapStats]`, `overall_accuracy: float`
-- `ZoneValidator.compute(config: MinimapConfig, loader: MinimapDataLoader)
-  -> ValidationResult`:
-  1. For each zone of each map: compute TP rate over same-map frames; FP rate over
-     all other-map frames combined; auto_weight = TP × (1 − max_FP_per_other_map)
-  2. For each frame of each map: sum weights of firing zones → compare to threshold
-     → correct if sum >= threshold. `map_stats[m].accuracy` = fraction correct.
-  3. Coverage sim: for each map, for each zone index i, recompute accuracy with
-     zone i removed. `coverage_sim_accuracy` = min over all i.
-  4. `overall_accuracy` = mean of all per-map accuracies.
+    @dataclass
+    class MinimapConfig:
+        id: str
+        roi: dict                          # {name, x, y, width, height} ref coords
+        identification_threshold: float
+        maps: dict[str, list[Zone]]        # map_label -> zones
+    ```
+    - `zone_fires(zone, bgr_frame, ref_w=1920, ref_h=1080) -> bool`:
+      1. Compute `scale = frame_w / ref_w` (use `frame.shape[1]`).
+      2. Build scaled ROI dict: `scale_roi({...zone coords...}, scale)`.
+      3. `region = extract_roi(bgr_frame, scaled_roi)`.
+      4. Convert region to HSV with `cv2.cvtColor(region, cv2.COLOR_BGR2HSV)`.
+      5. Convert user-space HSV to OpenCV scale (reuse `_H_USER_TO_CV`,
+         `_SV_USER_TO_CV` constants from `image_inspector/modes.py`).
+      6. Build mask via `cv2.inRange`; handle hue wraparound same as
+         `HSVFilterMode._apply` (split into two ranges when `h_lo < 0` or
+         `h_hi > 179`).
+      7. Return `np.count_nonzero(mask) / mask.size >= zone.min_ratio`.
+  - Notes: Import `extract_roi`, `scale_roi` from `utils.image`.
 
-**T5 — `config_manager.py`**
-- `ConfigManager(config_path)`
-- `load() -> list[MinimapConfig]` — parse `minimap_identification.configs` list;
-  return empty list if key absent
-- `save(configs: list[MinimapConfig])` — load full YAML, replace
-  `minimap_identification.configs`, write back preserving all other keys
-- `get_config(id) -> MinimapConfig | None`
-- `upsert(config: MinimapConfig)` — add if new id, replace if existing
-- `delete(id)` — remove by id
-- `clone(src_id, new_id) -> MinimapConfig` — deep copy with new id
+- [ ] **T4: Implement `validator.py`**
+  - File: `tools/minimap_zone_selector/validator.py`
+  - Action: Implement the following dataclasses and validator.
+    ```python
+    @dataclass
+    class ZoneStats:
+        tp_rate: float      # fraction of same-map frames where zone fires
+        fp_rate: float      # fraction of all other-map frames where zone fires
+        auto_weight: float  # tp_rate × (1 − max FP rate across any single other map)
 
-**T6 — `hsv_editor.py`**
-- `HSVEditor(parent, zone: Zone, on_change: Callable[[Zone], None])`
-- Inline `tk.Frame` with entry widgets for H center/tol, S center/tol, V center/tol,
-  min_ratio (replicating `HSVFilterMode._build_ui` layout)
-- "Apply" button calls `on_change` with updated zone; validates ranges before firing
-- `load_zone(zone)` — populate fields from existing zone
+    @dataclass
+    class MapStats:
+        accuracy: float              # fraction of same-map frames correctly identified
+        coverage_sim_accuracy: float # worst-case accuracy with one zone knocked out
 
-**T7 — `stats_panel.py`**
-- `StatsPanel(parent)` — right-side `tk.Frame` with scrollable zone list + accuracy table
-- `update(result: ValidationResult, config: MinimapConfig, selected_map: str)`:
-  - Zone list rows: zone_id | TP% | FP% | weight | `[Override]` checkbox +
-    entry | `[Delete]` button
-  - Map accuracy table: map name | accuracy% | coverage sim%
-  - Overall accuracy label at top
-- Callbacks: `on_delete_zone`, `on_weight_override_change`
+    @dataclass
+    class ValidationResult:
+        zone_stats: dict[str, ZoneStats]  # keyed by zone_id
+        map_stats: dict[str, MapStats]
+        overall_accuracy: float           # mean of per-map accuracies
+    ```
+    - `ZoneValidator.compute(config: MinimapConfig, loader: MinimapDataLoader)
+      -> ValidationResult`:
+      1. Pre-compute `zone_fires()` results for every (zone, frame) pair.
+      2. Per zone: `tp_rate` = fires on same-map / total same-map; per other map
+         compute fp_rate; `auto_weight = tp_rate × (1 − max_other_fp_rate)`.
+      3. Per map per frame: sum `zone.weight` for zones that fire → correct if
+         sum ≥ `config.identification_threshold`.
+      4. Coverage sim: for each map, for each zone index i, recompute per-frame
+         accuracy excluding zone i; `coverage_sim_accuracy = min over all i`.
+      5. `overall_accuracy = mean(map_stats[m].accuracy for all m)`.
 
-**T8 — `app.py`**
-- `MinimapZoneSelectorApp(tk.Tk)`:
-  - **Toolbar:** version selector `ttk.Combobox` + `[New]` `[Clone]` `[Delete]`
-    buttons; map selector `ttk.Combobox`; `[Export]` button
-  - **Left panel:** `ImageCanvas` loaded with minimap crop of first reference image
-    for selected map; zone overlays drawn as colored rectangles (cycling colors,
-    same as `ROIMode._COLORS`); `[Browse ◀ ▶]` buttons to step through reference
-    images for the current map
-  - **Right panel:** `StatsPanel`; `HSVEditor` below zone list (updates when zone
-    selected in list)
-  - Zone drawing: `<ButtonPress-1>` / `<B1-Motion>` / `<ButtonRelease-1>` on canvas
-    → compute ref coords (canvas → image → add minimap ROI offset → scale to 1920×1080)
-    → create `Zone` with defaults (H:0±180, S:0±12, V:100±15, min_ratio:0.3,
-    weight:0.0, weight_override:False) → append to active config's zone list for
-    selected map → revalidate → refresh stats panel
-  - After any zone change: call `ZoneValidator.compute(...)`, update `StatsPanel`,
-    update auto-weights on zones where `weight_override=False`
-  - `[Export]` → `ConfigManager.upsert(active_config)` → `ConfigManager.save()`
+- [ ] **T5: Implement `config_manager.py`**
+  - File: `tools/minimap_zone_selector/config_manager.py`
+  - Action: Implement `ConfigManager(config_path: str)`.
+    - `load() -> list[MinimapConfig]` — `yaml.safe_load`; read
+      `minimap_identification.configs`; deserialise each entry into `MinimapConfig`
+      (zones as `Zone` dataclasses); return `[]` if key absent.
+    - `save(configs: list[MinimapConfig])` — load full YAML dict, set
+      `data['minimap_identification']['configs']` to serialised list, write with
+      `yaml.dump(..., default_flow_style=False, allow_unicode=True)`. Preserves all
+      other top-level keys.
+    - `upsert(config: MinimapConfig)` — replace entry with matching `id` or append.
+    - `delete(config_id: str)` — remove entry by id; no-op if not found.
+    - `clone(src_id: str, new_id: str) -> MinimapConfig` — deep copy src config,
+      set `id = new_id`, return without saving.
+
+- [ ] **T6: Implement `hsv_editor.py`**
+  - File: `tools/minimap_zone_selector/hsv_editor.py`
+  - Action: Implement `HSVEditor(parent, on_change: Callable[[Zone], None])`.
+    - Build inline `tk.LabelFrame` with grid of entry widgets matching
+      `HSVFilterMode._build_ui`: rows for center and ± tolerance for H, S, V; plus
+      a `min_ratio` entry and a `weight` display (read-only, shows auto or manual
+      value).
+    - `load_zone(zone: Zone)` — populate all fields from zone.
+    - `[Apply]` button: validate ranges (H 0–360, S/V 0–100, tols ≥ 0,
+      min_ratio 0–1); call `on_change(updated_zone)`.
+    - Shows `"(manual)"` label next to weight when `weight_override=True`.
+
+- [ ] **T7: Implement `stats_panel.py`**
+  - File: `tools/minimap_zone_selector/stats_panel.py`
+  - Action: Implement `StatsPanel(parent, on_delete_zone, on_weight_override_change)`.
+    - Overall accuracy label at top: `"Overall: {x:.1f}%"`.
+    - Zone list (`tk.Frame` with scrollbar): one row per zone showing
+      `zone_id | TP% | FP% | weight | Override ☐ | weight entry | [Delete]`.
+    - Map accuracy table (`tk.Frame`): columns `Map | Accuracy% | Coverage Sim%`;
+      highlight rows where accuracy < 100% in red.
+    - `update(result: ValidationResult, config: MinimapConfig, selected_map: str)`
+      — rebuild zone list for `selected_map` and refresh full map table.
+
+- [ ] **T8: Implement `app.py`**
+  - File: `tools/minimap_zone_selector/app.py`
+  - Action: Implement `MinimapZoneSelectorApp(tk.Tk)`.
+    - **Toolbar (top):** `ttk.Combobox` version selector (populated from
+      `ConfigManager.load()`); `[New]` `[Clone]` `[Delete]` version buttons;
+      separator; `ttk.Combobox` map selector; `[Export]` button.
+    - **Left panel:** `ImageCanvas` (imported from
+      `tools.image_inspector.canvas`) showing minimap crop (`get_reference_image`)
+      for the selected map; `[◀]` `[▶]` buttons to step through all images for that
+      map (updates canvas only — does not affect zone data). Zone overlays as colored
+      rectangles cycling `["cyan","lime","magenta","yellow","orange","red"]`.
+    - **Right panel:** `StatsPanel` (top portion, expandable); `HSVEditor` (bottom
+      portion, shown when a zone is selected in the zone list).
+    - **Zone drawing:** bind `<ButtonPress-1>`, `<B1-Motion>`,
+      `<ButtonRelease-1>` on `ImageCanvas`. On release: convert canvas coords →
+      image-crop coords → full-frame ref coords (add minimap ROI x/y offset, scale
+      to 1920×1080). Create `Zone` with defaults `(H:0±180, S:0±12, V:100±15,
+      min_ratio:0.3, weight:0.0, weight_override:False)`, auto-assign
+      `zone_id = f"zone_{n}"`. Append to active config's zone list for selected map.
+      Trigger revalidation.
+    - **Revalidation:** after every zone add/modify/delete: call
+      `ZoneValidator.compute(config, loader)`, update `auto_weight` on all
+      non-override zones, call `stats_panel.update(result, config, selected_map)`.
+    - **Export:** `ConfigManager.upsert(active_config)` then `ConfigManager.save(configs)`.
+    - **Version CRUD:**
+      - `[New]` → prompt for id via `simpledialog.askstring`; create empty
+        `MinimapConfig` with default ROI from config file.
+      - `[Clone]` → prompt for new id; call `ConfigManager.clone(src_id, new_id)`;
+        add to in-memory list; refresh combobox.
+      - `[Delete]` → confirm via `messagebox.askyesno`; remove from list; refresh.
 
 ### Acceptance Criteria
 
-**AC1 — Zone drawing**
-- *Given* the minimap canvas is loaded, *when* the user click-drags a rectangle,
-  *then* a new zone is added to the current map with coordinates correctly translated
-  to full-frame reference resolution (1920×1080); a colored overlay rectangle appears.
+- [ ] **AC1 — Zone drawing:** Given the minimap canvas is loaded with a reference
+  image, when the user click-drags a rectangle on the canvas, then a new `Zone` is
+  appended to the selected map's zone list with `x`, `y`, `width`, `height` correctly
+  translated to full-frame reference resolution (1920×1080); a colored overlay
+  rectangle appears on the canvas.
 
-**AC2 — HSV edit + live update**
-- *Given* a zone exists, *when* the user changes any HSV parameter and clicks Apply,
-  *then* validation recomputes and the stats panel refreshes (TP%, FP%, weight updated).
+- [ ] **AC2 — HSV edit + live update:** Given a zone exists and is selected in the
+  zone list, when the user modifies any HSV parameter in `HSVEditor` and clicks Apply,
+  then `ZoneValidator.compute()` runs, `auto_weight` is recalculated, and the stats
+  panel reflects updated TP%, FP%, and weight values.
 
-**AC3 — Auto weight**
-- *Given* a zone fires on 100% of same-map images and 0% of other-map images,
-  *then* `auto_weight` = 1.0 and is displayed without "(manual)" indicator.
-- *Given* a zone fires on 80% of same-map images and 10% of worst other-map,
-  *then* `auto_weight` = 0.80 × (1 − 0.10) = 0.72.
+- [ ] **AC3 — Auto weight formula:** Given a zone fires on 100% of same-map images
+  and 0% of all other-map images, then `auto_weight` = 1.0, displayed without
+  "(manual)". Given a zone fires on 80% of same-map and 10% worst-other-map images,
+  then `auto_weight` = `0.80 × (1 − 0.10)` = 0.72.
 
-**AC4 — Manual weight override**
-- *Given* `weight_override=False`, *when* user checks Override and sets weight=0.9,
-  *then* the zone uses 0.9 in all subsequent validations regardless of TP/FP stats;
-  the stats panel shows "(manual)" next to the weight value.
-- *Given* `weight_override=True`, *when* user unchecks Override,
-  *then* weight reverts to the auto-computed value immediately.
+- [ ] **AC4 — Manual weight override:** Given `weight_override=False`, when the user
+  checks Override and enters 0.9 in the weight entry, then the zone's weight is 0.9
+  in all validations and the stats panel shows "(manual)" beside it. Given
+  `weight_override=True`, when the user unchecks Override, then the weight immediately
+  reverts to the current `auto_weight` value.
 
-**AC5 — Coverage simulation**
-- *Given* map "horizon" has 3 zones with effective weights [0.8, 0.5, 0.3] and
-  threshold=0.6, *when* coverage sim runs, *then* knocking out zone_0 (0.8) leaves
-  sum=0.8 which still ≥ 0.6 so accuracy holds; the sim reports this correctly.
+- [ ] **AC5 — Coverage simulation:** Given map "horizon" has 3 zones with effective
+  weights [0.8, 0.5, 0.3] and `identification_threshold=0.6`, when coverage sim runs,
+  then for each single-zone knockout the remaining weighted sum is computed; the
+  `coverage_sim_accuracy` reflects the worst-case scenario across all knockouts.
 
-**AC6 — Config versioning**
-- *Given* no existing `minimap_identification` in config.yaml, *when* user clicks New,
-  enters id "v1.0", and exports, *then* `config.yaml` gains a valid
-  `minimap_identification.configs` list with one entry id="v1.0".
-- *Given* "v1.0" exists with zones, *when* user clicks Clone and enters "v1.5_hud",
-  *then* a new config "v1.5_hud" is created as a deep copy; editing its zones does
-  not affect "v1.0".
+- [ ] **AC6 — Config versioning — new:** Given no `minimap_identification` key in
+  `config.yaml`, when user clicks `[New]`, enters id "v1.0", and clicks `[Export]`,
+  then `config.yaml` contains a valid `minimap_identification.configs` list with one
+  entry where `id = "v1.0"` and all other sections are untouched.
 
-**AC7 — Export preserves config**
-- *Given* a config.yaml with existing `black_detection`, `map_identification`, and
-  other sections, *when* the user exports, *then* all other sections are unchanged
-  and the file remains valid YAML.
+- [ ] **AC7 — Config versioning — clone:** Given config "v1.0" exists with zones,
+  when user clicks `[Clone]` and enters "v1.5_hud", then a new config "v1.5_hud" is
+  created as a deep copy of "v1.0"; subsequently editing zones in "v1.5_hud" does not
+  alter "v1.0".
 
-**AC8 — Multi-image validation**
-- *Given* a map folder has 5 images (e.g. 3 start frames, 2 end frames),
-  *when* validation runs, *then* all 5 images are used for TP/FP computation —
-  not just the first one.
+- [ ] **AC8 — Export preserves other sections:** Given `config.yaml` contains
+  `black_detection`, `map_identification`, and other sections, when the user exports,
+  then all other top-level keys remain byte-for-byte equivalent and the file is valid
+  YAML.
 
-**AC9 — Missing map folder**
-- *Given* the labeled dir has no subfolder for map "lunar_outpost",
-  *when* the tool starts, *then* a warning is printed to stderr; all other maps load
-  normally; "lunar_outpost" appears in the map selector with a "(no images)" label.
+- [ ] **AC9 — Multi-image validation:** Given a map folder contains 5 images,
+  when `ZoneValidator.compute()` runs, then all 5 images are included in the TP/FP
+  computation — not only the first one.
+
+- [ ] **AC10 — Missing map folder:** Given the labeled dir has no subfolder for
+  "lunar_outpost", when the tool starts, then a warning is printed to stderr, all
+  other 13 maps load normally, and "lunar_outpost (no images)" appears in the map
+  selector but cannot have zones drawn for it.
 
 ---
 
