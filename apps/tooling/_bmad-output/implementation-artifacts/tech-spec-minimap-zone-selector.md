@@ -198,7 +198,13 @@ minimap_identification:
     ref_h=1080)`.
     - On init: scan `<labeled_dir>/<map>/` for each of the 14 `MAP_LABELS` (import
       from `tools.frame_labeler`); load all PNGs as BGR numpy arrays via
-      `cv2.imread`; print warning to stderr for missing dirs.
+      `cv2.imread`; skip `None` returns (unreadable files) with a stderr warning;
+      print warning to stderr for missing map dirs.
+    - After loading each frame, check `frame.shape[1] != ref_w or frame.shape[0] !=
+      ref_h`; if so, print a stderr warning:
+      `"[WARN] {path}: frame is {w}×{h}, expected {ref_w}×{ref_h} — zone coords may
+      be inaccurate"`. Still include the frame; `zone_fires()` handles arbitrary
+      resolutions via `scale_roi(zone, frame_w / ref_w)`.
     - `get_frames(map_name) -> list[np.ndarray]` — all full-frame BGR arrays.
     - `get_all_frames() -> dict[str, list[np.ndarray]]` — all maps.
     - `get_reference_image(map_name, index=0) -> PIL.Image | None` — frame at index
@@ -233,8 +239,9 @@ minimap_identification:
       2. Build scaled ROI dict: `scale_roi({...zone coords...}, scale)`.
       3. `region = extract_roi(bgr_frame, scaled_roi)`.
       4. Convert region to HSV with `cv2.cvtColor(region, cv2.COLOR_BGR2HSV)`.
-      5. Convert user-space HSV to OpenCV scale (reuse `_H_USER_TO_CV`,
-         `_SV_USER_TO_CV` constants from `image_inspector/modes.py`).
+      5. Convert user-space HSV to OpenCV scale using module-level constants
+         declared in `zone_model.py` (do NOT import from `modes.py` — redeclare):
+         `_H_USER_TO_CV = 179 / 360` and `_SV_USER_TO_CV = 255 / 100`.
       6. Build mask via `cv2.inRange`; handle hue wraparound same as
          `HSVFilterMode._apply` (split into two ranges when `h_lo < 0` or
          `h_hi > 179`).
@@ -265,13 +272,24 @@ minimap_identification:
     - `ZoneValidator.compute(config: MinimapConfig, loader: MinimapDataLoader)
       -> ValidationResult`:
       1. Pre-compute `zone_fires()` results for every (zone, frame) pair.
-      2. Per zone: `tp_rate` = fires on same-map / total same-map; per other map
-         compute fp_rate; `auto_weight = tp_rate × (1 − max_other_fp_rate)`.
-      3. Per map per frame: sum `zone.weight` for zones that fire → correct if
-         sum ≥ `config.identification_threshold`.
-      4. Coverage sim: for each map, for each zone index i, recompute per-frame
-         accuracy excluding zone i; `coverage_sim_accuracy = min over all i`.
-      5. `overall_accuracy = mean(map_stats[m].accuracy for all m)`.
+      2. Per zone: `tp_rate` = fires on same-map / total same-map frames (0.0 if
+         map has no frames). Per other map, compute that map's fp_rate = fires on
+         other-map frames / total other-map frames. `max_other_fp_rate` = max of
+         those per-map fp_rates; if no other maps have any frames, treat
+         `max_other_fp_rate = 0.0`. `auto_weight = tp_rate × (1 − max_other_fp_rate)`.
+      3. Per map per frame: sum `zone.weight` for zones that fire → weighted_sum.
+         A map with zero zones always produces `weighted_sum = 0.0`.
+         `correct = weighted_sum >= config.identification_threshold`.
+         `map_stats[m].accuracy` = fraction of same-map frames that are correct.
+         Maps with zero frames get `accuracy = 0.0`.
+      4. Coverage sim per map: for each zone index i in that map's zone list,
+         recompute per-frame `weighted_sum` excluding zone i; count correct frames;
+         `per_knockout_accuracy[i]` = fraction correct.
+         `coverage_sim_accuracy = min(per_knockout_accuracy)`.
+         If the map has 0 or 1 zones, `coverage_sim_accuracy = accuracy` (no
+         redundancy possible — display "N/A" in the stats panel).
+      5. `overall_accuracy = mean(map_stats[m].accuracy for all m with frames)`
+         (exclude maps with zero frames from the mean).
 
 - [ ] **T5: Implement `config_manager.py`**
   - File: `tools/minimap_zone_selector/config_manager.py`
@@ -297,7 +315,10 @@ minimap_identification:
       value).
     - `load_zone(zone: Zone)` — populate all fields from zone.
     - `[Apply]` button: validate ranges (H 0–360, S/V 0–100, tols ≥ 0,
-      min_ratio 0–1); call `on_change(updated_zone)`.
+      min_ratio 0.0–1.0). On invalid input: display an inline red `tk.Label`
+      error message directly below the entries (e.g. `"H must be 0–360"`); do NOT
+      update the zone or trigger revalidation. Clear the error label on next
+      successful Apply. No modal dialogs.
     - Shows `"(manual)"` label next to weight when `weight_override=True`.
 
 - [ ] **T7: Implement `stats_panel.py`**
@@ -321,7 +342,9 @@ minimap_identification:
       `tools.image_inspector.canvas`) showing minimap crop (`get_reference_image`)
       for the selected map; `[◀]` `[▶]` buttons to step through all images for that
       map (updates canvas only — does not affect zone data). Zone overlays as colored
-      rectangles cycling `["cyan","lime","magenta","yellow","orange","red"]`.
+      rectangles; color = `ZONE_COLORS[zone_index % len(ZONE_COLORS)]` where
+      `ZONE_COLORS = ["cyan","lime","magenta","yellow","orange","red"]` — wraps for
+      >6 zones per map.
     - **Right panel:** `StatsPanel` (top portion, expandable); `HSVEditor` (bottom
       portion, shown when a zone is selected in the zone list).
     - **Zone drawing:** bind `<ButtonPress-1>`, `<B1-Motion>`,
@@ -337,7 +360,12 @@ minimap_identification:
     - **Export:** `ConfigManager.upsert(active_config)` then `ConfigManager.save(configs)`.
     - **Version CRUD:**
       - `[New]` → prompt for id via `simpledialog.askstring`; create empty
-        `MinimapConfig` with default ROI from config file.
+        `MinimapConfig` with default ROI resolved as follows: if any configs are
+        already loaded, copy `configs[0].roi`; otherwise use the hardcoded fallback
+        `{name: "minimap", x: 104, y: 0, width: 234, height: 264}` (the known
+        gameplay minimap position at 1920×1080). The ROI is editable post-creation
+        via a future config-level edit dialog (out of scope here — document as a
+        known limitation).
       - `[Clone]` → prompt for new id; call `ConfigManager.clone(src_id, new_id)`;
         add to in-memory list; refresh combobox.
       - `[Delete]` → confirm via `messagebox.askyesno`; remove from list; refresh.
