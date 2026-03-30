@@ -2,7 +2,7 @@
 title: 'Minimap Zone Selector Tool'
 slug: 'minimap-zone-selector'
 created: '2026-03-30'
-status: 'ready-for-dev'
+status: 'completed'
 stepsCompleted: [1, 2, 3, 4]
 tech_stack: ['Python 3.8+', 'Tkinter', 'PIL/Pillow', 'OpenCV 4.8+', 'NumPy', 'PyYAML']
 files_to_modify:
@@ -184,7 +184,7 @@ minimap_identification:
 
 ### Tasks (dependency order — lowest level first)
 
-- [ ] **T1: Create package skeleton**
+- [x] **T1: Create package skeleton**
   - File: `tools/minimap_zone_selector/__init__.py`
   - Action: Create empty file to make it a package.
   - File: `tools/minimap_zone_selector/__main__.py`
@@ -192,7 +192,7 @@ minimap_identification:
     (default `config/config.yaml`). Construct `MinimapZoneSelectorApp`, call
     `mainloop()`. Run with `python -m tools.minimap_zone_selector --labeled <dir>`.
 
-- [ ] **T2: Implement `data_loader.py`**
+- [x] **T2: Implement `data_loader.py`**
   - File: `tools/minimap_zone_selector/data_loader.py`
   - Action: Implement `MinimapDataLoader(labeled_dir, minimap_roi_ref, ref_w=1920,
     ref_h=1080)`.
@@ -212,7 +212,7 @@ minimap_identification:
     - `frame_count(map_name) -> int`.
     - `all_map_names() -> list[str]` — maps with ≥1 image found.
 
-- [ ] **T3: Implement `zone_model.py`**
+- [x] **T3: Implement `zone_model.py`**
   - File: `tools/minimap_zone_selector/zone_model.py`
   - Action: Define the following dataclasses and helpers.
     ```python
@@ -248,7 +248,7 @@ minimap_identification:
       7. Return `np.count_nonzero(mask) / mask.size >= zone.min_ratio`.
   - Notes: Import `extract_roi`, `scale_roi` from `utils.image`.
 
-- [ ] **T4: Implement `validator.py`**
+- [x] **T4: Implement `validator.py`**
   - File: `tools/minimap_zone_selector/validator.py`
   - Action: Implement the following dataclasses and validator.
     ```python
@@ -291,7 +291,7 @@ minimap_identification:
       5. `overall_accuracy = mean(map_stats[m].accuracy for all m with frames)`
          (exclude maps with zero frames from the mean).
 
-- [ ] **T5: Implement `config_manager.py`**
+- [x] **T5: Implement `config_manager.py`**
   - File: `tools/minimap_zone_selector/config_manager.py`
   - Action: Implement `ConfigManager(config_path: str)`.
     - `load() -> list[MinimapConfig]` — `yaml.safe_load`; read
@@ -306,7 +306,7 @@ minimap_identification:
     - `clone(src_id: str, new_id: str) -> MinimapConfig` — deep copy src config,
       set `id = new_id`, return without saving.
 
-- [ ] **T6: Implement `hsv_editor.py`**
+- [x] **T6: Implement `hsv_editor.py`**
   - File: `tools/minimap_zone_selector/hsv_editor.py`
   - Action: Implement `HSVEditor(parent, on_change: Callable[[Zone], None])`.
     - Build inline `tk.LabelFrame` with grid of entry widgets matching
@@ -321,7 +321,7 @@ minimap_identification:
       successful Apply. No modal dialogs.
     - Shows `"(manual)"` label next to weight when `weight_override=True`.
 
-- [ ] **T7: Implement `stats_panel.py`**
+- [x] **T7: Implement `stats_panel.py`**
   - File: `tools/minimap_zone_selector/stats_panel.py`
   - Action: Implement `StatsPanel(parent, on_delete_zone, on_weight_override_change)`.
     - Overall accuracy label at top: `"Overall: {x:.1f}%"`.
@@ -332,7 +332,7 @@ minimap_identification:
     - `update(result: ValidationResult, config: MinimapConfig, selected_map: str)`
       — rebuild zone list for `selected_map` and refresh full map table.
 
-- [ ] **T8: Implement `app.py`**
+- [x] **T8: Implement `app.py`**
   - File: `tools/minimap_zone_selector/app.py`
   - Action: Implement `MinimapZoneSelectorApp(tk.Tk)`.
     - **Toolbar (top):** `ttk.Combobox` version selector (populated from
@@ -454,3 +454,10 @@ with synthetic numpy arrays), `ZoneValidator.compute()` (testable with mock load
 - First default HSV values for a new zone (H:0±180, S:0±12, V:100±15, min_ratio:0.3)
   target near-white pixels (walls, bright terrain lines). The user is expected to
   refine these using the HSV editor after drawing.
+
+## Review Notes
+
+- Adversarial review completed
+- Findings: 15 total, 7 fixed, 8 skipped (noise/low/undecided)
+- Resolution approach: auto-fix of real findings
+- Fixed: coordinate transform cleanup (F1), zone ID collision (F3), map name parsing (F5), clone from in-memory (F7), stale refs after export (F9), delete persistence (F14), tk.Frame.update shadow (F16)
