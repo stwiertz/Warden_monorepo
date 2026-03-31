@@ -2,7 +2,7 @@
 title: 'Hashing Workflow for Map Identification (Tool 3)'
 slug: 'hashing-workflow-tool3'
 created: '2026-03-18'
-status: 'ready-for-dev'
+status: 'completed'
 stepsCompleted: [1, 2, 3, 4]
 tech_stack: ['python3.8+', 'imagehash>=4.2', 'opencv>=4.8', 'pillow', 'numpy', 'pyyaml']
 files_to_modify: ['tools/hash_comparator.py (new)', 'tools/frame_labeler.py', 'config/config.yaml']
@@ -81,12 +81,12 @@ Cela implique aussi une évolution de Tool 2 (Frame Labeler) pour exporter les f
 
 ### Tasks
 
-- [ ] Task 1: Extend Frame Labeler to support start/end frame types
+- [x] Task 1: Extend Frame Labeler to support start/end frame types
   - File: `tools/frame_labeler.py`
   - Action: Replace `find_score_images()` with a generic `find_frame_images()` that accepts a `--type` CLI arg (`score`, `start`, `end`, `all`). Default to `all` to find `*score*`, `*start*`, and `*end*` PNG files. Update the `argparse` section to add `--type` flag.
   - Notes: The labeled output structure stays `<output>/labeled/<map_name>/` — the frame type is preserved in the filename (e.g. `07m12s_start_001.png`). No change to the GUI itself.
 
-- [ ] Task 2: Add score screen ROI to config
+- [x] Task 2: Add score screen ROI to config
   - File: `config/config.yaml`
   - Action: Add a second ROI entry under `map_identification` for the score screen zone. Add a `hash_methods` list and optional `resolutions` list.
   - Notes: New config structure:
@@ -111,7 +111,7 @@ Cela implique aussi une évolution de Tool 2 (Frame Labeler) pour exporter les f
     ```
   - Notes: The score screen ROI coordinates need to be determined by the user using the image inspector tool. `resolutions: []` means no sweep (use source resolution only).
 
-- [ ] Task 3: Create `tools/hash_comparator.py` — core structure and CLI
+- [x] Task 3: Create `tools/hash_comparator.py` — core structure and CLI
   - File: `tools/hash_comparator.py` (new)
   - Action: Create new CLI tool with `argparse`. Arguments:
     - `--images DIR` (required) — path to labeled directory (`<output>/labeled/`) with `<map_name>/` subdirectories
@@ -123,7 +123,7 @@ Cela implique aussi une évolution de Tool 2 (Frame Labeler) pour exporter les f
     - `-c, --config` — config file path
   - Notes: Follow `map_config_generator.py` patterns: same import style, `sys.path.insert`, `load_config()`, etc.
 
-- [ ] Task 4: Implement multi-hash generation logic
+- [x] Task 4: Implement multi-hash generation logic
   - File: `tools/hash_comparator.py`
   - Action: Implement core functions:
     - `compute_hash(canvas, hash_size, method)` — dispatches to `imagehash.ahash()`, `imagehash.dhash()`, or `imagehash.phash()` based on method string
@@ -131,7 +131,7 @@ Cela implique aussi une évolution de Tool 2 (Frame Labeler) pour exporter les f
     - `generate_hashes(map_canvases, hash_size, methods)` — for each map and each method, compute hash on each frame. Use the **median hash** (most common hash across frames) as the representative hash for that map+method combo.
   - Notes: Using median/mode hash across multiple frames per map increases robustness vs single-frame approach of `map_config_generator.py`.
 
-- [ ] Task 5: Implement collision detection and comparison report
+- [x] Task 5: Implement collision detection and comparison report
   - File: `tools/hash_comparator.py`
   - Action: Implement:
     - `check_collisions(hash_dict, threshold)` — reuse pattern from `map_config_generator.py`. For each method, compute all pairwise Hamming Distances. Flag collisions below threshold.
@@ -142,12 +142,12 @@ Cela implique aussi une évolution de Tool 2 (Frame Labeler) pour exporter les f
     - Print a human-readable summary to stdout
   - Notes: The report is the key deliverable — it tells the user which hash method and ROI to use.
 
-- [ ] Task 6: Implement optional resolution sweep
+- [x] Task 6: Implement optional resolution sweep
   - File: `tools/hash_comparator.py`
   - Action: If `--resolutions` is provided or `resolutions` is non-empty in config, repeat the hash generation at each resolution (downscale frames before ROI extraction using `utils/image.downscale()`). Include resolution as a dimension in the report.
   - Notes: Optional feature. When not specified, use frames at source resolution only.
 
-- [ ] Task 7: Generate `map_config.json` output
+- [x] Task 7: Generate `map_config.json` output
   - File: `tools/hash_comparator.py`
   - Action: After comparison, generate a `map_config.json` using the best-performing method+ROI combination. Format matches existing `map_config_generator.py` output for compatibility:
     ```json
@@ -164,15 +164,15 @@ Cela implique aussi une évolution de Tool 2 (Frame Labeler) pour exporter les f
 
 ### Acceptance Criteria
 
-- [ ] AC 1: Given a labeled directory with start/end/score frames for 14 maps, when running `python tools/hash_comparator.py --images path/to/labeled`, then the tool generates hashes for all 3 methods (aHash, dHash, pHash) on the default ROI and prints a comparison summary.
-- [ ] AC 2: Given a labeled directory, when running with `--roi map_name_hud`, then only the HUD map name ROI is used for hashing.
-- [ ] AC 3: Given 14 maps with distinct visual characteristics, when computing pairwise Hamming Distances, then at least one hash method produces zero collisions (min distance >= collision_threshold).
-- [ ] AC 4: Given the comparison results, when the tool completes, then a `hash_comparison_report.json` is written with per-method pairwise distances, collision counts, and a recommendation.
-- [ ] AC 5: Given the comparison results, when the tool completes, then a `map_config.json` is written using the best-performing method.
-- [ ] AC 6: Given `--preview` flag, when running the tool, then processed canvas images are written to the output directory for visual inspection.
-- [ ] AC 7: Given the Frame Labeler with `--type start`, when scanning a source directory, then only `*start*.png` files are displayed for labeling.
-- [ ] AC 8: Given an invalid `--images` path or empty labeled directory, when running the tool, then a clear error message is printed and the process exits with non-zero code.
-- [ ] AC 9: Given `--resolutions 1080,720,360`, when running the tool, then the report includes hash comparisons at each resolution and identifies the optimal resolution.
+- [x] AC 1: Given a labeled directory with start/end/score frames for 14 maps, when running `python tools/hash_comparator.py --images path/to/labeled`, then the tool generates hashes for all 3 methods (aHash, dHash, pHash) on the default ROI and prints a comparison summary.
+- [x] AC 2: Given a labeled directory, when running with `--roi map_name_hud`, then only the HUD map name ROI is used for hashing.
+- [x] AC 3: Given 14 maps with distinct visual characteristics, when computing pairwise Hamming Distances, then at least one hash method produces zero collisions (min distance >= collision_threshold).
+- [x] AC 4: Given the comparison results, when the tool completes, then a `hash_comparison_report.json` is written with per-method pairwise distances, collision counts, and a recommendation.
+- [x] AC 5: Given the comparison results, when the tool completes, then a `map_config.json` is written using the best-performing method.
+- [x] AC 6: Given `--preview` flag, when running the tool, then processed canvas images are written to the output directory for visual inspection.
+- [x] AC 7: Given the Frame Labeler with `--type start`, when scanning a source directory, then only `*start*.png` files are displayed for labeling.
+- [x] AC 8: Given an invalid `--images` path or empty labeled directory, when running the tool, then a clear error message is printed and the process exits with non-zero code.
+- [x] AC 9: Given `--resolutions 1080,720,360`, when running the tool, then the report includes hash comparisons at each resolution and identifies the optimal resolution.
 
 ## Additional Context
 
@@ -199,3 +199,12 @@ Cela implique aussi une évolution de Tool 2 (Frame Labeler) pour exporter les f
 - **Median hash strategy**: Using the most common hash across multiple frames per map is more robust than single-frame hashing. If frames within a map produce different hashes, this indicates instability for that ROI — useful diagnostic info.
 - **map_config_generator.py coexistence**: The new `hash_comparator.py` does not replace `map_config_generator.py`. They can coexist. Once a best method is validated, `map_config_generator.py` could be updated to use that method, but that's out of scope.
 - **Future consideration**: If no hash method achieves zero collisions on any single ROI, a multi-ROI composite approach (combining hashes from different ROIs) could be explored. Out of scope for this spec.
+
+## Review Notes
+
+- Adversarial review completed (2026-03-19)
+- Findings: 12 total, 3 fixed, 9 skipped (noise/design choice/already handled)
+- Resolution approach: auto-fix
+- F5 fixed: `build_canvases` no longer uses `src_h` for downscale gating — always calls `downscale()` which handles the no-upscale case, fixing correctness for mixed-resolution inputs
+- F8 fixed: `generate_map_config` now safely handles `None` roi_entry with a warning instead of AttributeError
+- F2 fixed: `find_frame_images` globs changed to `*_score*.png` / `*_start*.png` / `*_end*.png` (underscore prefix) to reduce false matches

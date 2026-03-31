@@ -143,6 +143,8 @@ def run_validation(labeled_frames, map_config, shift_tolerance, resolution, all_
     hash_size = map_config["hash_size"]
     method = map_config["hash_method"]
     tile_cols = map_config.get("tile_cols", 3)
+    text_anchor_width = map_config.get("text_anchor_width") or None
+    threshold_hash = map_config.get("threshold_hash", False)
 
     # Sort alphabetically at build time so iteration order is stable (alphabetical tie-break)
     # without needing sorted() on every per-frame predict call (F4).
@@ -163,7 +165,9 @@ def run_validation(labeled_frames, map_config, shift_tolerance, resolution, all_
 
     for map_name, frames in sorted(known.items()):
         canvases = build_canvases(
-            frames, roi_dict, canvas_size, resolution, tile_cols, text_anchor_width=None
+            frames, roi_dict, canvas_size, resolution, tile_cols,
+            text_anchor_width=text_anchor_width,
+            threshold_hash=threshold_hash,
         )
 
         # Report actual processable count vs loaded count (F7)
@@ -291,7 +295,7 @@ def main():
     parser.add_argument(
         "--images",
         metavar="DIR",
-        default="output/labeled",
+        default="labeled",
         help="Path to labeled/ directory with <map_name>/ subdirectories (default: output/labeled)",
     )
     parser.add_argument(

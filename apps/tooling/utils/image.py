@@ -181,18 +181,21 @@ def has_white_pixels(region, sat_max=12, val_min=230, min_ratio=0.05):
     return ratio >= min_ratio
 
 
-def find_text_anchor(bgr_crop, sat_max=12, val_min=230):
-    """Scan the crop left-to-right and return the x of the first column containing a white pixel.
+def find_text_anchor(bgr_crop, sat_max=12, val_min=230, min_pixels=2):
+    """Scan the crop left-to-right and return the x of the first column containing white pixels.
 
     A pixel is considered white if its HSV saturation <= sat_max and value >= val_min.
+    A column qualifies only if it contains at least min_pixels white pixels, filtering out
+    single-pixel noise and blur artifacts from downscaled frames.
 
     Args:
         bgr_crop: BGR numpy array (height, width, 3).
         sat_max: Maximum saturation (0-255) for a pixel to count as white.
         val_min: Minimum value (0-255) for a pixel to count as white.
+        min_pixels: Minimum number of white pixels required in a column to qualify.
 
     Returns:
-        int: x index of the first column with at least one white pixel, or -1 if none found.
+        int: x index of the first qualifying column, or -1 if none found.
     """
     if bgr_crop.ndim != 3 or bgr_crop.shape[2] != 3:
         return -1
@@ -200,6 +203,6 @@ def find_text_anchor(bgr_crop, sat_max=12, val_min=230):
         return -1
     hsv = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2HSV)
     white_mask = (hsv[:, :, 1] <= sat_max) & (hsv[:, :, 2] >= val_min)
-    cols_with_white = np.any(white_mask, axis=0)
-    matches = np.where(cols_with_white)[0]
+    col_counts = np.sum(white_mask, axis=0)
+    matches = np.where(col_counts >= min_pixels)[0]
     return int(matches[0]) if len(matches) > 0 else -1

@@ -70,30 +70,67 @@ def compute_hash(canvas, hash_size, method):
         raise ValueError(f"Unknown hash method: '{method}'. Use ahash, dhash, or phash.")
 
 
-def representative_hash(canvases, hash_size, method):
-    """Compute the most common (mode) hash across multiple canvases for one map.
+def consensus_hash(canvases, hash_size, method, shift_tolerance=0):
+    """Compute a consensus hash from multiple canvases using shift-aligned majority vote.
 
-    Using mode over multiple frames is more robust than single-frame hashing.
-    If every frame produces a unique hash (unstable ROI), returns the first frame's hash.
+    Replaces representative_hash(). Computes a perceptual hash per canvas, then calls
+    consensus_from_hashes() to produce a single stable fingerprint that is robust to
+    sub-pixel text anchor shift between samples.
 
     Args:
         canvases: List of (filename, grayscale canvas numpy array) tuples.
-        hash_size: Hash dimension.
-        method: Hash method string.
+        hash_size: Hash dimension (8 = 64-bit hash).
+        method: Hash method string ('ahash', 'dhash', 'phash').
+        shift_tolerance: Max horizontal bit-shift for alignment. 0 = no alignment.
 
     Returns:
-        imagehash.ImageHash: The representative hash, or None if no canvases.
+        imagehash.ImageHash: The consensus hash, or None if no canvases.
     """
     if not canvases:
         return None
+    hashes = [compute_hash(canvas, hash_size, method) for _, canvas in canvases]
+    return consensus_from_hashes(hashes, shift_tolerance)
 
-    hash_strings = []
-    for _fname, canvas in canvases:
-        h = compute_hash(canvas, hash_size, method)
-        hash_strings.append(str(h))
 
-    most_common_str = collections.Counter(hash_strings).most_common(1)[0][0]
-    return imagehash.hex_to_hash(most_common_str)
+def consensus_from_hashes(hashes, shift_tolerance=0):
+    """Compute a shift-aligned bitwise majority-vote hash from a list of ImageHash objects.
+
+    Each hash after the first is shift-aligned to the first hash (the reference) by trying
+    all horizontal bit-shifts in [-shift_tolerance, +shift_tolerance] and selecting the
+    shift that minimises Hamming Distance to the reference. The aligned bit arrays are then
+    majority-voted per bit position.
+
+    Args:
+        hashes: List of imagehash.ImageHash objects (all must have the same hash_size).
+        shift_tolerance: Max horizontal bit-shift to try in either direction. 0 = no alignment.
+
+    Returns:
+        imagehash.ImageHash: Consensus hash, or None if hashes is empty.
+    """
+    if not hashes:
+        return None
+    if len(hashes) == 1:
+        return hashes[0]
+
+    ref_bits = hashes[0].hash  # shape: (hash_size, hash_size), dtype bool
+    aligned = [ref_bits]
+
+    for h in hashes[1:]:
+        bits = h.hash
+        best_shift = 0
+        best_dist = int(np.sum(ref_bits != bits))
+        for s in range(-shift_tolerance, shift_tolerance + 1):
+            if s == 0:
+                continue
+            d = int(np.sum(ref_bits != np.roll(bits, s, axis=1)))
+            if d < best_dist:
+                best_dist = d
+                best_shift = s
+        aligned.append(np.roll(bits, best_shift, axis=1))
+
+    stacked = np.stack(aligned, axis=0)  # shape: (n, hash_size, hash_size)
+    vote = np.sum(stacked, axis=0) > (len(aligned) / 2)
+    return imagehash.ImageHash(vote)
 
 
 # ---------------------------------------------------------------------------
@@ -320,19 +357,19 @@ def check_collisions(distances, threshold):
 
 
 def run_comparison(
-    images_dir, rois, methods, canvas_size, hash_size, collision_threshold,
+    images_dir, rois, methods, canvas_size, hash_sizes, collision_threshold,
     resolutions=None, tile_cols=1, text_anchor_width=None, shift_tolerance=0,
     threshold_hash=False, preview=False, preview_dir=None
 ):
-    """Run multi-hash comparison across all ROIs, methods, and optional resolutions.
+    """Run multi-hash comparison across all ROIs, methods, hash sizes, and optional resolutions.
 
     Args:
         images_dir: Path to labeled/ directory with <map_name>/ subdirectories.
         rois: List of ROI dicts at reference resolution (1920x1080).
         methods: List of method strings.
         canvas_size: Target canvas size.
-        hash_size: Hash size.
-        collision_threshold: Min Hamming Distance before flagging collision.
+        hash_sizes: List of hash sizes to sweep (e.g. [8, 12, 16]).
+        collision_threshold: Base min Hamming Distance before flagging collision (scaled per hash_size).
         resolutions: Optional list of target heights to sweep. None = source only.
         tile_cols: Number of vertical columns for tiling canvas construction.
         text_anchor_width: If set, anchor sub-ROI extraction to first white pixel column
@@ -345,7 +382,7 @@ def run_comparison(
         preview_dir: Directory for preview images.
 
     Returns:
-        dict: {roi_name: {resolution: {method: {hashes, distances, collisions, stats}}}}
+        dict: {roi_name: {resolution: {hash_size: {method: {hashes, distances, collisions, stats}}}}}
     """
     print(f"\nLoading frames from '{images_dir}'...")
     all_frames = load_all_frames(images_dir)
@@ -372,7 +409,7 @@ def run_comparison(
             results[roi_name][target_h] = {}
             print(f"\n  Resolution: {target_h}p")
 
-            # Build canvases for each map
+            # Build canvases once per resolution — hash_size-independent
             map_canvases = {}
             for map_name, frames in all_frames.items():
                 canvases = build_canvases(frames, roi_config, canvas_size, target_h, tile_cols, text_anchor_width=text_anchor_width, threshold_hash=threshold_hash)
@@ -386,70 +423,77 @@ def run_comparison(
                         )
                         cv2.imwrite(os.path.join(preview_dir, preview_name), canvas)
 
-            for method in methods:
-                print(f"\n  Method: {method}")
+            for hash_size in hash_sizes:
+                results[roi_name][target_h][hash_size] = {}
+                # Scale collision threshold proportionally to hash bit count
+                scaled_collision_threshold = round(collision_threshold * (hash_size / 8) ** 2)
+                if len(hash_sizes) > 1:
+                    print(f"\n  Hash size: {hash_size}  (collision_threshold={scaled_collision_threshold})")
 
-                hash_dict = {}
-                for map_name, canvases in map_canvases.items():
-                    if not canvases:
-                        print(
-                            f"    Warning: No valid canvases for '{map_name}', skipping",
-                            file=sys.stderr,
-                        )
+                for method in methods:
+                    print(f"\n  Method: {method}")
+
+                    hash_dict = {}
+                    for map_name, canvases in map_canvases.items():
+                        if not canvases:
+                            print(
+                                f"    Warning: No valid canvases for '{map_name}', skipping",
+                                file=sys.stderr,
+                            )
+                            continue
+                        rep = consensus_hash(canvases, hash_size, method, shift_tolerance)
+                        if rep is not None:
+                            hash_dict[map_name] = rep
+                            print(f"    {map_name}: {str(rep)}  ({len(canvases)} frame(s))")
+
+                    if len(hash_dict) < 2:
+                        print("    Not enough maps to compare, skipping.", file=sys.stderr)
+                        results[roi_name][target_h][hash_size][method] = {
+                            "hashes": {n: str(h) for n, h in hash_dict.items()},
+                            "distances": [],
+                            "collisions": [],
+                            "stats": {"min": 0, "max": 0, "mean": 0.0, "collision_count": 0},
+                        }
                         continue
-                    rep = representative_hash(canvases, hash_size, method)
-                    if rep is not None:
-                        hash_dict[map_name] = rep
-                        print(f"    {map_name}: {str(rep)}  ({len(canvases)} frame(s))")
 
-                if len(hash_dict) < 2:
-                    print("    Not enough maps to compare, skipping.", file=sys.stderr)
-                    results[roi_name][target_h][method] = {
-                        "hashes": {n: str(h) for n, h in hash_dict.items()},
-                        "distances": [],
-                        "collisions": [],
-                        "stats": {"min": 0, "max": 0, "mean": 0.0, "collision_count": 0},
+                    distances = compute_pairwise_distances(hash_dict, shift_tolerance)
+                    collisions = check_collisions(distances, scaled_collision_threshold)
+                    dist_values = [d for _, _, d in distances]
+                    stats = {
+                        "min": min(dist_values),
+                        "max": max(dist_values),
+                        "mean": round(sum(dist_values) / len(dist_values), 2),
+                        "collision_count": len(collisions),
                     }
-                    continue
 
-                distances = compute_pairwise_distances(hash_dict, shift_tolerance)
-                collisions = check_collisions(distances, collision_threshold)
-                dist_values = [d for _, _, d in distances]
-                stats = {
-                    "min": min(dist_values),
-                    "max": max(dist_values),
-                    "mean": round(sum(dist_values) / len(dist_values), 2),
-                    "collision_count": len(collisions),
-                }
+                    print(
+                        f"    Distances — min={stats['min']}, max={stats['max']}, "
+                        f"mean={stats['mean']}, collisions={stats['collision_count']}"
+                    )
+                    for name_a, name_b, dist in distances[:5]:
+                        marker = "  << COLLISION" if dist < scaled_collision_threshold else ""
+                        print(f"      {dist:>3d}  {name_a} vs {name_b}{marker}")
+                    if len(distances) > 5:
+                        print(f"      ... ({len(distances) - 5} more pairs)")
+                    if collisions:
+                        for name_a, name_b, dist in collisions:
+                            print(
+                                f"    COLLISION: '{name_a}' vs '{name_b}' dist={dist}",
+                                file=sys.stderr,
+                            )
 
-                print(
-                    f"    Distances — min={stats['min']}, max={stats['max']}, "
-                    f"mean={stats['mean']}, collisions={stats['collision_count']}"
-                )
-                for name_a, name_b, dist in distances[:5]:
-                    marker = "  << COLLISION" if dist < collision_threshold else ""
-                    print(f"      {dist:>3d}  {name_a} vs {name_b}{marker}")
-                if len(distances) > 5:
-                    print(f"      ... ({len(distances) - 5} more pairs)")
-                if collisions:
-                    for name_a, name_b, dist in collisions:
-                        print(
-                            f"    COLLISION: '{name_a}' vs '{name_b}' dist={dist}",
-                            file=sys.stderr,
-                        )
-
-                results[roi_name][target_h][method] = {
-                    "hashes": {n: str(h) for n, h in hash_dict.items()},
-                    "distances": [
-                        {"map_a": a, "map_b": b, "distance": d}
-                        for a, b, d in distances
-                    ],
-                    "collisions": [
-                        {"map_a": a, "map_b": b, "distance": d}
-                        for a, b, d in collisions
-                    ],
-                    "stats": stats,
-                }
+                    results[roi_name][target_h][hash_size][method] = {
+                        "hashes": {n: str(h) for n, h in hash_dict.items()},
+                        "distances": [
+                            {"map_a": a, "map_b": b, "distance": d}
+                            for a, b, d in distances
+                        ],
+                        "collisions": [
+                            {"map_a": a, "map_b": b, "distance": d}
+                            for a, b, d in collisions
+                        ],
+                        "stats": stats,
+                    }
 
     return results
 
@@ -460,29 +504,30 @@ def run_comparison(
 
 
 def select_best_combination(results):
-    """Select the (roi, resolution, method) with highest minimum pairwise distance.
+    """Select the (roi, resolution, hash_size, method) with highest minimum pairwise distance.
 
-    Tie-breaks on collision count (lower is better), then method name alphabetically.
+    Tie-breaks on collision count (lower is better).
 
     Returns:
-        tuple: ((roi_name, resolution, method), min_dist) or (None, -1).
+        tuple: ((roi_name, resolution, hash_size, method), min_dist) or (None, -1).
     """
     best_combo = None
     best_min = -1
     best_collisions = float("inf")
 
     for roi_name, res_data in results.items():
-        for resolution, method_data in res_data.items():
-            for method, data in method_data.items():
-                min_dist = data["stats"]["min"]
-                col = data["stats"]["collision_count"]
-                if (
-                    min_dist > best_min
-                    or (min_dist == best_min and col < best_collisions)
-                ):
-                    best_combo = (roi_name, resolution, method)
-                    best_min = min_dist
-                    best_collisions = col
+        for resolution, hs_data in res_data.items():
+            for hash_size, method_data in hs_data.items():
+                for method, data in method_data.items():
+                    min_dist = data["stats"]["min"]
+                    col = data["stats"]["collision_count"]
+                    if (
+                        min_dist > best_min
+                        or (min_dist == best_min and col < best_collisions)
+                    ):
+                        best_combo = (roi_name, resolution, hash_size, method)
+                        best_min = min_dist
+                        best_collisions = col
 
     return best_combo, best_min
 
@@ -505,14 +550,15 @@ def generate_report(results, output_dir, best_combo, best_min, shift_tolerance=0
         str: Absolute path to the written report file.
     """
     if best_combo:
-        roi_name, resolution, method = best_combo
+        roi_name, resolution, hash_size, method = best_combo
         recommendation = {
             "roi": roi_name,
             "resolution": resolution,
+            "hash_size": hash_size,
             "method": method,
             "min_pairwise_distance": best_min,
             "note": (
-                f"Best: {method} on '{roi_name}' at {resolution}p "
+                f"Best: {method} (hash_size={hash_size}) on '{roi_name}' at {resolution}p "
                 f"(min distance = {best_min})"
             ),
         }
@@ -529,23 +575,27 @@ def generate_report(results, output_dir, best_combo, best_min, shift_tolerance=0
     return report_path
 
 
-def generate_map_config(results, best_combo, config, output_dir, tile_cols=1, recognition_threshold_base=10):
+def generate_map_config(results, best_combo, config, output_dir, tile_cols=1, recognition_threshold_base=10, text_anchor_width=None, threshold_hash=False):
     """Write map_config.json using the best-performing method+ROI combination.
 
     Format matches map_config_generator.py output (adds 'hash_method' field).
 
     Args:
         results: Nested dict from run_comparison().
-        best_combo: (roi_name, resolution, method) or None.
+        best_combo: (roi_name, resolution, hash_size, method) or None.
         config: Parsed YAML config dict.
         output_dir: Output directory path.
+        tile_cols: Number of vertical columns used in canvas tiling.
+        recognition_threshold_base: Base threshold at hash_size=8; scaled by (hash_size/8)^2.
+        text_anchor_width: If set, written to map_config.json so the validator reproduces the same crop.
+        threshold_hash: If True, written to map_config.json so the validator reproduces Otsu binarization.
     """
     if not best_combo:
         print("  Warning: No best combination found — skipping map_config.json", file=sys.stderr)
         return
 
-    roi_name, resolution, method = best_combo
-    method_data = results[roi_name][resolution][method]
+    roi_name, resolution, hash_size, method = best_combo
+    method_data = results[roi_name][resolution][hash_size][method]
 
     # Find ROI entry by name from config rois list, fall back to legacy roi key
     rois = config["map_identification"].get("rois", [])
@@ -560,7 +610,6 @@ def generate_map_config(results, best_combo, config, output_dir, tile_cols=1, re
         )
 
     ref_res = config["reference_resolution"]
-    hash_size = config["map_identification"]["hash_size"]
     scaled_threshold = round(recognition_threshold_base * (hash_size / 8) ** 2)
     output = {
         "reference_resolution": ref_res,
@@ -577,6 +626,10 @@ def generate_map_config(results, best_combo, config, output_dir, tile_cols=1, re
         "recognition_threshold": scaled_threshold,
         "maps": method_data["hashes"],
     }
+    if text_anchor_width:
+        output["text_anchor_width"] = text_anchor_width
+    if threshold_hash:
+        output["threshold_hash"] = threshold_hash
 
     output_path = os.path.join(output_dir, "map_config.json")
     with open(output_path, "w") as f:
@@ -622,6 +675,14 @@ def main():
         metavar="HEIGHT",
         default=None,
         help="Resolution heights to sweep, e.g. 1080 720 360 (default: source only)",
+    )
+    parser.add_argument(
+        "--hash-sizes",
+        nargs="+",
+        type=int,
+        metavar="N",
+        default=None,
+        help="Hash sizes to sweep, e.g. 8 12 16 24 (default: from config hash_size)",
     )
     parser.add_argument(
         "--tile-cols",
@@ -733,7 +794,7 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     canvas_size = map_id["canvas_size"]
-    hash_size = map_id["hash_size"]
+    hash_sizes = args.hash_sizes if args.hash_sizes else [map_id["hash_size"]]
     collision_threshold = map_id["collision_threshold"]
 
     print("Hash Comparator")
@@ -742,6 +803,7 @@ def main():
     print(f"  ROIs:        {[r['name'] for r in rois]}")
     print(f"  Methods:     {methods}")
     print(f"  Resolutions: {resolutions or 'source'}")
+    print(f"  Hash sizes:  {hash_sizes}")
     print(f"  Tile cols:   {tile_cols}")
     print(f"  Anchor width: {f'{text_anchor_width}px @1080p' if text_anchor_width else 'disabled'}")
     print(f"  Shift tolerance: {shift_tolerance} bit(s)")
@@ -753,7 +815,7 @@ def main():
             rois=rois,
             methods=methods,
             canvas_size=canvas_size,
-            hash_size=hash_size,
+            hash_sizes=hash_sizes,
             collision_threshold=collision_threshold,
             resolutions=resolutions,
             tile_cols=tile_cols,
@@ -773,23 +835,24 @@ def main():
     best_combo, best_min = select_best_combination(results)
 
     if force_method:
-        # Find the best (roi, resolution) for the forced method — mirrors select_best_combination() tie-break
+        # Find the best (roi, resolution, hash_size) for the forced method — mirrors select_best_combination() tie-break
         forced_combo = None
         forced_min = -1
         forced_collisions = float("inf")
         for roi_name, res_data in results.items():
-            for resolution, method_data in res_data.items():
-                if force_method in method_data:
-                    stats = method_data[force_method]["stats"]
-                    min_dist = stats["min"]
-                    col = stats["collision_count"]
-                    if min_dist > forced_min or (min_dist == forced_min and col < forced_collisions):
-                        forced_combo = (roi_name, resolution, force_method)
-                        forced_min = min_dist
-                        forced_collisions = col
+            for resolution, hs_data in res_data.items():
+                for hash_size, method_data in hs_data.items():
+                    if force_method in method_data:
+                        stats = method_data[force_method]["stats"]
+                        min_dist = stats["min"]
+                        col = stats["collision_count"]
+                        if min_dist > forced_min or (min_dist == forced_min and col < forced_collisions):
+                            forced_combo = (roi_name, resolution, hash_size, force_method)
+                            forced_min = min_dist
+                            forced_collisions = col
         if forced_combo:
             print(
-                f"  (forced method '{force_method}' — auto-selected: {best_combo[2] if best_combo else 'none'})",
+                f"  (forced method '{force_method}' — auto-selected: {best_combo[3] if best_combo else 'none'})",
                 file=sys.stderr,
             )
             best_combo = forced_combo
@@ -804,9 +867,9 @@ def main():
 
     print(f"\n{'='*60}")
     if best_combo:
-        roi_name, resolution, method = best_combo
-        col = results[roi_name][resolution][method]["stats"]["collision_count"]
-        print(f"Recommendation: {method} on ROI '{roi_name}' at {resolution}p")
+        roi_name, resolution, hash_size, method = best_combo
+        col = results[roi_name][resolution][hash_size][method]["stats"]["collision_count"]
+        print(f"Recommendation: {method} (hash_size={hash_size}) on ROI '{roi_name}' at {resolution}p")
         print(f"  Min pairwise distance: {best_min}  |  Collisions: {col}")
     else:
         print("Warning: Could not determine best combination.", file=sys.stderr)
@@ -817,6 +880,8 @@ def main():
         results, best_combo, config, output_dir,
         tile_cols=tile_cols,
         recognition_threshold_base=map_id.get("recognition_threshold", 10),
+        text_anchor_width=text_anchor_width,
+        threshold_hash=threshold_hash,
     )
 
     print("\nDone.")

@@ -28,8 +28,9 @@ import cv2
 import imagehash
 from PIL import Image
 
+from hash_comparator import consensus_from_hashes
 from utils.config import load_config
-from utils.image import extract_roi, find_text_anchor, scale_roi, to_grayscale
+from utils.image import downscale, extract_roi, find_text_anchor, scale_roi, to_grayscale
 from utils.video import check_ffmpeg, extract_frame_at_timestamp_scaled, extract_iframes_scaled, get_video_info
 
 
@@ -72,16 +73,16 @@ def process_frame(frame, roi, canvas_size, hash_size, hash_method, text_anchor_w
 
 
 def load_maps_from_images(images_dir):
-    """Load one reference frame per map from subdirectories.
+    """Load all reference frames per map from subdirectories.
 
-    Expects: images_dir/map_name_1/image.png, images_dir/map_name_2/image.png, ...
-    Uses the first image file (sorted alphabetically) in each subdirectory.
+    Expects: images_dir/map_name_1/image1.png, image2.png, ...
+    Loads all image files (sorted alphabetically) in each subdirectory.
 
     Args:
         images_dir: Path to directory containing map-named subdirectories.
 
     Returns:
-        dict: {map_name: BGR numpy array} for each map found.
+        dict: {map_name: [(filename, BGR numpy array), ...]} for each map found.
 
     Raises:
         ValueError: If no map subdirectories with images are found.
@@ -94,23 +95,27 @@ def load_maps_from_images(images_dir):
         if not os.path.isdir(subdir):
             continue
 
-        # Find the first image file alphabetically
         image_files = sorted(
             f for f in os.listdir(subdir)
             if os.path.splitext(f)[1].lower() in image_extensions
+            and os.path.splitext(f)[0].lower().endswith(("_start", "_end"))
         )
         if not image_files:
             print(f"Warning: No image files in {subdir}, skipping", file=sys.stderr)
             continue
 
-        image_path = os.path.join(subdir, image_files[0])
-        frame = cv2.imread(image_path)
-        if frame is None:
-            print(f"Warning: Could not read {image_path}, skipping", file=sys.stderr)
-            continue
+        frames = []
+        for fname in image_files:
+            image_path = os.path.join(subdir, fname)
+            frame = cv2.imread(image_path)
+            if frame is None:
+                print(f"Warning: Could not read {image_path}, skipping", file=sys.stderr)
+                continue
+            frames.append((fname, frame))
 
-        maps[entry] = frame
-        print(f"  Loaded: {entry} <- {image_files[0]} ({frame.shape[1]}x{frame.shape[0]})")
+        if frames:
+            maps[entry] = frames
+            print(f"  Loaded: {entry} <- {len(frames)} frame(s)")
 
     if not maps:
         raise ValueError(
@@ -160,13 +165,13 @@ def load_maps_from_videos(video_entries):
 
         if ts is not None:
             frame = extract_frame_at_timestamp_scaled(video_path, ts, src_h)
-            maps[map_name] = frame
+            maps[map_name] = [(os.path.basename(video_path), frame)]
             print(f"  Loaded: {map_name} <- {os.path.basename(video_path)} "
                   f"(frame at {ts:.1f}s, {src_w}x{src_h})")
         else:
             # Extract at source resolution for crisp text in the ROI
             for frame, ts_found in extract_iframes_scaled(video_path, src_h):
-                maps[map_name] = frame
+                maps[map_name] = [(os.path.basename(video_path), frame)]
                 print(f"  Loaded: {map_name} <- {os.path.basename(video_path)} "
                       f"(I-frame at {ts_found:.1f}s, {src_w}x{src_h})")
                 break
@@ -253,7 +258,7 @@ def run(map_frames, config, output_dir, preview=False, existing_maps=None, exist
     """Main orchestrator — process frames, generate hashes, check collisions, write output.
 
     Args:
-        map_frames: Dict of {map_name: BGR numpy array}.
+        map_frames: Dict of {map_name: [(filename, BGR numpy array), ...]}.
         config: Parsed YAML config dict.
         output_dir: Directory for output files.
         preview: If True, write processed canvas images.
@@ -271,9 +276,12 @@ def run(map_frames, config, output_dir, preview=False, existing_maps=None, exist
     hash_size = map_id_config["hash_size"]
     collision_threshold = map_id_config["collision_threshold"]
     text_anchor_width = map_id_config.get("text_anchor_width") or None
+    threshold_hash = map_id_config.get("threshold_hash", False)
+    shift_tolerance = map_id_config.get("shift_tolerance", 0)
     ref_h = config["reference_resolution"]["height"]
     ref_w = config["reference_resolution"]["width"]
     ref_aspect = ref_w / ref_h
+    target_h = config.get("processing", {}).get("target_height", ref_h)
 
     # In patch mode use the hash method from the existing config; otherwise default to phash.
     if existing_config is not None and "hash_method" in existing_config:
@@ -283,11 +291,11 @@ def run(map_frames, config, output_dir, preview=False, existing_maps=None, exist
 
     # Validate all frames have the same resolution and check aspect ratio
     first_name = next(iter(map_frames))
-    first_frame = map_frames[first_name]
+    first_frame = map_frames[first_name][0][1]  # first (fname, frame) tuple, frame element
     frame_h, frame_w = first_frame.shape[:2]
 
-    for map_name, frame in map_frames.items():
-        fh, fw = frame.shape[:2]
+    for map_name, frames in map_frames.items():
+        fh, fw = frames[0][1].shape[:2]  # check first frame of each map
         if fh != frame_h or fw != frame_w:
             print(
                 f"Warning: '{map_name}' resolution ({fw}x{fh}) differs from "
@@ -304,37 +312,38 @@ def run(map_frames, config, output_dir, preview=False, existing_maps=None, exist
             file=sys.stderr,
         )
 
-    scale_factor = frame_h / ref_h
+    scale_factor = target_h / ref_h
     scaled_roi = scale_roi(roi_config, scale_factor)
 
-    # Scale text_anchor_width from reference resolution to frame resolution
-    scaled_anchor_w = max(1, int(text_anchor_width * (frame_h / ref_h))) if text_anchor_width else None
+    # Scale text_anchor_width from reference resolution to processing resolution
+    scaled_anchor_w = max(1, int(text_anchor_width * scale_factor)) if text_anchor_width else None
 
     print(f"\n  Config: canvas={canvas_size}x{canvas_size}, hash_size={hash_size}, "
           f"hash_method={hash_method}, collision_threshold={collision_threshold}")
+    print(f"  Processing: {target_h}p (downscaled from source if needed)")
     print(f"  ROI: {roi_config['name']} ({roi_config['x']},{roi_config['y']} "
           f"{roi_config['width']}x{roi_config['height']}) @ {ref_h}p "
           f"-> scaled ({scaled_roi['x']},{scaled_roi['y']} "
-          f"{scaled_roi['width']}x{scaled_roi['height']}) @ {frame_h}p")
+          f"{scaled_roi['width']}x{scaled_roi['height']}) @ {target_h}p")
     if scaled_anchor_w:
         print(f"  Anchor: text_anchor_width={text_anchor_width}px @{ref_h}p "
-              f"-> {scaled_anchor_w}px @{frame_h}p")
+              f"-> {scaled_anchor_w}px @{target_h}p")
 
     # Process each map frame
     hash_dict = {}
-    for map_name, frame in map_frames.items():
-        h = process_frame(frame, scaled_roi, canvas_size, hash_size, hash_method, scaled_anchor_w)
-        if h is None:
-            print(f"  Warning: No text anchor found in frame for '{map_name}', skipping",
-                  file=sys.stderr)
+    for map_name, frames in map_frames.items():
+        hashes = []
+        for fname, frame in frames:
+            frame, _ = downscale(frame, target_h)
+            h = process_frame(frame, scaled_roi, canvas_size, hash_size, hash_method, scaled_anchor_w)
+            if h is not None:
+                hashes.append(h)
+        if not hashes:
+            print(f"  Warning: No valid hashes for '{map_name}', skipping", file=sys.stderr)
             continue
+        h = consensus_from_hashes(hashes, shift_tolerance)
         hash_dict[map_name] = h
-        print(f"  Hashed: {map_name} -> {str(h)}")
-
-        if preview:
-            preview_path = os.path.join(output_dir, f"preview_{map_name}.png")
-            # Re-extract just the anchor crop as a canvas for preview
-            print(f"  Preview: (anchor-cropped canvas written to {preview_path})")
+        print(f"  Hashed: {map_name} -> {str(h)}  ({len(hashes)} sample(s))")
 
     # Check for collisions among newly computed hashes
     collisions = check_collisions(hash_dict, collision_threshold)
@@ -346,7 +355,7 @@ def run(map_frames, config, output_dir, preview=False, existing_maps=None, exist
     else:
         merged_maps = {name: str(h) for name, h in hash_dict.items()}
 
-    # Build output — in patch mode, preserve extra fields (hash_method, tile_cols, etc.)
+    # Build output
     output = {
         "reference_resolution": {"width": ref_w, "height": ref_h},
         "roi": {
@@ -357,8 +366,13 @@ def run(map_frames, config, output_dir, preview=False, existing_maps=None, exist
         },
         "canvas_size": canvas_size,
         "hash_size": hash_size,
+        "hash_method": hash_method,
         "maps": merged_maps,
     }
+    if text_anchor_width:
+        output["text_anchor_width"] = text_anchor_width
+    if threshold_hash:
+        output["threshold_hash"] = threshold_hash
     if existing_config is not None:
         for key in ("hash_method", "tile_cols"):
             if key in existing_config:
