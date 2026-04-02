@@ -1,12 +1,15 @@
 # Dependencies
 node_modules/
 .pnp
-.pnp.js
+.pnp.*
+
+# Next.js
+.next/
+out/
 
 # Build outputs
 dist/
 build/
-out/
 
 # Environment files
 .env
@@ -36,3 +39,10 @@ coverage/
 tmp/
 temp/
 *.tmp
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
