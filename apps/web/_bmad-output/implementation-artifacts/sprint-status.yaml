@@ -42,7 +42,7 @@ story_location: _bmad-output/implementation-artifacts
 development_status:
   epic-1: in-progress
   1-1-initialize-nextjs-project-with-development-tooling: done
-  1-2-landing-page-with-value-proposition: ready-for-dev
+  1-2-landing-page-with-value-proposition: review
   1-3-shared-layout-with-header-footer-and-cookie-consent: in-progress
   epic-1-retrospective: optional
 
