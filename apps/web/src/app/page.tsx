@@ -46,7 +46,7 @@ const features = [
 
 export default function Home() {
   return (
-    <main className="flex flex-1 flex-col">
+    <div className="flex flex-1 flex-col">
       {/* Hero Section */}
       <section className="flex flex-col items-center gap-6 px-4 py-16 text-center sm:px-6 md:py-24 lg:py-32">
         <h1 className="text-foreground max-w-2xl text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl lg:text-6xl">
@@ -152,6 +152,6 @@ export default function Home() {
           </div>
         </div>
       </section>
-    </main>
+    </div>
   )
 }
