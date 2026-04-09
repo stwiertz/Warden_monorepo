@@ -39,10 +39,14 @@ export function CookieBanner() {
     <div
       role="dialog"
       aria-label="Cookie consent"
+      aria-describedby="cookie-consent-description"
       className="bg-background border-border/40 fixed inset-x-0 bottom-0 z-50 border-t p-4 shadow-lg sm:p-6"
     >
       <div className="mx-auto flex max-w-5xl flex-col items-center gap-4 sm:flex-row sm:justify-between">
-        <p className="text-muted-foreground text-center text-sm sm:text-left">
+        <p
+          id="cookie-consent-description"
+          className="text-muted-foreground text-center text-sm sm:text-left"
+        >
           We use analytics cookies to understand how you use our site and improve your experience.
         </p>
         <div className="flex shrink-0 gap-2">

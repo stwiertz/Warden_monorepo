@@ -75,7 +75,7 @@ describe('CookieBanner', () => {
     const { loadAnalytics } = await import('@/lib/firebase/analytics')
     render(<CookieBanner />)
     fireEvent.click(screen.getByRole('button', { name: /reject/i }))
-    expect(loadAnalytics).not.toHaveBeenCalledAfter?.(mockLocalStorage.setItem)
+    expect(loadAnalytics).not.toHaveBeenCalled()
   })
 
   it('does not show banner if consent was previously accepted', () => {
