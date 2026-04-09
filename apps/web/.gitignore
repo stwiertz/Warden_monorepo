@@ -16,8 +16,7 @@ build/
 .env.local
 .env.*.local
 
-# BMAD output (generated artifacts)
-_bmad-output/
+# BMAD output - tracked for workflow consistency
 
 # IDE
 .idea/
