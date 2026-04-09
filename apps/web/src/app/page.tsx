@@ -2,6 +2,9 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Play, Target, Scissors, Map, Smartphone } from 'lucide-react'
 
+const ctaClassName =
+  'bg-primary text-primary-foreground focus-visible:ring-ring focus-visible:ring-offset-background inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-[6px] px-6 py-3 text-base font-semibold transition-colors hover:bg-[#F28A2E] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none'
+
 export const metadata: Metadata = {
   title: 'Warden — Video Review for Coaches',
   description:
@@ -53,16 +56,13 @@ export default function Home() {
           Warden gives EVA After-h coaches the tools to review sessions, export clips, and analyze
           minimap data — so you can focus on improving your team.
         </p>
-        <Link
-          href="/pricing"
-          className="bg-primary text-primary-foreground focus-visible:ring-ring focus-visible:ring-offset-background inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-[6px] px-6 py-3 text-base font-semibold transition-colors hover:bg-[#F28A2E] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-        >
+        <Link href="/pricing" className={ctaClassName}>
           View pricing
         </Link>
       </section>
 
       {/* Features Section */}
-      <section aria-labelledby="features-heading" className="bg-card px-4 py-8 md:px-8 md:py-12">
+      <section aria-labelledby="features-heading" className="px-4 py-8 md:px-8 md:py-12">
         <div className="mx-auto max-w-5xl">
           <h2
             id="features-heading"
@@ -70,7 +70,7 @@ export default function Home() {
           >
             Everything you need to coach effectively
           </h2>
-          <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-8 md:grid-cols-4">
             {features.map((feature) => (
               <div
                 key={feature.title}
@@ -99,10 +99,7 @@ export default function Home() {
         <p className="text-muted-foreground max-w-md">
           Plans start at EUR 7.99/month. Save over 15% with a yearly subscription.
         </p>
-        <Link
-          href="/pricing"
-          className="bg-primary text-primary-foreground focus-visible:ring-ring focus-visible:ring-offset-background inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-[6px] px-6 py-3 text-base font-semibold transition-colors hover:bg-[#F28A2E] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-        >
+        <Link href="/pricing" className={ctaClassName}>
           See plans and pricing
         </Link>
       </section>
@@ -110,7 +107,7 @@ export default function Home() {
       {/* Download Section */}
       <section
         aria-labelledby="download-heading"
-        className="bg-card px-4 py-8 text-center md:px-8 md:py-12"
+        className="px-4 py-8 text-center md:px-8 md:py-12"
       >
         <div className="mx-auto flex max-w-xl flex-col items-center gap-6">
           <div className="bg-primary/10 flex size-12 items-center justify-center rounded-[8px]">
@@ -125,7 +122,7 @@ export default function Home() {
           <p className="text-muted-foreground">
             Download Warden on your phone to review sessions on the go.
           </p>
-          <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="flex flex-col gap-3 md:flex-row">
             <a
               href="https://apps.apple.com/app/warden/id000000"
               target="_blank"

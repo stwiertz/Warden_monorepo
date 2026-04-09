@@ -1,6 +1,6 @@
 # Story 1.2: Landing Page with Value Proposition
 
-Status: review
+Status: done
 
 ## Story
 
@@ -219,7 +219,9 @@ Claude Opus 4.6
 - `src/fonts/inter-latin-wght-normal.woff2` — New: Inter variable font file (latin)
 - `src/fonts/inter-latin-ext-wght-normal.woff2` — New: Inter variable font file (latin-ext)
 - `package.json` — Added `@fontsource-variable/inter` dependency
+- `package-lock.json` — Updated lockfile for `@fontsource-variable/inter`
 
 ### Change Log
 
 - 2026-04-08: Implemented Story 1.2 — Landing page with Warden dark theme, value proposition content, Inter font, WCAG 2.1 Level A compliance, and 13 unit tests
+- 2026-04-09: Code review fixes — removed bg-card from feature/download sections for card contrast, fixed grid to md:grid-cols-4 (single breakpoint per UX spec), removed redundant .dark CSS block, extracted shared CTA className constant, fixed sm: to md: breakpoint in download section, added package-lock.json to File List
