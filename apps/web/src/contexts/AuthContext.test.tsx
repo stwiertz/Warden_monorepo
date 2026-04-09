@@ -92,6 +92,15 @@ describe('AuthContext', () => {
     expect(screen.getByTestId('error').textContent).toBe('Auth failed')
   })
 
+  it('throws when useAuth is used outside AuthProvider', () => {
+    function OrphanConsumer() {
+      useAuth()
+      return null
+    }
+
+    expect(() => render(<OrphanConsumer />)).toThrow('useAuth must be used within an AuthProvider')
+  })
+
   it('unsubscribes on unmount', () => {
     const { unmount } = render(
       <AuthProvider>

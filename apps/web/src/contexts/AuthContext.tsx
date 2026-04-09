@@ -13,11 +13,7 @@ export interface AuthState {
   error: Error | null
 }
 
-export const AuthContext = createContext<AuthState>({
-  user: null,
-  loading: true,
-  error: null,
-})
+export const AuthContext = createContext<AuthState | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -41,5 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsubscribe
   }, [])
 
-  return <AuthContext value={{ user, loading, error }}>{children}</AuthContext>
+  const value: AuthState = { user, loading, error }
+
+  return <AuthContext value={value}>{children}</AuthContext>
 }
