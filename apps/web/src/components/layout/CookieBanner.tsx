@@ -1,36 +1,55 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useSyncExternalStore, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { loadAnalytics } from '@/lib/firebase/analytics'
 
 const STORAGE_KEY = 'cookie-consent'
 
 type ConsentState = 'accepted' | 'rejected' | null
+type StoreSnapshot = ConsentState | 'unknown'
+
+const listeners = new Set<() => void>()
+
+function subscribe(onChange: () => void): () => void {
+  listeners.add(onChange)
+  return () => {
+    listeners.delete(onChange)
+  }
+}
+
+function emit() {
+  listeners.forEach((l) => l())
+}
+
+function getSnapshot(): StoreSnapshot {
+  const stored = localStorage.getItem(STORAGE_KEY)
+  return stored === 'accepted' || stored === 'rejected' ? stored : null
+}
+
+function getServerSnapshot(): StoreSnapshot {
+  return 'unknown'
+}
 
 export function CookieBanner() {
-  const [consent, setConsent] = useState<ConsentState | undefined>(undefined)
+  const consent = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY) as ConsentState
-    setConsent(stored)
-    if (stored === 'accepted') {
+    if (consent === 'accepted') {
       loadAnalytics()
     }
-  }, [])
+  }, [consent])
 
   function handleAccept() {
     localStorage.setItem(STORAGE_KEY, 'accepted')
-    setConsent('accepted')
-    loadAnalytics()
+    emit()
   }
 
   function handleReject() {
     localStorage.setItem(STORAGE_KEY, 'rejected')
-    setConsent('rejected')
+    emit()
   }
 
-  // Don't render during SSR hydration or if consent already given
   if (consent !== null) {
     return null
   }

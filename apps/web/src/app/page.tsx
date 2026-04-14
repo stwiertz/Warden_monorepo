@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { Play, Target, Scissors, Map, Smartphone } from 'lucide-react'
+import { Play, Target, Clapperboard, Map, Smartphone } from 'lucide-react'
 
 const ctaClassName =
   'bg-primary text-primary-foreground focus-visible:ring-ring focus-visible:ring-offset-background inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-[6px] px-6 py-3 text-base font-semibold transition-colors hover:bg-[#F28A2E] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none'
@@ -27,7 +27,7 @@ const features = [
       'Review full game sessions with frame-by-frame precision and annotate key moments.',
   },
   {
-    icon: Scissors,
+    icon: Clapperboard,
     title: 'Clip Export',
     description: 'Export and share highlights with your team to reinforce learning and strategy.',
   },

@@ -46,12 +46,12 @@ development_status:
   1-3-shared-layout-with-header-footer-and-cookie-consent: done
   epic-1-retrospective: done
 
-  epic-2: in-progress
+  epic-2: done
   2-1-firebase-auth-setup-with-google-sign-in: done
   2-2-email-password-sign-in-and-registration: done
   2-3-sign-out-and-session-destruction: done
   2-4-route-protection-and-api-auth-validation: done
-  epic-2-retrospective: optional
+  epic-2-retrospective: done
 
   epic-3: backlog
   3-1-pricing-page-with-plan-display: backlog
