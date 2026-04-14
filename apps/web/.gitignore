@@ -48,3 +48,9 @@ temp/
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# Claude Code / agent harness state (not project source)
+.agents/
+.claude/skills/
+.claude/scheduled_tasks.lock
+skills-lock.json

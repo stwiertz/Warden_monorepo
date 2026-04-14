@@ -53,14 +53,14 @@ development_status:
   2-4-route-protection-and-api-auth-validation: done
   epic-2-retrospective: done
 
-  epic-3: in-progress
+  epic-3: done
   3-1-pricing-page-with-plan-display: done
   3-2-stripe-checkout-for-monthly-and-yearly-subscriptions: done
   3-3-coupon-code-support-during-checkout: done
-  epic-3-retrospective: optional
+  epic-3-retrospective: done
 
-  epic-4: backlog
-  4-1-stripe-webhook-endpoint-with-signature-verification: backlog
+  epic-4: in-progress
+  4-1-stripe-webhook-endpoint-with-signature-verification: in-progress
   4-2-process-invoice-paid-webhook-to-activate-subscriptions: backlog
   4-3-process-subscription-deleted-and-payment-failed-webhooks: backlog
   epic-4-retrospective: optional

@@ -122,7 +122,8 @@ export async function POST(request: Request) {
     }
 
     return Response.json({ data: { url: session.url } })
-  } catch {
+  } catch (err) {
+    console.error('[checkout/session] stripe error:', err)
     return envelopeError('CHECKOUT_FAILED', 'Unable to create checkout session', 500)
   }
 }
