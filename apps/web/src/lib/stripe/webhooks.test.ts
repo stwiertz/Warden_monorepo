@@ -70,5 +70,7 @@ describe('routeEvent', () => {
     invoicePaidSpy.mockRejectedValueOnce(new Error('boom'))
     const event = makeEvent('invoice.paid')
     await expect(webhooks.routeEvent(event)).rejects.toThrow('boom')
+    expect(invoicePaidSpy).toHaveBeenCalledTimes(1)
+    expect(invoicePaidSpy).toHaveBeenCalledWith(event)
   })
 })

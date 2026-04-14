@@ -34,33 +34,14 @@ vi.mock('firebase-admin/firestore', () => ({
   },
 }))
 
-const mockHandleInvoicePaid = vi.fn()
-const mockHandleSubscriptionDeleted = vi.fn()
-const mockHandlePaymentFailed = vi.fn()
+// Route tests verify the route's contract with routeEvent — the real dispatch
+// (switch on event.type → handleX) is tested in webhooks.test.ts. Mocking
+// routeEvent as a single vi.fn() keeps the two test suites non-overlapping.
+const mockRouteEvent = vi.fn(async () => {})
 
-vi.mock('@/lib/stripe/webhooks', () => {
-  async function routeEvent(event: { type: string; id: string }) {
-    switch (event.type) {
-      case 'invoice.paid':
-        await mockHandleInvoicePaid(event)
-        return
-      case 'customer.subscription.deleted':
-        await mockHandleSubscriptionDeleted(event)
-        return
-      case 'invoice.payment_failed':
-        await mockHandlePaymentFailed(event)
-        return
-      default:
-        return
-    }
-  }
-  return {
-    routeEvent,
-    handleInvoicePaid: mockHandleInvoicePaid,
-    handleSubscriptionDeleted: mockHandleSubscriptionDeleted,
-    handlePaymentFailed: mockHandlePaymentFailed,
-  }
-})
+vi.mock('@/lib/stripe/webhooks', () => ({
+  routeEvent: (...args: unknown[]) => mockRouteEvent(...args),
+}))
 
 function makeEvent(type = 'invoice.paid', id = 'evt_test_123') {
   return {
@@ -145,7 +126,11 @@ describe('POST /api/webhooks/stripe', () => {
     })
     // Guard the Anti-Pattern from the story: tx.set would silently overwrite duplicates.
     expect(mockTxSet).not.toHaveBeenCalled()
-    expect(mockHandleInvoicePaid).toHaveBeenCalledTimes(1)
+    expect(mockRouteEvent).toHaveBeenCalledTimes(1)
+    expect(mockRouteEvent.mock.calls[0][0]).toMatchObject({
+      id: 'evt_test_123',
+      type: 'invoice.paid',
+    })
     expect(errSpy).not.toHaveBeenCalled()
     errSpy.mockRestore()
   })
@@ -158,7 +143,10 @@ describe('POST /api/webhooks/stripe', () => {
     const body = await res.json()
     expect(body.data.duplicate).toBe(false)
     expect(mockTxCreate).toHaveBeenCalledTimes(1)
-    expect(mockHandleInvoicePaid).not.toHaveBeenCalled()
+    // routeEvent is still called for unhandled types — real routeEvent's
+    // default branch swallows them (tested in webhooks.test.ts).
+    expect(mockRouteEvent).toHaveBeenCalledTimes(1)
+    expect(mockRouteEvent.mock.calls[0][0]).toMatchObject({ type: 'charge.succeeded' })
   })
 
   it('signature OK + duplicate event → 200 duplicate: true, no create, no routing', async () => {
@@ -170,7 +158,7 @@ describe('POST /api/webhooks/stripe', () => {
     const body = await res.json()
     expect(body).toEqual({ data: { received: true, duplicate: true } })
     expect(mockTxCreate).not.toHaveBeenCalled()
-    expect(mockHandleInvoicePaid).not.toHaveBeenCalled()
+    expect(mockRouteEvent).not.toHaveBeenCalled()
     expect(logSpy).toHaveBeenCalledWith(
       '[webhooks/stripe] duplicate event skipped:',
       'evt_test_123',
@@ -185,7 +173,7 @@ describe('POST /api/webhooks/stripe', () => {
     const res = await POST(makeRequest({ signature: 't=1,v1=abc' }))
     expect(res.status).toBe(200)
     expect((await res.json()).data.duplicate).toBe(true)
-    expect(mockHandleInvoicePaid).not.toHaveBeenCalled()
+    expect(mockRouteEvent).not.toHaveBeenCalled()
   })
 
   it('missing stripe-signature header → 400 INVALID_SIGNATURE, constructEvent not called', async () => {
@@ -226,7 +214,7 @@ describe('POST /api/webhooks/stripe', () => {
   })
 
   it('routing handler throws → 200 routingError: true, logs, dedup write still happened', async () => {
-    mockHandleInvoicePaid.mockRejectedValueOnce(new Error('routing boom'))
+    mockRouteEvent.mockRejectedValueOnce(new Error('routing boom'))
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const { POST } = await import('./route')
     const res = await POST(makeRequest({ signature: 't=1,v1=abc' }))
@@ -235,6 +223,28 @@ describe('POST /api/webhooks/stripe', () => {
     expect(body.data.routingError).toBe(true)
     expect(body.data.eventId).toBe('evt_test_123')
     expect(mockTxCreate).toHaveBeenCalledTimes(1)
+    expect(errSpy).toHaveBeenCalledWith(
+      '[webhooks/stripe] routing failed for event:',
+      'evt_test_123',
+      'invoice.paid',
+      expect.any(Error),
+    )
+    errSpy.mockRestore()
+  })
+
+  it('runTransaction throws → 200 routingError: true, logs, no routing call (AC #3)', async () => {
+    // Firestore failure that escapes the transaction falls through to the
+    // top-level catch, which returns 200 routingError:true so Stripe stops
+    // retrying and an operator can replay from stripe_events later.
+    mockRunTransaction.mockRejectedValueOnce(new Error('firestore unavailable'))
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { POST } = await import('./route')
+    const res = await POST(makeRequest({ signature: 't=1,v1=abc' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.data.routingError).toBe(true)
+    expect(body.data.eventId).toBe('evt_test_123')
+    expect(mockRouteEvent).not.toHaveBeenCalled()
     expect(errSpy).toHaveBeenCalledWith(
       '[webhooks/stripe] routing failed for event:',
       'evt_test_123',

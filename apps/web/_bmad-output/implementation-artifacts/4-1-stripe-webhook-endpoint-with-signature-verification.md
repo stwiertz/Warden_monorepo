@@ -370,7 +370,7 @@ claude-opus-4-6[1m]
 
 - `npx vitest run src/lib/stripe/webhooks.test.ts` → 5/5 ✅
 - `npx vitest run src/app/api/webhooks/stripe/route.test.ts` → 9/9 ✅
-- `npx vitest run` (full suite) → **254 / 254** ✅ (baseline was 240; +14 new tests)
+- `npx vitest run` (full suite) → **255 / 255** ✅ (baseline was 240; +15 new tests after second review pass)
 - `npm run build` → ✅ zero type errors; `/api/webhooks/stripe` listed as `ƒ (Dynamic)` in route manifest
 - `npm run lint` → ✅ 0 errors, 0 warnings
 
@@ -408,3 +408,4 @@ claude-opus-4-6[1m]
 
 - 2026-04-14 — Story 4.1 implemented: Stripe webhook endpoint with signature verification, Firestore-transaction-based event-ID deduplication (`stripe_events` collection), and `routeEvent` dispatcher with stub handlers for `invoice.paid` / `customer.subscription.deleted` / `invoice.payment_failed`. 254/254 tests pass (baseline 240). Status → review. Task 9 (manual `stripe listen` smoke) pending human execution.
 - 2026-04-14 — Code review pass (adversarial). Fixed: (a) WHY comment for the `import * as self` self-namespace pattern in `webhooks.ts` (M2); (b) `tx.set` negative assertion + full `received_at`/`api_version` field assertions in `route.test.ts` (L1, L2). Documented: out-of-scope `console.error` addition to `src/app/api/checkout/session/route.ts` (M1 — Epic 3 retro #3 silent-catch fix landed during 4.1 work; surfaced and recorded rather than reverted, since the fix is correct and aligned with retro action item #3). Status moved review → in-progress pending human execution of Task 9 manual smoke.
+- 2026-04-14 — Second adversarial review pass. Fixed: (M1) stub handler log strings in `webhooks.ts` now read `(handler not yet implemented)` matching AC #4 verbatim — prior pass missed this; (M2) new route test case `runTransaction throws → 200 routingError: true` closes the test gap for AC #3's "Firestore error escapes transaction" path; (L1) `route.test.ts` mock of `@/lib/stripe/webhooks` collapsed from a duplicated dispatch `switch` to a single `mockRouteEvent = vi.fn()` — route tests now assert the contract with `routeEvent`, real dispatch stays exclusively in `webhooks.test.ts`; (L2) re-throw test in `webhooks.test.ts` now asserts the spy was invoked with the event before the rejection, guarding against a regression that throws from the default branch instead of the targeted handler. Test count 254 → 255. `npm run lint` 0/0, `npm run build` green, `/api/webhooks/stripe` still `ƒ (Dynamic)`. Status remains `in-progress` — Task 9 manual `stripe listen` smoke is still human-pending.

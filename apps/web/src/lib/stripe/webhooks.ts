@@ -10,18 +10,21 @@ import type Stripe from 'stripe'
 import * as self from './webhooks'
 
 export async function handleInvoicePaid(event: Stripe.Event): Promise<void> {
-  console.log('[webhooks/stripe] invoice.paid received (not yet implemented):', event.id)
+  console.log('[webhooks/stripe] invoice.paid received (handler not yet implemented):', event.id)
 }
 
 export async function handleSubscriptionDeleted(event: Stripe.Event): Promise<void> {
   console.log(
-    '[webhooks/stripe] customer.subscription.deleted received (not yet implemented):',
+    '[webhooks/stripe] customer.subscription.deleted received (handler not yet implemented):',
     event.id,
   )
 }
 
 export async function handlePaymentFailed(event: Stripe.Event): Promise<void> {
-  console.log('[webhooks/stripe] invoice.payment_failed received (not yet implemented):', event.id)
+  console.log(
+    '[webhooks/stripe] invoice.payment_failed received (handler not yet implemented):',
+    event.id,
+  )
 }
 
 export async function routeEvent(event: Stripe.Event): Promise<void> {
