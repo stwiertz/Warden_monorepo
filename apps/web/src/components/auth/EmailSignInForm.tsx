@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { signInWithEmailAndPassword } from 'firebase/auth'
@@ -10,6 +10,7 @@ import { auth } from '@/lib/firebase/client'
 import { getSignInErrorMessage } from '@/lib/firebase/errors'
 import { createSessionAndRedirect } from '@/lib/firebase/session'
 import { signInSchema } from '@/lib/schemas/auth'
+import { sanitizeRedirect } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -17,6 +18,8 @@ import type { SignInFormData } from '@/lib/schemas/auth'
 
 export function EmailSignInForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const nextTarget = sanitizeRedirect(searchParams.get('next'))
   const [isLoading, setIsLoading] = useState(false)
   const [firebaseError, setFirebaseError] = useState<string | null>(null)
 
@@ -35,7 +38,7 @@ export function EmailSignInForm() {
 
     try {
       const result = await signInWithEmailAndPassword(auth, data.email, data.password)
-      await createSessionAndRedirect(result.user, router.push)
+      await createSessionAndRedirect(result.user, () => router.push(nextTarget))
     } catch (err) {
       setFirebaseError(getSignInErrorMessage(err))
       setValue('password', '')

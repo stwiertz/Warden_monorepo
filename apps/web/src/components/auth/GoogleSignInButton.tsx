@@ -1,12 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { signInWithPopup } from 'firebase/auth'
 
 import { auth, googleProvider } from '@/lib/firebase/client'
 import { getSignInErrorMessage } from '@/lib/firebase/errors'
 import { createSessionAndRedirect } from '@/lib/firebase/session'
+import { sanitizeRedirect } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
 function GoogleIcon() {
@@ -34,6 +35,8 @@ function GoogleIcon() {
 
 export function GoogleSignInButton() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const nextTarget = sanitizeRedirect(searchParams.get('next'))
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -43,7 +46,7 @@ export function GoogleSignInButton() {
 
     try {
       const result = await signInWithPopup(auth, googleProvider)
-      await createSessionAndRedirect(result.user, router.push)
+      await createSessionAndRedirect(result.user, () => router.push(nextTarget))
     } catch (err) {
       setError(getSignInErrorMessage(err))
     } finally {

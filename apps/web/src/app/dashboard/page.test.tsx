@@ -1,13 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import DashboardPage from './page'
 
-const mockPush = vi.fn()
 let mockAuthState = { user: null as unknown, loading: false, error: null }
-
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush }),
-}))
 
 vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => mockAuthState,
@@ -33,13 +28,10 @@ describe('Dashboard Page', () => {
     expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0)
   })
 
-  it('redirects to sign-in when user is null and not loading', async () => {
+  it('shows loading skeleton when user is null (pre-hydration)', () => {
     mockAuthState = { user: null, loading: false, error: null }
     render(<DashboardPage />)
-
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/auth/sign-in')
-    })
+    expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0)
   })
 
   it('displays user info when authenticated', () => {

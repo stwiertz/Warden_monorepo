@@ -1,21 +1,11 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-
 import { useAuth } from '@/hooks/useAuth'
 import { SignOutButton } from '@/components/auth/SignOutButton'
 import { Skeleton } from '@/components/ui/skeleton'
 
 export default function DashboardPage() {
   const { user, loading } = useAuth()
-  const router = useRouter()
-
-  useEffect(() => {
-    if (!loading && !user) {
-      router.push('/auth/sign-in')
-    }
-  }, [loading, user, router])
 
   if (loading || !user) {
     return (

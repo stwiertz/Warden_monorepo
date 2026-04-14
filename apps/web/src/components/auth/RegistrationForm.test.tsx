@@ -9,6 +9,7 @@ const mockGetIdToken = vi.fn()
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
+  useSearchParams: () => ({ get: () => null }),
 }))
 
 vi.mock('firebase/auth', () => ({

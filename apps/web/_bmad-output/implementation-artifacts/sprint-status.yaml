@@ -50,7 +50,7 @@ development_status:
   2-1-firebase-auth-setup-with-google-sign-in: done
   2-2-email-password-sign-in-and-registration: done
   2-3-sign-out-and-session-destruction: done
-  2-4-route-protection-and-api-auth-validation: backlog
+  2-4-route-protection-and-api-auth-validation: done
   epic-2-retrospective: optional
 
   epic-3: backlog

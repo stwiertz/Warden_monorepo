@@ -6,9 +6,11 @@ import { EmailSignInForm } from './EmailSignInForm'
 const mockPush = vi.fn()
 const mockSignInWithEmailAndPassword = vi.fn()
 const mockGetIdToken = vi.fn()
+let mockNextParam: string | null = null
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
+  useSearchParams: () => ({ get: (key: string) => (key === 'next' ? mockNextParam : null) }),
 }))
 
 vi.mock('firebase/auth', () => ({
@@ -25,6 +27,47 @@ vi.stubGlobal('fetch', mockFetch)
 describe('EmailSignInForm', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockNextParam = null
+  })
+
+  it('redirects to safe next param after sign-in', async () => {
+    mockNextParam = '/dashboard/settings?tab=billing'
+    const user = userEvent.setup()
+    mockGetIdToken.mockResolvedValue('test-id-token')
+    mockSignInWithEmailAndPassword.mockResolvedValue({
+      user: { getIdToken: mockGetIdToken },
+    })
+    mockFetch.mockResolvedValue({ ok: true })
+
+    render(<EmailSignInForm />)
+
+    await user.type(screen.getByLabelText(/email/i), 'user@example.com')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith('/dashboard/settings?tab=billing')
+    })
+  })
+
+  it('defaults to /dashboard when next is unsafe', async () => {
+    mockNextParam = '//evil.com'
+    const user = userEvent.setup()
+    mockGetIdToken.mockResolvedValue('test-id-token')
+    mockSignInWithEmailAndPassword.mockResolvedValue({
+      user: { getIdToken: mockGetIdToken },
+    })
+    mockFetch.mockResolvedValue({ ok: true })
+
+    render(<EmailSignInForm />)
+
+    await user.type(screen.getByLabelText(/email/i), 'user@example.com')
+    await user.type(screen.getByLabelText(/password/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith('/dashboard')
+    })
   })
 
   it('renders email and password fields', () => {
