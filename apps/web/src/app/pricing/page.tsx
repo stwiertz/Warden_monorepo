@@ -1,15 +1,10 @@
 import type { Metadata } from 'next'
-import { Sparkles } from 'lucide-react'
 
-import { PlanCta } from '@/components/checkout/PlanCta'
-import {
-  PLAN_MONTHLY,
-  PLAN_YEARLY,
-  formatEuro,
-  getPeriodLabel,
-  getYearlySavings,
-  type Plan,
-} from '@/lib/pricing/plans'
+import { CheckoutProvider, type AppliedCoupon } from '@/components/checkout/CheckoutContext'
+import { CouponInput } from '@/components/checkout/CouponInput'
+import { PlanCard } from '@/components/checkout/PlanCard'
+import { PLAN_MONTHLY, PLAN_YEARLY } from '@/lib/pricing/plans'
+import { previewCoupon } from '@/lib/stripe/coupons'
 
 export const metadata: Metadata = {
   title: 'Pricing — Warden',
@@ -25,16 +20,24 @@ export const metadata: Metadata = {
   },
 }
 
-const yearlySavings = getYearlySavings()
-const savingsLabel = `Save ${formatEuro(yearlySavings.amountCents)} (~${yearlySavings.percent}%) vs monthly`
-
 type PricingPageProps = {
-  searchParams?: Promise<{ checkout?: string }>
+  searchParams?: Promise<{ checkout?: string; coupon?: string }>
 }
 
 export default async function PricingPage({ searchParams }: PricingPageProps) {
   const resolved = (await searchParams) ?? {}
   const canceled = resolved.checkout === 'canceled'
+
+  let initialCoupon: AppliedCoupon | undefined = undefined
+  const couponParam = resolved.coupon?.trim()
+  if (couponParam && couponParam.length > 0) {
+    try {
+      const result = await previewCoupon(couponParam)
+      if (result) initialCoupon = result.coupon
+    } catch (err) {
+      console.warn('[pricing] coupon preview failed', err)
+    }
+  }
 
   return (
     <div className="flex flex-1 flex-col">
@@ -63,52 +66,14 @@ export default async function PricingPage({ searchParams }: PricingPageProps) {
             Checkout canceled — you can try again anytime.
           </p>
         )}
-        <div className="grid gap-6 md:grid-cols-2">
-          <PlanCard plan={PLAN_MONTHLY} />
-          <PlanCard plan={PLAN_YEARLY} />
-        </div>
+        <CheckoutProvider initialCoupon={initialCoupon}>
+          <CouponInput />
+          <div className="grid gap-6 md:grid-cols-2">
+            <PlanCard plan={PLAN_MONTHLY} />
+            <PlanCard plan={PLAN_YEARLY} />
+          </div>
+        </CheckoutProvider>
       </section>
     </div>
-  )
-}
-
-function PlanCard({ plan }: { plan: Plan }) {
-  const headingId = `plan-${plan.id}-name`
-  const featured = plan.id === 'yearly'
-  return (
-    <article
-      aria-labelledby={headingId}
-      className={`bg-card text-card-foreground border-border relative flex flex-col gap-6 rounded-[8px] border p-6 md:p-8 ${
-        featured ? 'border-primary ring-primary/30 ring-2' : ''
-      }`}
-    >
-      {featured && (
-        <span className="bg-primary text-primary-foreground absolute -top-3 right-6 inline-flex items-center gap-1 rounded-[6px] px-3 py-1 text-xs font-semibold">
-          <Sparkles className="size-3.5" aria-hidden="true" />
-          Best value
-        </span>
-      )}
-      <div className="flex flex-col gap-2">
-        <h3
-          id={headingId}
-          className="text-foreground text-[1.25rem] font-semibold md:text-[1.5rem]"
-        >
-          {plan.name}
-        </h3>
-        <p className="text-muted-foreground text-sm leading-relaxed">{plan.benefits}</p>
-      </div>
-      <div className="flex items-baseline gap-1">
-        <span className="text-foreground text-[2rem] font-extrabold tracking-tight md:text-[2.5rem]">
-          {formatEuro(plan.priceCents)}
-        </span>
-        <span className="text-muted-foreground text-base">{getPeriodLabel(plan)}</span>
-      </div>
-      {featured && (
-        <p className="text-primary text-sm font-medium" data-testid="savings-label">
-          {savingsLabel}
-        </p>
-      )}
-      <PlanCta plan={plan} />
-    </article>
   )
 }

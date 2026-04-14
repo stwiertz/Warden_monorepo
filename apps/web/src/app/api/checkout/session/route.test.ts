@@ -10,6 +10,12 @@ vi.mock('@/lib/firebase/admin', () => ({
   },
 }))
 
+const mockPreviewCoupon = vi.fn()
+
+vi.mock('@/lib/stripe/coupons', () => ({
+  previewCoupon: (...args: unknown[]) => mockPreviewCoupon(...args),
+}))
+
 const mockCreate = vi.fn()
 
 vi.mock('stripe', () => {
@@ -43,6 +49,7 @@ describe('POST /api/checkout/session', () => {
       id: 'cs_test_mock',
       url: 'https://checkout.stripe.com/c/pay/mock',
     })
+    mockPreviewCoupon.mockReset()
   })
 
   afterEach(() => {
@@ -137,6 +144,57 @@ describe('POST /api/checkout/session', () => {
     const args = mockCreate.mock.calls[0][0]
     expect('customer_email' in args).toBe(false)
     expect(args.client_reference_id).toBe('user-no-email')
+  })
+
+  it('valid couponCode path passes discounts and omits allow_promotion_codes', async () => {
+    mockVerifySessionCookie.mockResolvedValue({ uid: 'user-c', email: 'c@b.co' })
+    mockPreviewCoupon.mockResolvedValue({
+      coupon: {
+        code: 'HALF',
+        percentOff: 50,
+        amountOffCents: null,
+        durationInMonths: null,
+      },
+      promotionCodeId: 'promo_half',
+    })
+    const { POST } = await import('./route')
+    const res = await POST(makeRequest({ planId: 'monthly', couponCode: 'HALF' }, 'session=good'))
+    expect(res.status).toBe(200)
+    const args = mockCreate.mock.calls[0][0]
+    expect(args.discounts).toEqual([{ promotion_code: 'promo_half' }])
+    expect('allow_promotion_codes' in args).toBe(false)
+    expect(mockPreviewCoupon).toHaveBeenCalledWith('HALF')
+  })
+
+  it('previewCoupon throwing during revalidation returns 500 CHECKOUT_FAILED', async () => {
+    mockVerifySessionCookie.mockResolvedValue({ uid: 'user-c', email: 'c@b.co' })
+    mockPreviewCoupon.mockRejectedValue(new Error('stripe down'))
+    const { POST } = await import('./route')
+    const res = await POST(makeRequest({ planId: 'monthly', couponCode: 'ANY' }, 'session=good'))
+    expect(res.status).toBe(500)
+    expect((await res.json()).error.code).toBe('CHECKOUT_FAILED')
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
+  it('invalid couponCode returns 400 COUPON_INVALID and does not call Stripe.create', async () => {
+    mockVerifySessionCookie.mockResolvedValue({ uid: 'user-c', email: 'c@b.co' })
+    mockPreviewCoupon.mockResolvedValue(null)
+    const { POST } = await import('./route')
+    const res = await POST(makeRequest({ planId: 'monthly', couponCode: 'NOPE' }, 'session=good'))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error.code).toBe('COUPON_INVALID')
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
+  it('no-couponCode path still sends allow_promotion_codes: true', async () => {
+    mockVerifySessionCookie.mockResolvedValue({ uid: 'user-1', email: 'a@b.co' })
+    const { POST } = await import('./route')
+    const res = await POST(makeRequest({ planId: 'monthly' }, 'session=good'))
+    expect(res.status).toBe(200)
+    const args = mockCreate.mock.calls[0][0]
+    expect(args.allow_promotion_codes).toBe(true)
+    expect('discounts' in args).toBe(false)
+    expect(mockPreviewCoupon).not.toHaveBeenCalled()
   })
 
   it('returns 500 MISSING_STRIPE_PRICE_ID when price env var is absent', async () => {

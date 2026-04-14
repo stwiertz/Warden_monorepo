@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-import PricingPage, { metadata } from './page'
+vi.mock('server-only', () => ({}))
 
 vi.mock('@/components/checkout/PlanCta', () => ({
   PlanCta: ({ plan }: { plan: { id: string; name: string } }) => (
@@ -11,7 +11,15 @@ vi.mock('@/components/checkout/PlanCta', () => ({
   ),
 }))
 
-async function renderPricing(searchParams?: { checkout?: string }) {
+const mockPreviewCoupon = vi.fn()
+
+vi.mock('@/lib/stripe/coupons', () => ({
+  previewCoupon: (...args: unknown[]) => mockPreviewCoupon(...args),
+}))
+
+import PricingPage, { metadata } from './page'
+
+async function renderPricing(searchParams?: { checkout?: string; coupon?: string }) {
   const ui = await PricingPage({
     searchParams: searchParams ? Promise.resolve(searchParams) : undefined,
   })
@@ -19,6 +27,10 @@ async function renderPricing(searchParams?: { checkout?: string }) {
 }
 
 describe('Pricing Page', () => {
+  beforeEach(() => {
+    mockPreviewCoupon.mockReset()
+  })
+
   it('renders a single h1 with the pricing headline', async () => {
     await renderPricing()
     const h1s = screen.getAllByRole('heading', { level: 1 })
@@ -89,5 +101,35 @@ describe('Pricing Page', () => {
       type: 'website',
       siteName: 'Warden',
     })
+  })
+
+  it('renders the CouponInput', async () => {
+    await renderPricing()
+    expect(screen.getByLabelText(/coupon code/i)).toBeInTheDocument()
+  })
+
+  it('previewCoupon is called when ?coupon=X and the discounted grid renders', async () => {
+    mockPreviewCoupon.mockResolvedValue({
+      coupon: {
+        code: 'HALF',
+        percentOff: 50,
+        amountOffCents: null,
+        durationInMonths: null,
+      },
+      promotionCodeId: 'promo_x',
+    })
+    await renderPricing({ coupon: 'HALF' })
+    expect(mockPreviewCoupon).toHaveBeenCalledWith('HALF')
+    const monthly = screen.getByRole('article', { name: /monthly/i })
+    expect(monthly).toHaveTextContent(/€\s*4[.,]00/)
+  })
+
+  it('previewCoupon throwing falls through to default render', async () => {
+    mockPreviewCoupon.mockRejectedValue(new Error('stripe down'))
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await renderPricing({ coupon: 'BOOM' })
+    const monthly = screen.getByRole('article', { name: /monthly/i })
+    expect(monthly).toHaveTextContent(/€\s*7[.,]99/)
+    warnSpy.mockRestore()
   })
 })

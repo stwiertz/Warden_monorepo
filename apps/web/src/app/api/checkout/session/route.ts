@@ -2,6 +2,7 @@ import { z } from 'zod/v4'
 
 import { adminAuth } from '@/lib/firebase/admin'
 import { PLAN_BY_ID, PLAN_IDS } from '@/lib/pricing/plans'
+import { previewCoupon } from '@/lib/stripe/coupons'
 import { getPlanPriceId, getStripe } from '@/lib/stripe/server'
 
 export const runtime = 'nodejs'
@@ -10,6 +11,7 @@ const SESSION_COOKIE_NAME = 'session'
 
 const bodySchema = z.object({
   planId: z.enum(PLAN_IDS),
+  couponCode: z.string().trim().min(1).max(64).optional(),
 })
 
 function envelopeError(code: string, message: string, status: number) {
@@ -79,9 +81,22 @@ export async function POST(request: Request) {
 
   const appUrl = resolveAppUrl(request)
 
+  let promotionCodeId: string | null = null
+  if (parsed.data.couponCode) {
+    try {
+      const result = await previewCoupon(parsed.data.couponCode)
+      if (!result) {
+        return envelopeError('COUPON_INVALID', 'This coupon is no longer valid', 400)
+      }
+      promotionCodeId = result.promotionCodeId
+    } catch {
+      return envelopeError('CHECKOUT_FAILED', 'Unable to create checkout session', 500)
+    }
+  }
+
   try {
     const stripe = getStripe()
-    const session = await stripe.checkout.sessions.create({
+    const sessionArgs: Record<string, unknown> = {
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${appUrl}/dashboard?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
@@ -92,8 +107,15 @@ export async function POST(request: Request) {
         firebase_uid: decoded.uid,
         plan_id: plan.id,
       },
-      allow_promotion_codes: true,
-    })
+    }
+    if (promotionCodeId) {
+      sessionArgs.discounts = [{ promotion_code: promotionCodeId }]
+    } else {
+      sessionArgs.allow_promotion_codes = true
+    }
+    const session = await stripe.checkout.sessions.create(
+      sessionArgs as Parameters<typeof stripe.checkout.sessions.create>[0],
+    )
 
     if (!session.url) {
       return envelopeError('CHECKOUT_FAILED', 'Stripe did not return a checkout URL', 500)

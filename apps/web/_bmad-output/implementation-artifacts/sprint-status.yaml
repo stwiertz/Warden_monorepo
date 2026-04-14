@@ -56,7 +56,7 @@ development_status:
   epic-3: in-progress
   3-1-pricing-page-with-plan-display: done
   3-2-stripe-checkout-for-monthly-and-yearly-subscriptions: done
-  3-3-coupon-code-support-during-checkout: backlog
+  3-3-coupon-code-support-during-checkout: done
   epic-3-retrospective: optional
 
   epic-4: backlog
