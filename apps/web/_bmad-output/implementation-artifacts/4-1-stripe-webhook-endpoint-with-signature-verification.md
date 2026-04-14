@@ -1,6 +1,6 @@
 # Story 4.1: Stripe Webhook Endpoint with Signature Verification
 
-Status: in-progress
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -193,14 +193,14 @@ So that only authentic Stripe events drive subscription state changes and no eve
   - [x] 8.3 `npm run lint` — 0 errors, 0 warnings.
   - [x] 8.4 Re-read [src/app/api/webhooks/stripe/route.ts](src/app/api/webhooks/stripe/route.ts) with a reviewer's eye. Specifically verify: every `catch` branch logs before acting (Epic 3 retro #3); the `.text()` call is present; the dedup write happens BEFORE routing; the routing-error path still returns 200.
 
-- [ ] Task 9: Manual smoke (AC: #5 runtime budget, human-verified)
-  - [ ] 9.1 With `stripe listen --forward-to localhost:3000/api/webhooks/stripe` running AND `npm run dev` running, trigger a synthetic event: `stripe trigger invoice.paid`
-  - [ ] 9.2 Verify the `stripe listen` console shows `200 OK` within ~1-2 seconds (well under the 5s NFR14 budget)
-  - [ ] 9.3 Verify the Next.js dev-server console shows `[webhooks/stripe] invoice.paid received (not yet implemented):` + the event ID
-  - [ ] 9.4 Trigger the **same event a second time** via `stripe events resend <event_id>` — verify the dev-server console shows `[webhooks/stripe] duplicate event skipped:` + the same event ID, and `stripe listen` still reports `200 OK`
-  - [ ] 9.5 Trigger a non-handled event: `stripe trigger customer.created` — verify dev-server console shows `[webhooks/stripe] unhandled event type: customer.created` and `stripe listen` still reports `200 OK`
-  - [ ] 9.6 In Firebase Console (or `firebase firestore:query` via CLI), confirm the `stripe_events` collection now contains at least three documents (one per unique event from 9.1, 9.5, and any earlier test deliveries)
-  - [ ] 9.7 Document results in Completion Notes. If any step fails, **stop and file a defect against this story**; do not mark it done.
+- [x] Task 9: Manual smoke (AC: #5 runtime budget, human-verified)
+  - [x] 9.1 With `stripe listen --forward-to localhost:3000/api/webhooks/stripe` running AND `npm run dev` running, trigger a synthetic event: `stripe trigger invoice.paid`
+  - [x] 9.2 Verify the `stripe listen` console shows `200 OK` within ~1-2 seconds (well under the 5s NFR14 budget)
+  - [x] 9.3 Verify the Next.js dev-server console shows `[webhooks/stripe] invoice.paid received (not yet implemented):` + the event ID
+  - [x] 9.4 Trigger the **same event a second time** via `stripe events resend <event_id>` — verify the dev-server console shows `[webhooks/stripe] duplicate event skipped:` + the same event ID, and `stripe listen` still reports `200 OK`
+  - [x] 9.5 Trigger a non-handled event: `stripe trigger customer.created` — verify dev-server console shows `[webhooks/stripe] unhandled event type: customer.created` and `stripe listen` still reports `200 OK`
+  - [x] 9.6 In Firebase Console (or `firebase firestore:query` via CLI), confirm the `stripe_events` collection now contains at least three documents (one per unique event from 9.1, 9.5, and any earlier test deliveries)
+  - [x] 9.7 Document results in Completion Notes. If any step fails, **stop and file a defect against this story**; do not mark it done.
 
 ## Dev Notes
 
@@ -393,7 +393,15 @@ claude-opus-4-6[1m]
 2. **Vitest file-parallelism flake** (Epic 3 retro #6) did not surface on this run; if it does in 4.2/4.3 keep following the retro's guidance (fall back to `--no-file-parallelism`, don't chase it mid-story).
 
 **Task 9 (Manual smoke) status**
-- **Not executed by the dev agent.** Task 9 is explicitly labeled "human-verified" and requires a running `stripe listen` session with a rotated `STRIPE_WEBHOOK_SECRET` in `.env.local` (Human Prerequisites block items 1–3). The agent cannot generate a real webhook secret or drive `stripe trigger` / `stripe events resend` from this environment without exposing secrets in the transcript. Task 9 remains unchecked; please run it during code review before moving the story to `done`. All nine 9.x subtasks have concrete commands in the story file.
+- **Completed by human operator on 2026-04-14 against a local `stripe listen` session with a rotated `STRIPE_WEBHOOK_SECRET`.** All seven subtasks passed:
+  - **9.1** `stripe trigger invoice.paid` → event routed to stub handler, `stripe listen` reported `200 OK` in **~118 ms**.
+  - **9.2** 118 ms ≪ the 5 s NFR14 budget — comfortable headroom for Stories 4.2/4.3 to add real Firestore writes inside the dispatch.
+  - **9.3** Dev-server console emitted `[webhooks/stripe] invoice.paid received (not yet implemented):` with the live event ID. *(Note: this log line was captured before the M1 wording fix in commit 798b48b landed; subsequent runs will read `(handler not yet implemented)` to match AC #4 verbatim.)*
+  - **9.4** `stripe events resend <event_id>` → dev-server console emitted `[webhooks/stripe] duplicate event skipped:` with the same ID, `stripe listen` still `200 OK`. Firestore dedup transaction working end-to-end on real Stripe traffic.
+  - **9.5** Multiple unhandled event types (`customer.created`, `charge.succeeded`, `payment_intent.*`, et al.) fell through to the default branch cleanly — no crashes, no Stripe retries, no silent swallows.
+  - **9.6** Firebase Console `stripe_events` collection confirmed containing `evt_1TMDcIA3LvU3iaSCCLGljhPA` (the `invoice.paid` fixture) with the expected field shape: `event_id`, `event_type: "invoice.paid"`, `received_at` (server timestamp), `api_version: "2026-03-25.dahlia"`, `livemode: false`. Spot-checked a second document from the fixture cascade (`evt_1TMDcAA3LvU3iaSCvBRv2k9q` for `customer.created`) — same field shape, different `event_type`, confirming the dedup write path is uniform across routed and default-branch events.
+  - **9.7** This note documents the results. Story 4.1 moves `in-progress → done`.
+- **NFR14 runtime budget: PASSED with ~42× headroom.** The 118 ms observed on a cold local dev server against a real Stripe-delivered event is well inside the 5 s budget. Stories 4.2 and 4.3 inherit this budget and can add a Firestore read + transactional write inside the routing stubs without risking a timeout.
 
 ### File List
 
@@ -409,3 +417,4 @@ claude-opus-4-6[1m]
 - 2026-04-14 — Story 4.1 implemented: Stripe webhook endpoint with signature verification, Firestore-transaction-based event-ID deduplication (`stripe_events` collection), and `routeEvent` dispatcher with stub handlers for `invoice.paid` / `customer.subscription.deleted` / `invoice.payment_failed`. 254/254 tests pass (baseline 240). Status → review. Task 9 (manual `stripe listen` smoke) pending human execution.
 - 2026-04-14 — Code review pass (adversarial). Fixed: (a) WHY comment for the `import * as self` self-namespace pattern in `webhooks.ts` (M2); (b) `tx.set` negative assertion + full `received_at`/`api_version` field assertions in `route.test.ts` (L1, L2). Documented: out-of-scope `console.error` addition to `src/app/api/checkout/session/route.ts` (M1 — Epic 3 retro #3 silent-catch fix landed during 4.1 work; surfaced and recorded rather than reverted, since the fix is correct and aligned with retro action item #3). Status moved review → in-progress pending human execution of Task 9 manual smoke.
 - 2026-04-14 — Second adversarial review pass. Fixed: (M1) stub handler log strings in `webhooks.ts` now read `(handler not yet implemented)` matching AC #4 verbatim — prior pass missed this; (M2) new route test case `runTransaction throws → 200 routingError: true` closes the test gap for AC #3's "Firestore error escapes transaction" path; (L1) `route.test.ts` mock of `@/lib/stripe/webhooks` collapsed from a duplicated dispatch `switch` to a single `mockRouteEvent = vi.fn()` — route tests now assert the contract with `routeEvent`, real dispatch stays exclusively in `webhooks.test.ts`; (L2) re-throw test in `webhooks.test.ts` now asserts the spy was invoked with the event before the rejection, guarding against a regression that throws from the default branch instead of the targeted handler. Test count 254 → 255. `npm run lint` 0/0, `npm run build` green, `/api/webhooks/stripe` still `ƒ (Dynamic)`. Status remains `in-progress` — Task 9 manual `stripe listen` smoke is still human-pending.
+- 2026-04-14 — Task 9 manual smoke executed end-to-end by human operator against a live local `stripe listen` session. All 9.1–9.6 subtasks passed: `invoice.paid` routed in 118 ms, duplicate skipped cleanly on `stripe events resend`, unhandled types fell through the default branch, Firestore `stripe_events` collection confirmed populated with the expected field shape (verified `evt_1TMDcIA3LvU3iaSCCLGljhPA` + one spot-check). NFR14 5 s budget cleared with ~42× headroom. Status **`in-progress → done`**. Story 4.1 complete.
