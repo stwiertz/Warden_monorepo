@@ -5,14 +5,9 @@ import { useRouter } from 'next/navigation'
 import { signInWithPopup } from 'firebase/auth'
 
 import { auth, googleProvider } from '@/lib/firebase/client'
+import { getSignInErrorMessage } from '@/lib/firebase/errors'
+import { createSessionAndRedirect } from '@/lib/firebase/session'
 import { Button } from '@/components/ui/button'
-
-const FIREBASE_ERROR_MESSAGES: Record<string, string> = {
-  'auth/popup-closed-by-user': 'Sign-in was cancelled.',
-  'auth/network-request-failed': 'Network error. Please try again.',
-  'auth/too-many-requests': 'Too many attempts. Please wait and try again.',
-  'auth/cancelled-popup-request': 'Sign-in was cancelled.',
-}
 
 function GoogleIcon() {
   return (
@@ -37,14 +32,6 @@ function GoogleIcon() {
   )
 }
 
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error && 'code' in error) {
-    const code = (error as { code: string }).code
-    return FIREBASE_ERROR_MESSAGES[code] ?? 'An error occurred during sign-in. Please try again.'
-  }
-  return 'An error occurred during sign-in. Please try again.'
-}
-
 export function GoogleSignInButton() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
@@ -56,21 +43,9 @@ export function GoogleSignInButton() {
 
     try {
       const result = await signInWithPopup(auth, googleProvider)
-      const idToken = await result.user.getIdToken()
-
-      const response = await fetch('/api/auth/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken }),
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to create session')
-      }
-
-      router.push('/dashboard')
+      await createSessionAndRedirect(result.user, router.push)
     } catch (err) {
-      setError(getErrorMessage(err))
+      setError(getSignInErrorMessage(err))
     } finally {
       setIsLoading(false)
     }
