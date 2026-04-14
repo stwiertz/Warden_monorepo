@@ -2,8 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Play, Target, Clapperboard, Map, Smartphone } from 'lucide-react'
 
-const ctaClassName =
-  'bg-primary text-primary-foreground focus-visible:ring-ring focus-visible:ring-offset-background inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-[6px] px-6 py-3 text-base font-semibold transition-colors hover:bg-[#F28A2E] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none'
+import { ctaPrimaryClass } from '@/components/ui/cta-class'
 
 export const metadata: Metadata = {
   title: 'Warden — Video Review for Coaches',
@@ -56,7 +55,7 @@ export default function Home() {
           Warden gives EVA After-h coaches the tools to review sessions, export clips, and analyze
           minimap data — so you can focus on improving your team.
         </p>
-        <Link href="/pricing" className={ctaClassName}>
+        <Link href="/pricing" className={ctaPrimaryClass}>
           View pricing
         </Link>
       </section>
@@ -99,7 +98,7 @@ export default function Home() {
         <p className="text-muted-foreground max-w-md">
           Plans start at EUR 7.99/month. Save over 15% with a yearly subscription.
         </p>
-        <Link href="/pricing" className={ctaClassName}>
+        <Link href="/pricing" className={ctaPrimaryClass}>
           See plans and pricing
         </Link>
       </section>
