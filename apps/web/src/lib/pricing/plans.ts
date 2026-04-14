@@ -1,12 +1,16 @@
 export type BillingPeriod = 'month' | 'year'
 
+export const PLAN_IDS = ['monthly', 'yearly'] as const
+export type PlanId = (typeof PLAN_IDS)[number]
+
 export type Plan = {
-  id: 'monthly' | 'yearly'
+  id: PlanId
   name: string
   priceCents: number
   currency: 'EUR'
   billingPeriod: BillingPeriod
   benefits: string
+  stripePriceEnvKey: string
 }
 
 export const PLAN_MONTHLY: Plan = {
@@ -16,6 +20,7 @@ export const PLAN_MONTHLY: Plan = {
   currency: 'EUR',
   billingPeriod: 'month',
   benefits: 'Full access to session review, clip export, and minimap analysis.',
+  stripePriceEnvKey: 'STRIPE_PRICE_MONTHLY',
 }
 
 export const PLAN_YEARLY: Plan = {
@@ -25,9 +30,15 @@ export const PLAN_YEARLY: Plan = {
   currency: 'EUR',
   billingPeriod: 'year',
   benefits: 'Everything in Monthly, billed once per year.',
+  stripePriceEnvKey: 'STRIPE_PRICE_YEARLY',
 }
 
 export const PLANS: readonly Plan[] = [PLAN_MONTHLY, PLAN_YEARLY]
+
+export const PLAN_BY_ID: Record<PlanId, Plan> = {
+  monthly: PLAN_MONTHLY,
+  yearly: PLAN_YEARLY,
+}
 
 const euroFormatter = new Intl.NumberFormat('en-IE', {
   style: 'currency',

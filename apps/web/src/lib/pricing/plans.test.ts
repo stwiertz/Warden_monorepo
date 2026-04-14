@@ -46,6 +46,13 @@ describe('pricing plans', () => {
     expect(savings.percent).toBe(17)
   })
 
+  it('both plans declare a non-empty stripePriceEnvKey matching STRIPE_PRICE_*', () => {
+    expect(PLAN_MONTHLY.stripePriceEnvKey).toMatch(/^STRIPE_PRICE_/)
+    expect(PLAN_YEARLY.stripePriceEnvKey).toMatch(/^STRIPE_PRICE_/)
+    expect(PLAN_MONTHLY.stripePriceEnvKey).toBe('STRIPE_PRICE_MONTHLY')
+    expect(PLAN_YEARLY.stripePriceEnvKey).toBe('STRIPE_PRICE_YEARLY')
+  })
+
   it('getYearlySavings derives from supplied plans, not hardcoded', () => {
     const cheaperMonthly = { ...PLAN_MONTHLY, priceCents: 1000 }
     const cheaperYearly = { ...PLAN_YEARLY, priceCents: 10000 }

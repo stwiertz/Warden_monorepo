@@ -3,9 +3,16 @@ import { render, screen } from '@testing-library/react'
 import DashboardPage from './page'
 
 let mockAuthState = { user: null as unknown, loading: false, error: null }
+let mockCheckoutParam: string | null = null
 
 vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => mockAuthState,
+}))
+
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => ({
+    get: (key: string) => (key === 'checkout' ? mockCheckoutParam : null),
+  }),
 }))
 
 vi.mock('@/components/auth/SignOutButton', () => ({
@@ -20,6 +27,7 @@ describe('Dashboard Page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockAuthState = { user: null, loading: false, error: null }
+    mockCheckoutParam = null
   })
 
   it('shows loading skeleton when auth is loading', () => {
@@ -43,6 +51,33 @@ describe('Dashboard Page', () => {
     render(<DashboardPage />)
     expect(screen.getByText('John Doe')).toBeDefined()
     expect(screen.getByText('john@example.com')).toBeDefined()
+  })
+
+  it('renders the checkout success banner when ?checkout=success', () => {
+    mockAuthState = {
+      user: { displayName: 'Jane', email: 'jane@example.com' },
+      loading: false,
+      error: null,
+    }
+    mockCheckoutParam = 'success'
+    render(<DashboardPage />)
+    const banner = screen.getByTestId('checkout-success-banner')
+    expect(banner).toBeDefined()
+    expect(banner.getAttribute('role')).toBe('status')
+    expect(banner.getAttribute('aria-live')).toBe('polite')
+    expect(banner).toHaveTextContent(/subscription started/i)
+    expect(banner).toHaveTextContent(/few seconds/i)
+  })
+
+  it('does not render the success banner without the query param', () => {
+    mockAuthState = {
+      user: { displayName: 'Jane', email: 'jane@example.com' },
+      loading: false,
+      error: null,
+    }
+    mockCheckoutParam = null
+    render(<DashboardPage />)
+    expect(screen.queryByTestId('checkout-success-banner')).toBeNull()
   })
 
   it('renders SignOutButton with outline variant', () => {

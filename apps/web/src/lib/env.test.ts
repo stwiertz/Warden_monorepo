@@ -33,4 +33,18 @@ describe('.env.example client/server split (FR34 tripwire)', () => {
   it('declares FIREBASE_SERVICE_ACCOUNT_KEY server-only', () => {
     expect(lines.some((l) => /^FIREBASE_SERVICE_ACCOUNT_KEY\b/.test(l))).toBe(true)
   })
+
+  it('declares STRIPE_PRICE_MONTHLY server-only (no NEXT_PUBLIC_ prefix)', () => {
+    expect(lines.some((l) => /^STRIPE_PRICE_MONTHLY\b/.test(l))).toBe(true)
+    expect(lines.some((l) => /^NEXT_PUBLIC_STRIPE_PRICE_MONTHLY\b/.test(l))).toBe(false)
+  })
+
+  it('declares STRIPE_PRICE_YEARLY server-only (no NEXT_PUBLIC_ prefix)', () => {
+    expect(lines.some((l) => /^STRIPE_PRICE_YEARLY\b/.test(l))).toBe(true)
+    expect(lines.some((l) => /^NEXT_PUBLIC_STRIPE_PRICE_YEARLY\b/.test(l))).toBe(false)
+  })
+
+  it('declares NEXT_PUBLIC_APP_URL as a client-safe public value', () => {
+    expect(lines.some((l) => /^NEXT_PUBLIC_APP_URL\b/.test(l))).toBe(true)
+  })
 })

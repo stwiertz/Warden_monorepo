@@ -1,12 +1,11 @@
 import type { Metadata } from 'next'
 import { Sparkles } from 'lucide-react'
 
-import { ctaPrimaryDisabledClass } from '@/components/ui/cta-class'
+import { PlanCta } from '@/components/checkout/PlanCta'
 import {
   PLAN_MONTHLY,
   PLAN_YEARLY,
   formatEuro,
-  getCtaLabel,
   getPeriodLabel,
   getYearlySavings,
   type Plan,
@@ -29,7 +28,14 @@ export const metadata: Metadata = {
 const yearlySavings = getYearlySavings()
 const savingsLabel = `Save ${formatEuro(yearlySavings.amountCents)} (~${yearlySavings.percent}%) vs monthly`
 
-export default function PricingPage() {
+type PricingPageProps = {
+  searchParams?: Promise<{ checkout?: string }>
+}
+
+export default async function PricingPage({ searchParams }: PricingPageProps) {
+  const resolved = (await searchParams) ?? {}
+  const canceled = resolved.checkout === 'canceled'
+
   return (
     <div className="flex flex-1 flex-col">
       <section className="mx-auto flex w-full max-w-5xl flex-col items-center gap-4 px-4 py-8 text-center md:px-8 md:py-12">
@@ -49,6 +55,14 @@ export default function PricingPage() {
         <h2 id="plans-heading" className="sr-only">
           Subscription plans
         </h2>
+        {canceled && (
+          <p
+            data-testid="checkout-canceled-banner"
+            className="text-muted-foreground border-border mb-6 rounded-[6px] border px-4 py-3 text-sm"
+          >
+            Checkout canceled — you can try again anytime.
+          </p>
+        )}
         <div className="grid gap-6 md:grid-cols-2">
           <PlanCard plan={PLAN_MONTHLY} />
           <PlanCard plan={PLAN_YEARLY} />
@@ -94,14 +108,7 @@ function PlanCard({ plan }: { plan: Plan }) {
           {savingsLabel}
         </p>
       )}
-      <button
-        type="button"
-        disabled
-        aria-disabled="true"
-        className={`${ctaPrimaryDisabledClass} w-full`}
-      >
-        {getCtaLabel(plan)}
-      </button>
+      <PlanCta plan={plan} />
     </article>
   )
 }
