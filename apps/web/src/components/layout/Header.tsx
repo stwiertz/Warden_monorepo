@@ -1,5 +1,7 @@
 import Link from 'next/link'
 
+import { HeaderAuthActions } from './HeaderAuthActions'
+
 export function Header() {
   return (
     <header className="border-border/40 bg-background/95 supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50 border-b backdrop-blur">
@@ -28,6 +30,7 @@ export function Header() {
                 Pricing
               </Link>
             </li>
+            <HeaderAuthActions />
           </ul>
         </nav>
       </div>

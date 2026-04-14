@@ -1,4 +1,6 @@
-import type { User } from 'firebase/auth'
+import { signOut, type User } from 'firebase/auth'
+
+import { auth } from '@/lib/firebase/client'
 
 export async function createSessionAndRedirect(
   user: User,
@@ -17,4 +19,22 @@ export async function createSessionAndRedirect(
   }
 
   redirect('/dashboard')
+}
+
+export async function destroySessionAndRedirect(redirect: (path: string) => void): Promise<void> {
+  let signOutError: unknown = null
+  try {
+    await signOut(auth)
+  } catch (error) {
+    signOutError = error
+  }
+
+  const response = await fetch('/api/auth/session', { method: 'DELETE' })
+
+  if (signOutError) throw signOutError
+  if (!response.ok) {
+    throw new Error('Failed to destroy session')
+  }
+
+  redirect('/')
 }

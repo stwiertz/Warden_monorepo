@@ -1,29 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { signOut } from 'firebase/auth'
 
-import { auth } from '@/lib/firebase/client'
 import { useAuth } from '@/hooks/useAuth'
-import { Button } from '@/components/ui/button'
+import { SignOutButton } from '@/components/auth/SignOutButton'
 import { Skeleton } from '@/components/ui/skeleton'
 
 export default function DashboardPage() {
   const { user, loading } = useAuth()
   const router = useRouter()
-  const [isSigningOut, setIsSigningOut] = useState(false)
-
-  async function handleSignOut() {
-    setIsSigningOut(true)
-    try {
-      await signOut(auth)
-      await fetch('/api/auth/session', { method: 'DELETE' })
-      router.push('/')
-    } catch {
-      setIsSigningOut(false)
-    }
-  }
 
   useEffect(() => {
     if (!loading && !user) {
@@ -53,9 +39,7 @@ export default function DashboardPage() {
           </p>
           <p className="text-muted-foreground text-sm">{user.email}</p>
         </div>
-        <Button variant="outline" onClick={handleSignOut} disabled={isSigningOut}>
-          {isSigningOut ? 'Signing out...' : 'Sign out'}
-        </Button>
+        <SignOutButton variant="outline" />
       </div>
     </div>
   )

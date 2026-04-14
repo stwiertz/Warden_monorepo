@@ -1,29 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import DashboardPage from './page'
 
 const mockPush = vi.fn()
-const mockSignOut = vi.fn()
 let mockAuthState = { user: null as unknown, loading: false, error: null }
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
 }))
 
-vi.mock('firebase/auth', () => ({
-  signOut: (...args: unknown[]) => mockSignOut(...args),
-}))
-
-vi.mock('@/lib/firebase/client', () => ({
-  auth: {},
-}))
-
 vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => mockAuthState,
 }))
 
-const mockFetch = vi.fn()
-vi.stubGlobal('fetch', mockFetch)
+vi.mock('@/components/auth/SignOutButton', () => ({
+  SignOutButton: (props: { variant?: string }) => (
+    <button data-testid="sign-out-button" data-variant={props.variant}>
+      Sign out
+    </button>
+  ),
+}))
 
 describe('Dashboard Page', () => {
   beforeEach(() => {
@@ -57,38 +53,15 @@ describe('Dashboard Page', () => {
     expect(screen.getByText('john@example.com')).toBeDefined()
   })
 
-  it('renders sign out button', () => {
+  it('renders SignOutButton with outline variant', () => {
     mockAuthState = {
       user: { displayName: 'John', email: 'john@example.com' },
       loading: false,
       error: null,
     }
     render(<DashboardPage />)
-    expect(screen.getByRole('button', { name: /sign out/i })).toBeDefined()
-  })
-
-  it('handles sign out flow', async () => {
-    mockAuthState = {
-      user: { displayName: 'John', email: 'john@example.com' },
-      loading: false,
-      error: null,
-    }
-    mockSignOut.mockResolvedValue(undefined)
-    mockFetch.mockResolvedValue({ ok: true })
-
-    render(<DashboardPage />)
-    fireEvent.click(screen.getByRole('button', { name: /sign out/i }))
-
-    await waitFor(() => {
-      expect(mockSignOut).toHaveBeenCalled()
-    })
-
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith('/api/auth/session', { method: 'DELETE' })
-    })
-
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/')
-    })
+    const button = screen.getByTestId('sign-out-button')
+    expect(button).toBeDefined()
+    expect(button.getAttribute('data-variant')).toBe('outline')
   })
 })

@@ -1,6 +1,10 @@
 import { render, screen } from '@testing-library/react'
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { Header } from './Header'
+
+vi.mock('@/hooks/useAuth', () => ({
+  useAuth: () => ({ user: null, loading: false, error: null }),
+}))
 
 describe('Header', () => {
   it('renders a header element', () => {
@@ -41,5 +45,13 @@ describe('Header', () => {
     render(<Header />)
     const homeLink = screen.getByRole('link', { name: /^home$/i })
     expect(homeLink.className).toContain('focus-visible:ring')
+  })
+
+  it('renders the auth-actions slot inside the nav (Sign in link when anonymous)', () => {
+    render(<Header />)
+    const nav = screen.getByRole('navigation', { name: /main navigation/i })
+    const signInLink = screen.getByRole('link', { name: /^sign in$/i })
+    expect(signInLink).toHaveAttribute('href', '/auth/sign-in')
+    expect(nav.contains(signInLink)).toBe(true)
   })
 })
