@@ -159,10 +159,7 @@ describe('POST /api/webhooks/stripe', () => {
     expect(body).toEqual({ data: { received: true, duplicate: true } })
     expect(mockTxCreate).not.toHaveBeenCalled()
     expect(mockRouteEvent).not.toHaveBeenCalled()
-    expect(logSpy).toHaveBeenCalledWith(
-      '[webhooks/stripe] duplicate event skipped:',
-      'evt_test_123',
-    )
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[webhooks/stripe'), 'evt_test_123')
     logSpy.mockRestore()
   })
 
@@ -194,7 +191,7 @@ describe('POST /api/webhooks/stripe', () => {
     expect(res.status).toBe(400)
     expect((await res.json()).error.code).toBe('INVALID_SIGNATURE')
     expect(errSpy).toHaveBeenCalledWith(
-      '[webhooks/stripe] signature verification failed:',
+      expect.stringContaining('[webhooks/stripe'),
       expect.any(Error),
     )
     expect(mockRunTransaction).not.toHaveBeenCalled()
@@ -208,7 +205,9 @@ describe('POST /api/webhooks/stripe', () => {
     const res = await POST(makeRequest({ signature: 't=1,v1=abc' }))
     expect(res.status).toBe(500)
     expect((await res.json()).error.code).toBe('WEBHOOK_NOT_CONFIGURED')
-    expect(errSpy).toHaveBeenCalledWith('[webhooks/stripe] STRIPE_WEBHOOK_SECRET is not set')
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/\[webhooks\/stripe.*STRIPE_WEBHOOK_SECRET is not set/),
+    )
     expect(mockConstructEvent).not.toHaveBeenCalled()
     errSpy.mockRestore()
   })
@@ -224,7 +223,7 @@ describe('POST /api/webhooks/stripe', () => {
     expect(body.data.eventId).toBe('evt_test_123')
     expect(mockTxCreate).toHaveBeenCalledTimes(1)
     expect(errSpy).toHaveBeenCalledWith(
-      '[webhooks/stripe] routing failed for event:',
+      expect.stringContaining('[webhooks/stripe'),
       'evt_test_123',
       'invoice.paid',
       expect.any(Error),
@@ -246,7 +245,7 @@ describe('POST /api/webhooks/stripe', () => {
     expect(body.data.eventId).toBe('evt_test_123')
     expect(mockRouteEvent).not.toHaveBeenCalled()
     expect(errSpy).toHaveBeenCalledWith(
-      '[webhooks/stripe] routing failed for event:',
+      expect.stringContaining('[webhooks/stripe'),
       'evt_test_123',
       'invoice.paid',
       expect.any(Error),

@@ -107,6 +107,12 @@ export async function POST(request: Request) {
         firebase_uid: decoded.uid,
         plan_id: plan.id,
       },
+      subscription_data: {
+        metadata: {
+          firebase_uid: decoded.uid,
+          plan_id: plan.id,
+        },
+      },
     }
     if (promotionCodeId) {
       sessionArgs.discounts = [{ promotion_code: promotionCodeId }]

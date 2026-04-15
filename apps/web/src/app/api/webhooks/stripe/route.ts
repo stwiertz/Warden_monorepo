@@ -20,7 +20,7 @@ export async function POST(request: Request) {
 
   const secret = process.env.STRIPE_WEBHOOK_SECRET
   if (!secret) {
-    console.error('[webhooks/stripe] STRIPE_WEBHOOK_SECRET is not set')
+    console.error(`[webhooks/stripe ${new Date().toISOString()}] STRIPE_WEBHOOK_SECRET is not set`)
     return envelopeError('WEBHOOK_NOT_CONFIGURED', 'Webhook handler is not configured', 500)
   }
 
@@ -30,7 +30,10 @@ export async function POST(request: Request) {
   try {
     event = getStripe().webhooks.constructEvent(rawBody, signature, secret)
   } catch (err) {
-    console.error('[webhooks/stripe] signature verification failed:', err)
+    console.error(
+      `[webhooks/stripe ${new Date().toISOString()}] signature verification failed:`,
+      err,
+    )
     return envelopeError('INVALID_SIGNATURE', 'Signature verification failed', 400)
   }
 
@@ -50,7 +53,10 @@ export async function POST(request: Request) {
     })
 
     if (alreadyProcessed) {
-      console.log('[webhooks/stripe] duplicate event skipped:', event.id)
+      console.log(
+        `[webhooks/stripe ${new Date().toISOString()}] duplicate event skipped:`,
+        event.id,
+      )
       return Response.json({ data: { received: true, duplicate: true } })
     }
 
@@ -64,7 +70,12 @@ export async function POST(request: Request) {
       },
     })
   } catch (err) {
-    console.error('[webhooks/stripe] routing failed for event:', event.id, event.type, err)
+    console.error(
+      `[webhooks/stripe ${new Date().toISOString()}] routing failed for event:`,
+      event.id,
+      event.type,
+      err,
+    )
     // return 200 to stop Stripe retries; event is recorded in stripe_events for manual replay
     return Response.json({
       data: {

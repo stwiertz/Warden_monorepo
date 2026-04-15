@@ -61,7 +61,7 @@ development_status:
 
   epic-4: in-progress
   4-1-stripe-webhook-endpoint-with-signature-verification: done
-  4-2-process-invoice-paid-webhook-to-activate-subscriptions: ready-for-dev
+  4-2-process-invoice-paid-webhook-to-activate-subscriptions: done
   4-3-process-subscription-deleted-and-payment-failed-webhooks: backlog
   epic-4-retrospective: optional
 

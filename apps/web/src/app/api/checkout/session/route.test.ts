@@ -101,6 +101,9 @@ describe('POST /api/checkout/session', () => {
     expect(args.client_reference_id).toBe('user-1')
     expect(args.customer_email).toBe('a@b.co')
     expect(args.metadata).toEqual({ firebase_uid: 'user-1', plan_id: 'monthly' })
+    expect(args.subscription_data).toEqual({
+      metadata: { firebase_uid: 'user-1', plan_id: 'monthly' },
+    })
     expect(args.allow_promotion_codes).toBe(true)
     expect(args.success_url).toContain(
       '/dashboard?checkout=success&session_id={CHECKOUT_SESSION_ID}',
