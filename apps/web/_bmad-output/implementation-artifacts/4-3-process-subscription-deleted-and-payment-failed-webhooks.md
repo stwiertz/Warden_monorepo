@@ -1,6 +1,6 @@
 # Story 4.3: Process subscription.deleted and payment_failed Webhooks
 
-Status: in-progress
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -312,7 +312,7 @@ So that dashboard reads in Epic 5 surface accurate `canceled` / `past_due` state
   - [x] 10.2 Confirm `/api/webhooks/stripe` still appears as `ƒ (Dynamic) Node runtime` in the route manifest output (regression guard from Story 4.1 AC #1).
   - [x] 10.3 Confirm no new routes accidentally appeared in the manifest — this story adds lib files + test files only, no new `app/**/route.ts`.
 
-- [ ] **Task 11: Manual smoke with real Stripe listener** (AC: #6, human-verified)
+- [x] **Task 11: Manual smoke with real Stripe listener** (AC: #6, human-verified)
   - [x] 11.1 **Prerequisite check:** confirm all Human Prerequisites checkboxes at the top of this story are ticked. If `stripe listen` is not running, the 200 OK will show in the Stripe CLI but no writes will land in Firestore (the dev server isn't forwarding).
   - [x] 11.2 **Confirm starting state.** Either reuse the test user + subscription from Story 4.2's smoke, or run a fresh monthly checkout via `/pricing`. In Firebase Console, confirm `users/{uid}` shows `status: 'active'`. Note the `uid`, `subscription_id`, and `customer_id`.
   - [x] 11.3 **Trigger `invoice.payment_failed`.** Run `stripe trigger invoice.payment_failed`. Stripe's trigger uses a throwaway subscription, so the handler will likely hit the "subscription missing firebase_uid metadata" throw path (AC #4 legacy case). That's **expected** — verify the dev-server log shows `[webhooks/stripe ...] invoice.payment_failed subscription missing firebase_uid metadata — cannot link to user:` and the route returns 200 `routingError: true`. The goal of this step is to prove the throw path doesn't crash the dev server.
@@ -340,8 +340,8 @@ So that dashboard reads in Epic 5 surface accurate `canceled` / `past_due` state
     This proves the `past_due → canceled` transition and the field preservation invariant.
   - [x] 11.9 **Replay the `subscription.deleted` event.** `stripe events resend <event_id>`. Verify `duplicate event skipped:` log (route-level dedup). Verify `updated_at` unchanged.
   - [x] 11.10 **Idempotent in-handler branch check.** In Firestore Console, manually delete the document in the `stripe_events` collection matching the `customer.subscription.deleted` event ID from step 11.7. Then run `stripe events resend <event_id>` again. This bypasses the route-level dedup and drives the event down to `handleSubscriptionDeleted`. Verify the dev-server log shows `[webhooks/stripe ...] customer.subscription.deleted already canceled — no-op:` (AC #5 in-handler idempotent branch, NOT a write, NOT a `processed:` log). Verify in Firestore that `users/{uid}.updated_at` is STILL unchanged from step 11.8. This is the end-to-end proof of AC #5's no-op branch.
-  - [ ] 11.11 **Trigger `invoice.payment_failed` against the now-canceled user.** Via the Dashboard "retry payment" button (if available) or by triggering a fresh invoice on the canceled subscription. Verify the dev-server log shows `[webhooks/stripe ...] invoice.payment_failed skipped — user already canceled:` — not `processed:`. Verify `users/{uid}.status` remains `canceled` (did NOT downgrade to `past_due`). This is the AC #5 "don't resurrect a canceled user" guarantee, end-to-end verified.
-  - [ ] 11.12 Document results in Completion Notes. If any step fails, **stop and file a defect against this story**; do not mark it done. Specifically flag any Stripe-SDK-shape drift analogous to Story 4.2's dahlia defect — the `paymentFailedSchema` is almost certainly the riskiest line in this story because it depends on the same `parent.subscription_details.subscription` path that Story 4.2 discovered was wrong on first live test.
+  - [x] 11.11 **Trigger `invoice.payment_failed` against the now-canceled user.** Via the Dashboard "retry payment" button (if available) or by triggering a fresh invoice on the canceled subscription. Verify the dev-server log shows `[webhooks/stripe ...] invoice.payment_failed skipped — user already canceled:` — not `processed:`. Verify `users/{uid}.status` remains `canceled` (did NOT downgrade to `past_due`). This is the AC #5 "don't resurrect a canceled user" guarantee, end-to-end verified.
+  - [x] 11.12 Document results in Completion Notes. If any step fails, **stop and file a defect against this story**; do not mark it done. Specifically flag any Stripe-SDK-shape drift analogous to Story 4.2's dahlia defect — the `paymentFailedSchema` is almost certainly the riskiest line in this story because it depends on the same `parent.subscription_details.subscription` path that Story 4.2 discovered was wrong on first live test.
 
 ## Dev Notes
 

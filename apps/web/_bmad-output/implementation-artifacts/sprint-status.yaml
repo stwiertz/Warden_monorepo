@@ -59,11 +59,11 @@ development_status:
   3-3-coupon-code-support-during-checkout: done
   epic-3-retrospective: done
 
-  epic-4: in-progress
+  epic-4: done
   4-1-stripe-webhook-endpoint-with-signature-verification: done
   4-2-process-invoice-paid-webhook-to-activate-subscriptions: done
-  4-3-process-subscription-deleted-and-payment-failed-webhooks: in-progress
-  epic-4-retrospective: optional
+  4-3-process-subscription-deleted-and-payment-failed-webhooks: done
+  epic-4-retrospective: done
 
   epic-5: backlog
   5-1-dashboard-with-account-and-subscription-overview: backlog
