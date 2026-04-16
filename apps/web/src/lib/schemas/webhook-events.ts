@@ -25,3 +25,25 @@ export const invoicePaidSchema = z.object({
 })
 
 export type InvoicePaidPayload = z.infer<typeof invoicePaidSchema>
+
+export const subscriptionDeletedSchema = z.object({
+  id: z.string().min(1),
+  customer: z.union([z.string().min(1), z.object({ id: z.string().min(1) })]),
+  metadata: z.record(z.string(), z.string()).optional(),
+})
+
+export type SubscriptionDeletedPayload = z.infer<typeof subscriptionDeletedSchema>
+
+// payment_failed reuses the dahlia `parent.subscription_details.subscription`
+// nesting documented on invoicePaidSchema above — do NOT regress to a top-level
+// `subscription` field (Story 4.2 fixed this on live smoke).
+export const paymentFailedSchema = z.object({
+  customer: z.string().min(1),
+  parent: z.object({
+    subscription_details: z.object({
+      subscription: z.string().min(1),
+    }),
+  }),
+})
+
+export type PaymentFailedPayload = z.infer<typeof paymentFailedSchema>
