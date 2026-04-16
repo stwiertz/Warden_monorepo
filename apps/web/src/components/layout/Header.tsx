@@ -14,22 +14,6 @@ export function Header() {
         </Link>
         <nav aria-label="Main navigation">
           <ul className="flex items-center gap-1">
-            <li>
-              <Link
-                href="/"
-                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 rounded-md px-3 py-2 text-sm font-medium transition-colors outline-none focus-visible:ring-3"
-              >
-                Home
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/pricing"
-                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 rounded-md px-3 py-2 text-sm font-medium transition-colors outline-none focus-visible:ring-3"
-              >
-                Pricing
-              </Link>
-            </li>
             <HeaderAuthActions />
           </ul>
         </nav>

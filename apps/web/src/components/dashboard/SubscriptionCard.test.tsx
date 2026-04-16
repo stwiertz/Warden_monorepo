@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 import { SubscriptionCard } from './SubscriptionCard'
 import type { SubscriptionResponse } from '@/lib/schemas/subscription'
@@ -21,6 +21,14 @@ const activeSubscription: SubscriptionResponse = {
 }
 
 describe('SubscriptionCard', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('renders skeleton components in loading state', () => {
     render(
       <SubscriptionCard
@@ -110,7 +118,6 @@ describe('SubscriptionCard', () => {
   })
 
   it('formats date from Unix seconds', () => {
-    // 1735689600 = 1 Jan 2025 00:00:00 UTC
     render(
       <SubscriptionCard
         subscription={activeSubscription}
@@ -119,7 +126,6 @@ describe('SubscriptionCard', () => {
         userEmail="test@example.com"
       />,
     )
-    // en-GB long format: "1 January 2025"
     expect(screen.getByText('1 January 2025')).toBeDefined()
   })
 
@@ -134,5 +140,129 @@ describe('SubscriptionCard', () => {
     )
     const badge = screen.getByText('Active')
     expect(badge.textContent).toBe('Active')
+  })
+
+  // Portal button tests
+  it('renders "Manage Subscription" button for active subscription', () => {
+    render(
+      <SubscriptionCard
+        subscription={activeSubscription}
+        loading={false}
+        error={null}
+        userEmail="test@example.com"
+      />,
+    )
+    expect(screen.getByRole('button', { name: /manage subscription/i })).toBeDefined()
+  })
+
+  it('renders "Manage Subscription" button for past_due subscription', () => {
+    const sub: SubscriptionResponse = { ...activeSubscription, status: 'past_due' }
+    render(
+      <SubscriptionCard
+        subscription={sub}
+        loading={false}
+        error={null}
+        userEmail="test@example.com"
+      />,
+    )
+    expect(screen.getByRole('button', { name: /manage subscription/i })).toBeDefined()
+  })
+
+  it('renders "Manage Subscription" button for canceled subscription', () => {
+    const sub: SubscriptionResponse = { ...activeSubscription, status: 'canceled' }
+    render(
+      <SubscriptionCard
+        subscription={sub}
+        loading={false}
+        error={null}
+        userEmail="test@example.com"
+      />,
+    )
+    expect(screen.getByRole('button', { name: /manage subscription/i })).toBeDefined()
+  })
+
+  it('does not render "Manage Subscription" button in no-subscription state', () => {
+    render(
+      <SubscriptionCard
+        subscription={null}
+        loading={false}
+        error={null}
+        userEmail="test@example.com"
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /manage subscription/i })).toBeNull()
+  })
+
+  it('does not render "Manage Subscription" button in loading state', () => {
+    render(
+      <SubscriptionCard
+        subscription={null}
+        loading={true}
+        error={null}
+        userEmail="test@example.com"
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /manage subscription/i })).toBeNull()
+  })
+
+  it('does not render "Manage Subscription" button in error state', () => {
+    render(
+      <SubscriptionCard
+        subscription={null}
+        loading={false}
+        error="Some error"
+        userEmail="test@example.com"
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /manage subscription/i })).toBeNull()
+  })
+
+  it('shows loading text when portal button is clicked', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise(() => {})),
+    )
+
+    render(
+      <SubscriptionCard
+        subscription={activeSubscription}
+        loading={false}
+        error={null}
+        userEmail="test@example.com"
+      />,
+    )
+
+    const button = screen.getByRole('button', { name: /manage subscription/i })
+    fireEvent.click(button)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /loading/i })).toBeDefined()
+    })
+  })
+
+  it('shows error text when portal API fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        json: () => Promise.resolve({ error: { message: 'No subscription found to manage' } }),
+      }),
+    )
+
+    render(
+      <SubscriptionCard
+        subscription={activeSubscription}
+        loading={false}
+        error={null}
+        userEmail="test@example.com"
+      />,
+    )
+
+    const button = screen.getByRole('button', { name: /manage subscription/i })
+    fireEvent.click(button)
+
+    await waitFor(() => {
+      expect(screen.getByText('No subscription found to manage')).toBeDefined()
+    })
   })
 })

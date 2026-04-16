@@ -23,28 +23,10 @@ describe('Header', () => {
     expect(brandLink).toHaveAttribute('href', '/')
   })
 
-  it('renders Home navigation link', () => {
-    render(<Header />)
-    const homeLink = screen.getByRole('link', { name: /^home$/i })
-    expect(homeLink).toHaveAttribute('href', '/')
-  })
-
-  it('renders Pricing navigation link', () => {
-    render(<Header />)
-    const pricingLink = screen.getByRole('link', { name: /^pricing$/i })
-    expect(pricingLink).toHaveAttribute('href', '/pricing')
-  })
-
   it('uses semantic header and nav elements', () => {
     const { container } = render(<Header />)
     expect(container.querySelector('header')).toBeInTheDocument()
     expect(container.querySelector('nav')).toBeInTheDocument()
-  })
-
-  it('navigation links have focus-visible ring classes', () => {
-    render(<Header />)
-    const homeLink = screen.getByRole('link', { name: /^home$/i })
-    expect(homeLink.className).toContain('focus-visible:ring')
   })
 
   it('renders the auth-actions slot inside the nav (Sign in link when anonymous)', () => {
@@ -53,5 +35,23 @@ describe('Header', () => {
     const signInLink = screen.getByRole('link', { name: /^sign in$/i })
     expect(signInLink).toHaveAttribute('href', '/auth/sign-in')
     expect(nav.contains(signInLink)).toBe(true)
+  })
+
+  it('renders Home and Pricing links via HeaderAuthActions when anonymous', () => {
+    render(<Header />)
+    const nav = screen.getByRole('navigation', { name: /main navigation/i })
+    const homeLink = screen.getByRole('link', { name: /^home$/i })
+    expect(homeLink).toHaveAttribute('href', '/')
+    expect(nav.contains(homeLink)).toBe(true)
+
+    const pricingLink = screen.getByRole('link', { name: /^pricing$/i })
+    expect(pricingLink).toHaveAttribute('href', '/pricing')
+    expect(nav.contains(pricingLink)).toBe(true)
+  })
+
+  it('navigation links have focus-visible ring classes', () => {
+    render(<Header />)
+    const homeLink = screen.getByRole('link', { name: /^home$/i })
+    expect(homeLink.className).toContain('focus-visible:ring')
   })
 })

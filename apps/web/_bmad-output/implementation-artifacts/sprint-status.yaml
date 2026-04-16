@@ -67,7 +67,7 @@ development_status:
 
   epic-5: in-progress
   5-1-dashboard-with-account-and-subscription-overview: done
-  5-2-stripe-customer-portal-integration: ready-for-dev
+  5-2-stripe-customer-portal-integration: done
   5-3-payment-failure-warning-banner: backlog
   epic-5-retrospective: optional
 

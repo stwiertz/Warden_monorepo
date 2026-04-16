@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 
 import type { SubscriptionResponse } from '@/lib/schemas/subscription'
@@ -49,6 +50,26 @@ export function SubscriptionCard({
   error,
   userEmail,
 }: SubscriptionCardProps) {
+  const [portalLoading, setPortalLoading] = useState(false)
+  const [portalError, setPortalError] = useState<string | null>(null)
+
+  async function handleManageSubscription() {
+    setPortalLoading(true)
+    setPortalError(null)
+    try {
+      const res = await fetch('/api/subscription/portal', { method: 'POST' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body?.error?.message || 'Unable to open subscription management')
+      }
+      const body = await res.json()
+      window.location.href = body.data.url
+    } catch (err) {
+      setPortalError(err instanceof Error ? err.message : 'Unable to open subscription management')
+      setPortalLoading(false)
+    }
+  }
+
   if (loading) {
     return (
       <Card>
@@ -146,6 +167,17 @@ export function SubscriptionCard({
             <dd className="text-sm font-medium">{formatDate(subscription.current_period_end)}</dd>
           </div>
         </dl>
+        <div className="mt-4">
+          <Button
+            variant="outline"
+            className="w-full sm:w-auto"
+            disabled={portalLoading}
+            onClick={handleManageSubscription}
+          >
+            {portalLoading ? 'Loading...' : 'Manage Subscription'}
+          </Button>
+          {portalError && <p className="text-destructive mt-2 text-sm">{portalError}</p>}
+        </div>
       </CardContent>
     </Card>
   )
