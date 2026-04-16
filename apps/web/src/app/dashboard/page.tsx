@@ -3,12 +3,15 @@
 import { useSearchParams } from 'next/navigation'
 
 import { useAuth } from '@/hooks/useAuth'
+import { useSubscription } from '@/hooks/useSubscription'
 import { SignOutButton } from '@/components/auth/SignOutButton'
+import { SubscriptionCard } from '@/components/dashboard/SubscriptionCard'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
 
 export default function DashboardPage() {
   const { user, loading } = useAuth()
+  const { subscription, loading: subscriptionLoading, error: subscriptionError } = useSubscription()
   const searchParams = useSearchParams()
   const showCheckoutSuccess = searchParams?.get('checkout') === 'success'
 
@@ -34,12 +37,12 @@ export default function DashboardPage() {
           </Alert>
         )}
         <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-        <div className="space-y-1">
-          <p className="text-muted-foreground text-sm">
-            Signed in as <span className="text-foreground font-medium">{user.displayName}</span>
-          </p>
-          <p className="text-muted-foreground text-sm">{user.email}</p>
-        </div>
+        <SubscriptionCard
+          subscription={subscription}
+          loading={subscriptionLoading}
+          error={subscriptionError}
+          userEmail={user.email}
+        />
         <SignOutButton variant="outline" />
       </div>
     </div>

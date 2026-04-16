@@ -116,9 +116,9 @@ FR13: Epic 5 - View account email
 FR14: Epic 5 - View current plan
 FR15: Epic 5 - View subscription status
 FR16: Epic 5 - View next payment date
-FR17: Epic 5 - View payment history
-FR18: Epic 5 - Upgrade monthly to yearly
-FR19: Epic 5 - Cancel subscription
+FR17: Epic 5 - View payment history (via Stripe Customer Portal)
+FR18: Epic 5 - Upgrade monthly to yearly (via Stripe Customer Portal)
+FR19: Epic 5 - Cancel subscription (via Stripe Customer Portal)
 FR20: Epic 5 - Access Stripe Customer Portal
 FR21: Epic 4 - Process invoice.paid webhook
 FR22: Epic 4 - Process subscription.deleted webhook
@@ -157,15 +157,22 @@ Users can choose a plan and subscribe via Stripe, with optional coupon support.
 System reliably syncs Stripe payment events to Firestore, keeping subscription state accurate.
 **FRs covered:** FR21, FR22, FR23, FR24
 
-### Epic 5: Account Dashboard & Subscription Management
+### Epic 5: Account Dashboard & Subscription Management (Portal-First)
 
-Subscribers can view their account, manage their subscription, and handle payment issues.
+Subscribers can view their account status and manage their subscription via Stripe's Customer Portal.
 **FRs covered:** FR13, FR14, FR15, FR16, FR17, FR18, FR19, FR20, FR25
+**Approach:** Delegate subscription management (payment history, plan switching, cancellation, payment method updates) to Stripe Customer Portal. Build custom UI only for dashboard overview and payment failure warnings.
 
 ### Epic 6: Legal, Compliance & Analytics
 
 Visitors and users have access to legal pages and privacy-compliant analytics.
 **FRs covered:** FR26, FR27, FR28, FR29, FR30, FR31
+
+### Epic 7: Launch Readiness & Production Verification
+
+Verify the complete platform end-to-end and deploy to production.
+**Scope:** Firestore security rules deployment, Firebase auth E2E verification, PlanCta hydration fix, guided payment flow E2E testing, Stripe production activation, go-live checklist.
+**External dependency:** Company number required for Stripe production mode.
 
 ---
 
@@ -418,10 +425,11 @@ So that subscription cancellations and payment failures are reflected in Firesto
 
 ---
 
-## Epic 5: Account Dashboard & Subscription Management
+## Epic 5: Account Dashboard & Subscription Management (Portal-First)
 
-**Goal:** Subscribers can view their account, manage their subscription, and handle payment issues.
+**Goal:** Subscribers can view their account status and manage their subscription via Stripe's Customer Portal.
 **FRs covered:** FR13, FR14, FR15, FR16, FR17, FR18, FR19, FR20, FR25
+**Approach:** Delegate subscription management (payment history, plan switching, cancellation, payment method updates) to Stripe Customer Portal. Build custom UI only for dashboard overview and payment failure warnings.
 
 ### Story 5.1: Dashboard with Account and Subscription Overview
 
@@ -439,71 +447,53 @@ So that I know what plan I'm on and when my next payment is due.
 **And** the next payment date is displayed (FR16)
 **And** the dashboard loads within 2s (NFR5)
 **And** loading states use Skeleton components while data is fetched from Firestore
+**And** data is fetched from `users/{uid}` on load (no `onSnapshot` real-time listeners)
 
-### Story 5.2: Payment History
+### Story 5.2: Stripe Customer Portal Integration
 
 As a subscriber,
-I want to view my past payments,
-So that I can review my billing history.
+I want to manage my subscription (view payment history, change plan, cancel, update payment method) via Stripe's Customer Portal,
+So that I can handle all billing tasks in a secure, Stripe-hosted environment.
 
 **Acceptance Criteria:**
 
 **Given** an authenticated subscriber is on the `/dashboard` page
-**When** the payment history section loads
-**Then** a list of past invoices is displayed with date, amount, and status (FR17)
-**And** payment data is fetched from Stripe via a server-side API call
-**And** the list is displayed in reverse chronological order
+**When** the subscriber clicks the "Manage Subscription" button
+**Then** a server-side API route creates a Stripe Customer Portal session via `stripe.billingPortal.sessions.create()` (FR20)
+**And** the subscriber is redirected to the Stripe Customer Portal
+**And** the portal provides access to payment history (FR17), plan switching with proration (FR18), subscription cancellation (FR19), and payment method updates
+**And** after the subscriber returns from the portal, they land back on `/dashboard`
+**And** any changes made in the portal trigger existing webhook handlers (Stories 4.2, 4.3) to update Firestore state
 
-### Story 5.3: Upgrade from Monthly to Yearly Plan
+**Given** a signed-in user views any page
+**When** the header renders
+**Then** the header navigation shows a "Dashboard" link pointing to `/dashboard` (replacing the signed-out navigation links per UX spec line 715)
+**And** this fulfills the deferred nav task from Story 1.3
 
-As a subscriber,
-I want to upgrade my subscription from monthly to yearly,
-So that I can save money with annual billing.
+**Human Prerequisites:**
+- [ ] Stripe Customer Portal configured in Stripe Dashboard (enable plan switching, cancellation, payment method updates)
+- [ ] Portal branding configured (logo, colors, return URL pointing to `/dashboard`)
 
-**Acceptance Criteria:**
-
-**Given** a subscriber is on the monthly plan
-**When** the subscriber clicks the upgrade button on the dashboard
-**Then** a confirmation dialog explains the upgrade (new price, prorated billing)
-**When** the subscriber confirms the upgrade
-**Then** a POST request to `/api/subscription/upgrade` triggers a Stripe subscription update (FR18)
-**And** the dashboard reflects the updated plan after the Stripe webhook processes
-**When** the subscriber is already on the yearly plan
-**Then** the upgrade button is not displayed
-
-### Story 5.4: Cancel Subscription
+### Story 5.3: Payment Failure Warning Banner
 
 As a subscriber,
-I want to cancel my subscription,
-So that I am not charged in the next billing cycle.
+I want to be warned when my payment has failed or my subscription is canceled,
+So that I can take action to resolve billing issues and maintain access.
 
 **Acceptance Criteria:**
-
-**Given** a subscriber has an active subscription
-**When** the subscriber clicks the cancel button on the dashboard
-**Then** a confirmation dialog warns about the consequences of cancellation (FR19)
-**When** the subscriber confirms cancellation
-**Then** a POST request to `/api/subscription/cancel` triggers a Stripe subscription cancellation
-**And** the subscription remains active until the end of the current billing period
-**And** the dashboard status updates to "canceled" after the Stripe webhook processes
-
-### Story 5.5: Stripe Customer Portal and Payment Failure Warning
-
-As a subscriber,
-I want to update my payment method and be warned about payment issues,
-So that I can keep my subscription active and resolve billing problems.
-
-**Acceptance Criteria:**
-
-**Given** a subscriber is on the dashboard
-**When** the subscriber clicks "Manage Payment Method"
-**Then** a Stripe Customer Portal session is created server-side and the user is redirected to it (FR20)
-**And** after returning from the portal, the user lands back on `/dashboard`
 
 **Given** a subscriber's subscription status is `past_due`
 **When** the dashboard loads
-**Then** a prominent payment failure warning banner is displayed (FR25)
-**And** the banner includes a CTA to update the payment method via Stripe Customer Portal
+**Then** a prominent warning banner is displayed with the message indicating payment failure (FR25)
+**And** the banner includes a CTA button pointing to the Stripe Customer Portal to update payment method
+
+**Given** a subscriber's subscription status is `canceled`
+**When** the dashboard loads
+**Then** an informational banner is displayed indicating the subscription has been canceled
+**And** the banner includes a CTA to resubscribe via the pricing page
+
+**And** banners are visually distinct (warning style for `past_due`, neutral/info style for `canceled`)
+**And** status is read from `users/{uid}` Firestore document (no real-time listeners)
 
 ---
 
@@ -551,3 +541,84 @@ So that my personal data is removed in compliance with privacy regulations.
 **And** the Firestore `users/{uid}` document is deleted (FR31)
 **And** the Firebase Auth account is deleted (FR31)
 **And** deletion steps are documented for the support team
+
+---
+
+## Epic 7: Launch Readiness & Production Verification
+
+**Goal:** Verify the complete platform end-to-end and deploy to production.
+**Scope:** Consolidates carried retro items from Epics 2–3 and adds production-readiness verification.
+**External dependency:** Company number required for Stripe production mode activation.
+
+### Story 7.1: Firestore Security Rules Deployment
+
+As a system,
+I want Firestore security rules deployed to production,
+So that client SDK reads are properly restricted and users can only access their own data.
+
+**Acceptance Criteria:**
+
+**Given** Firestore security rules are defined for the `users/{uid}` collection
+**When** the rules are deployed to the production Firebase project
+**Then** authenticated users can read/write only their own `users/{uid}` document (FR32)
+**And** unauthenticated requests are denied
+**And** rules are tested against expected access patterns before deployment
+
+**Origin:** Carried from Epic 2 retrospective action item #1.
+
+### Story 7.2: Firebase Auth E2E & PlanCta Hydration Fix
+
+As a developer,
+I want to verify Firebase auth flows end-to-end and fix the PlanCta hydration mismatch,
+So that sign-in/registration/sign-out work reliably and there are no console warnings in production.
+
+**Acceptance Criteria:**
+
+**Given** the Firebase auth integration is complete
+**When** E2E verification is performed
+**Then** Google sign-in, email/password sign-in, registration, and sign-out flows all work correctly across supported browsers
+**And** session cookies are created and destroyed as expected
+**And** the PlanCta `disabled={null}` vs `disabled={true}` hydration mismatch is fixed (no React hydration warnings in dev console)
+
+**Origin:** Carried from Epic 2 retrospective action item #2 and Epic 3 retrospective action item #4.
+
+### Story 7.3: Guided Payment Flow E2E Testing
+
+As the project lead (Root),
+I want to walk through the complete subscription lifecycle end-to-end,
+So that I have full confidence in the payment system before going live.
+
+**Acceptance Criteria:**
+
+**Given** all prior epics are complete and the platform is running in Stripe test mode
+**When** a guided walkthrough is performed
+**Then** the following lifecycle is verified end-to-end:
+- Sign up (new account creation)
+- Subscribe to monthly plan via Stripe Checkout
+- Verify dashboard shows active subscription with correct plan/status/next payment date
+- Simulate payment failure (via Stripe test tools)
+- Verify dashboard shows `past_due` warning banner
+- Fix payment via Stripe Customer Portal
+- Verify dashboard returns to `active` status
+- Upgrade to yearly plan via Stripe Customer Portal
+- Verify dashboard reflects yearly plan
+- Cancel subscription via Stripe Customer Portal
+- Verify dashboard shows `canceled` status and persists correctly
+
+### Story 7.4: Stripe Production Activation & Go-Live
+
+As the project lead (Root),
+I want to activate Stripe production mode and deploy the platform,
+So that real customers can subscribe and pay.
+
+**Acceptance Criteria:**
+
+**Given** all E2E testing is complete and the company number is available
+**When** production activation is performed
+**Then** Stripe account is activated for production mode with the company number
+**And** production environment variables are configured (Stripe live keys, webhook secret)
+**And** DNS is configured for the production domain
+**And** Vercel production deployment is verified
+**And** a go-live checklist is completed covering: security review, environment variables, monitoring, webhook endpoint verification, SSL/HTTPS
+
+**External dependency:** Root must provide company number before this story can begin.

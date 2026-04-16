@@ -3,16 +3,42 @@ import { render, screen } from '@testing-library/react'
 import DashboardPage from './page'
 
 let mockAuthState = { user: null as unknown, loading: false, error: null }
+let mockSubscriptionState = {
+  subscription: null as unknown,
+  loading: false,
+  error: null as string | null,
+}
 let mockCheckoutParam: string | null = null
 
 vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => mockAuthState,
 }))
 
+vi.mock('@/hooks/useSubscription', () => ({
+  useSubscription: () => mockSubscriptionState,
+}))
+
 vi.mock('next/navigation', () => ({
   useSearchParams: () => ({
     get: (key: string) => (key === 'checkout' ? mockCheckoutParam : null),
   }),
+}))
+
+vi.mock('@/components/dashboard/SubscriptionCard', () => ({
+  SubscriptionCard: (props: {
+    userEmail: string | null
+    loading: boolean
+    error: string | null
+  }) => (
+    <div
+      data-testid="subscription-card"
+      data-email={props.userEmail}
+      data-loading={props.loading}
+      data-error={props.error}
+    >
+      {props.userEmail && <span>{props.userEmail}</span>}
+    </div>
+  ),
 }))
 
 vi.mock('@/components/auth/SignOutButton', () => ({
@@ -27,6 +53,7 @@ describe('Dashboard Page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockAuthState = { user: null, loading: false, error: null }
+    mockSubscriptionState = { subscription: null, loading: false, error: null }
     mockCheckoutParam = null
   })
 
@@ -49,7 +76,8 @@ describe('Dashboard Page', () => {
       error: null,
     }
     render(<DashboardPage />)
-    expect(screen.getByText('John Doe')).toBeDefined()
+    const card = screen.getByTestId('subscription-card')
+    expect(card.getAttribute('data-email')).toBe('john@example.com')
     expect(screen.getByText('john@example.com')).toBeDefined()
   })
 
