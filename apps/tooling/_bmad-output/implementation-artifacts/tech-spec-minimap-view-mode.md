@@ -2,8 +2,8 @@
 title: 'Minimap View Mode Tool'
 slug: 'minimap-view-mode'
 created: '2026-04-20'
-status: 'review'
-stepsCompleted: [1, 2, 3]
+status: 'ready-for-dev'
+stepsCompleted: [1, 2, 3, 4]
 tech_stack:
   - 'Python 3.8+'
   - 'Tkinter'
