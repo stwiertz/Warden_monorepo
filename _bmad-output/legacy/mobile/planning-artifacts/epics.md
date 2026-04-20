@@ -180,6 +180,10 @@ Coach can export clips as standalone MP4 videos with embedded voice commentary i
 Coach can close the app mid-review and resume exactly where left off -- same map, same position, voice comments intact, clips in progress preserved.
 **FRs covered:** FR26, FR27, FR28
 
+### Epic 7: ROI Detection Redesign & View Mode Expansion
+Replace the Sprint 2 black-screen detector and template matcher with a KDA-based Game Detector and pHash Map Identifier driven by a Firestore-hosted detection config. Expand the clip `view_mode` from two values (`pov`, `minimap`) to three (`full`, `minimap`, `minimap_hud`) with a two-level UI toggle and corresponding FFmpeg export recipes.
+**Stories:** 7.1 (schema) -- 7.2 (type) -- 7.3 (view-mode UI) -- 7.4 (remote config) -- 7.5 (detectors) -- 7.6 (export pipeline)
+
 ---
 
 ## Epic 1: Project Setup & User Authentication
