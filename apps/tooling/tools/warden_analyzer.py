@@ -31,6 +31,61 @@ from hash_validator import predict_map
 REF_HEIGHT = 1080
 
 
+def _load_minimap_config(config):
+    """Parse the first minimap_identification config from config dict, or None."""
+    from tools.minimap_zone_selector.zone_model import MinimapConfig, Zone
+    mi = config.get("minimap_identification", {})
+    cfgs = mi.get("configs", [])
+    if not cfgs:
+        return None
+    c = cfgs[0]
+    maps = {}
+    for map_label, map_data in c.get("maps", {}).items():
+        zones = []
+        for z in map_data.get("zones", []):
+            hsv = z["hsv"]
+            zones.append(Zone(
+                zone_id=z["id"],
+                x=z["x"], y=z["y"], width=z["width"], height=z["height"],
+                h_center=hsv["h_center"], h_tol=hsv["h_tol"],
+                s_center=hsv["s_center"], s_tol=hsv["s_tol"],
+                v_center=hsv["v_center"], v_tol=hsv["v_tol"],
+                min_ratio=z["min_ratio"],
+                weight=z["weight"],
+                weight_override=z.get("weight_override", False),
+            ))
+        maps[map_label] = zones
+    return MinimapConfig(
+        id=c["id"],
+        roi=c.get("roi", {}),
+        identification_threshold=c.get("identification_threshold", 0.6),
+        maps=maps,
+    )
+
+
+def identify_map_minimap(frame, minimap_cfg):
+    """Identify map using minimap zone HSV matching.
+
+    Args:
+        frame: BGR numpy array at any resolution (zone coords scale automatically).
+        minimap_cfg: MinimapConfig instance.
+
+    Returns:
+        tuple: (map_name, score) where map_name is 'unrecognized' if below threshold.
+    """
+    from tools.minimap_zone_selector.zone_model import zone_fires
+    best_map = "unrecognized"
+    best_score = 0.0
+    for map_label, zones in minimap_cfg.maps.items():
+        score = sum(z.weight for z in zones if zone_fires(z, frame))
+        if score > best_score:
+            best_score = score
+            best_map = map_label
+    if best_score < minimap_cfg.identification_threshold:
+        return "unrecognized", best_score
+    return best_map, best_score
+
+
 def identify_map(frame, ref_roi, ref_hashes, canvas_size, hash_size, hash_method,
                  shift_tolerance, recognition_threshold, text_anchor_width=None, threshold_hash=False):
     """Identify the map from a single downscaled in-game frame.
@@ -94,7 +149,7 @@ def identify_map(frame, ref_roi, ref_hashes, canvas_size, hash_size, hash_method
     return map_name, best_dist, roi_crop
 
 
-def run(video_path, output_dir, config, map_config, map_config_path):
+def run(video_path, output_dir, config, map_config=None, map_config_path=None):
     """Run round detection, map identification, and score screen export.
 
     Args:
@@ -121,38 +176,48 @@ def run(video_path, output_dir, config, map_config, map_config_path):
     score_offset = pd["score_offset"]
     hud_brightness_max = pd["hud_brightness_max"]
 
-    mi = config["map_identification"]
-    if "recognition_threshold" in map_config:
-        recognition_threshold = map_config["recognition_threshold"]
-        threshold_source = "map_config"
-    else:
-        recognition_threshold = mi.get("recognition_threshold", 10)
-        threshold_source = "config.yaml"
-        print(
-            f"Warning: recognition_threshold not found in map_config.json — "
-            f"using config.yaml value ({recognition_threshold}). "
-            "Regenerate map_config.json with hash_comparator.py for a calibrated threshold.",
-            file=sys.stderr,
-        )
-    shift_tolerance = mi.get("shift_tolerance", 2)
-    text_anchor_width = mi.get("text_anchor_width") or None
-    threshold_hash = mi.get("threshold_hash", False)
+    # Hash-based identification (optional fallback)
+    ref_roi = ref_hashes = None
+    canvas_size = hash_size = hash_method = shift_tolerance = recognition_threshold = None
+    text_anchor_width = None
+    threshold_hash = False
 
-    canvas_size = map_config["canvas_size"]
-    hash_size = map_config["hash_size"]
-    hash_method = map_config["hash_method"]
-    ref_roi = {**map_config["roi"], "name": "map_name_hud"}
+    if map_config is not None:
+        mi = config["map_identification"]
+        if "recognition_threshold" in map_config:
+            recognition_threshold = map_config["recognition_threshold"]
+            threshold_source = "map_config"
+        else:
+            recognition_threshold = mi.get("recognition_threshold", 10)
+            threshold_source = "config.yaml"
+            print(
+                f"Warning: recognition_threshold not found in map_config.json — "
+                f"using config.yaml value ({recognition_threshold}). "
+                "Regenerate map_config.json with hash_comparator.py for a calibrated threshold.",
+                file=sys.stderr,
+            )
+        shift_tolerance = mi.get("shift_tolerance", 2)
+        text_anchor_width = mi.get("text_anchor_width") or None
+        threshold_hash = mi.get("threshold_hash", False)
 
-    try:
-        ref_hashes = {}
-        for name, h in sorted(map_config["maps"].items()):
-            if isinstance(h, list):
-                ref_hashes[name] = [imagehash.hex_to_hash(x) for x in h]
-            else:
-                ref_hashes[name] = [imagehash.hex_to_hash(h)]
-    except ValueError as e:
-        print(f"Error: Invalid hash in map_config '{map_config_path}': {e}", file=sys.stderr)
-        sys.exit(1)
+        canvas_size = map_config["canvas_size"]
+        hash_size = map_config["hash_size"]
+        hash_method = map_config["hash_method"]
+        ref_roi = {**map_config["roi"], "name": "map_name_hud"}
+
+        try:
+            ref_hashes = {}
+            for name, h in sorted(map_config["maps"].items()):
+                if isinstance(h, list):
+                    ref_hashes[name] = [imagehash.hex_to_hash(x) for x in h]
+                else:
+                    ref_hashes[name] = [imagehash.hex_to_hash(h)]
+        except ValueError as e:
+            print(f"Error: Invalid hash in map_config '{map_config_path}': {e}", file=sys.stderr)
+            sys.exit(1)
+
+    # Minimap zone-based identification
+    minimap_cfg = _load_minimap_config(config)
 
     # --- Resolve KDA / notkda ROIs ---
     roi_zones = config["black_detection"]["roi_zones"]
@@ -183,17 +248,22 @@ def run(video_path, output_dir, config, map_config, map_config_path):
     os.makedirs(output_dir, exist_ok=True)
 
     print(f"Processing: {video_path}")
-    print(f"Map config: {map_config_path}  ({len(map_config['maps'])} maps)")
     print(f"Output: {output_dir}")
-    print(f"Config: recognition_threshold={recognition_threshold} (from {threshold_source}), "
-          f"shift_tolerance={shift_tolerance}, score_offset={score_offset}s, "
-          f"threshold_hash={threshold_hash}")
-    if threshold_hash:
-        print(
-            "Warning: threshold_hash=True — ensure map_config.json was generated with "
-            "the same setting. Mismatched preprocessing degrades recognition accuracy.",
-            file=sys.stderr,
-        )
+    if minimap_cfg is not None:
+        print(f"Minimap config: '{minimap_cfg.id}'  ({len(minimap_cfg.maps)} maps configured)  [primary]")
+    if map_config is not None:
+        fallback_label = "fallback" if minimap_cfg is not None else "primary"
+        print(f"Hash config: {map_config_path}  ({len(map_config['maps'])} maps)  [{fallback_label}]")
+        print(f"  recognition_threshold={recognition_threshold}, shift_tolerance={shift_tolerance}, "
+              f"score_offset={score_offset}s, threshold_hash={threshold_hash}")
+        if threshold_hash:
+            print(
+                "Warning: threshold_hash=True — ensure map_config.json was generated with "
+                "the same setting. Mismatched preprocessing degrades recognition accuracy.",
+                file=sys.stderr,
+            )
+    if minimap_cfg is None and map_config is None:
+        print("Warning: No identification method available — map names will be 'unrecognized'.", file=sys.stderr)
     print()
 
     # --- Detection state machine ---
@@ -235,12 +305,25 @@ def run(video_path, output_dir, config, map_config, map_config_path):
                     confirmed_ts = start_candidate_timestamp
                     detection_seq += 1
 
-                    map_name, best_dist, roi_crop = identify_map(
-                        start_candidate_frame, ref_roi, ref_hashes,
-                        canvas_size, hash_size, hash_method,
-                        shift_tolerance, recognition_threshold, text_anchor_width,
-                        threshold_hash=threshold_hash,
-                    )
+                    map_name, best_dist, roi_crop, map_method = "unrecognized", None, None, "none"
+
+                    if minimap_cfg is not None:
+                        map_name, mini_score = identify_map_minimap(
+                            start_candidate_frame, minimap_cfg
+                        )
+                        if map_name != "unrecognized":
+                            best_dist = round(mini_score, 3)
+                            map_method = "minimap"
+
+                    if map_name == "unrecognized" and ref_hashes is not None:
+                        map_name, best_dist, roi_crop = identify_map(
+                            start_candidate_frame, ref_roi, ref_hashes,
+                            canvas_size, hash_size, hash_method,
+                            shift_tolerance, recognition_threshold, text_anchor_width,
+                            threshold_hash=threshold_hash,
+                        )
+                        if map_name != "unrecognized":
+                            map_method = "hash"
 
                     current_round = {
                         "seq": detection_seq,
@@ -250,6 +333,7 @@ def run(video_path, output_dir, config, map_config, map_config_path):
                         "map_name": map_name,
                         "best_dist": best_dist,
                         "roi_crop": roi_crop,
+                        "map_method": map_method,
                     }
 
                     state = "in_game"
@@ -259,7 +343,7 @@ def run(video_path, output_dir, config, map_config, map_config_path):
                     start_candidate_frame = None
                     end_confirm_count = 0
                     end_candidate_timestamp = None
-                    print(f"  START at {confirmed_ts:.1f}s  |  map={map_name}  dist={best_dist}")
+                    print(f"  START at {confirmed_ts:.1f}s  |  map={map_name}  [{map_method}]  score={best_dist}")
             else:
                 start_confirm_count = 0
                 start_candidate_timestamp = None
@@ -366,6 +450,7 @@ def run(video_path, output_dir, config, map_config, map_config_path):
         rounds_output.append({
             "round": i,
             "map_name": rd["map_name"],
+            "map_method": rd.get("map_method", "none"),
             "start_timer": rd["start_ts"],
             "end_timer": rd["end_ts"],
             "score_timer": score_ts,
@@ -377,7 +462,7 @@ def run(video_path, output_dir, config, map_config, map_config_path):
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(
             {"video": video_path, "map_config": map_config_path, "rounds": rounds_output},
-            f, indent=2,
+            f, indent=2, default=str,
         )
     print(f"\nWrote {json_path}  ({len(rounds_output)} round(s))\n")
 
@@ -390,8 +475,8 @@ def main():
     )
     parser.add_argument("video_path", help="Path to the input video file.")
     parser.add_argument(
-        "--map-config", default="output/map_config.json",
-        help="Path to map_config.json (default: output/map_config.json).",
+        "--map-config", default=None,
+        help="Path to map_config.json for hash-based identification (optional fallback).",
     )
     parser.add_argument("-o", "--output", help="Output directory (default: output/warden_<video_stem>/).")
     parser.add_argument("-c", "--config", default="config/config.yaml", help="Path to config.yaml.")
@@ -399,8 +484,11 @@ def main():
 
     config = load_config(args.config)
 
-    with open(args.map_config, "r", encoding="utf-8") as f:
-        map_config = json.load(f)
+    map_config = None
+    map_config_path = args.map_config
+    if map_config_path is not None:
+        with open(map_config_path, "r", encoding="utf-8") as f:
+            map_config = json.load(f)
 
     if args.output:
         output_dir = args.output
@@ -408,7 +496,7 @@ def main():
         video_stem = os.path.splitext(os.path.basename(args.video_path))[0]
         output_dir = os.path.join("output", f"warden_{video_stem}")
 
-    run(args.video_path, output_dir, config, map_config, args.map_config)
+    run(args.video_path, output_dir, config, map_config, map_config_path)
 
 
 if __name__ == "__main__":

@@ -1,184 +1,932 @@
-# Warden Desktop Pipeline Configuration
-# All tunable parameters for the video analysis tools
-
-# Reference resolution — ROI coordinates below are defined at this resolution
-# and will be scaled proportionally when processing at a different resolution
-reference_resolution:
-  width: 1920
-  height: 1080
-
-# Processing resolution — frames are downscaled to this height for analysis
-# Lower = faster processing, higher = more accurate detection
-processing:
-  target_height: 720
-
-# Black screen detection settings
 black_detection:
-  # Brightness threshold (0-255). A grayscale ROI region with mean pixel value
-  # below this threshold is considered "black".
   brightness_threshold: 15
-
-  # Seconds to skip after detecting a black screen, to avoid duplicate
-  # detections from consecutive loading frames in the same transition.
-  skip_duration: 15.0
-
-  # Seconds before an end detection to also export a "pre-end" snapshot.
-  # Useful for capturing score state before the black screen. Set to 0 to disable.
   pre_end_offset: 10.0
-
-  # Number of consecutive keyframes that must pass start validation before
-  # firing startLoading. Prevents triggering on transient lobby frames.
-  start_confirm_frames: 2
-
-  # ROI zones — both must be simultaneously black to confirm a transition.
-  # Coordinates are at reference_resolution (1920x1080).
   roi_zones:
-    - name: minimap
-      x: 104
-      y: 0
-      width: 234
-      height: 38
-
-    - name: map_name
-      x: 827
-      y: 81
-      width: 267
-      height: 22
-
-    - name: vertical
-      x: 104
-      y: 0
-      width: 22
-      height: 264
-
-    - name: team_bar
-      x: 430
-      y: 1015
-      width: 1060
-      height: 65
-
-    - name: personnalbar
-      x: 648
-      y: 990
-      width: 12
-      height: 20
-
-    - name: points
-      x: 956
-      y: 42
-      width: 6
-      height: 15
-
-    - name: kda
-      x: 1197
-      y: 1000
-      width: 10
-      height: 16
-
-    - name: notkda
-      x: 1215
-      y: 1000
-      width: 18
-      height: 16
-
+  - height: 38
+    name: minimap
+    width: 234
+    x: 104
+    y: 0
+  - height: 22
+    name: map_name
+    width: 267
+    x: 827
+    y: 81
+  - height: 264
+    name: vertical
+    width: 22
+    x: 104
+    y: 0
+  - height: 65
+    name: team_bar
+    width: 1060
+    x: 430
+    y: 1015
+  - height: 20
+    name: personnalbar
+    width: 12
+    x: 648
+    y: 990
+  - height: 15
+    name: points
+    width: 6
+    x: 956
+    y: 42
+  - height: 16
+    name: kda
+    width: 10
+    x: 1197
+    y: 1000
+  - height: 16
+    name: notkda
+    width: 18
+    x: 1215
+    y: 1000
+  skip_duration: 15.0
+  start_confirm_frames: 2
 color:
-  orange:
-    h: 31
-    s: 100
-    v: 91
   bleu:
     h: 214
     s: 89
     v: 100
+  orange:
+    h: 31
+    s: 100
+    v: 91
   white:
     h: 0
     s: 0
     v: 100
-
-# Points ROI white detection — classifies in-game vs lobby by white text presence
+map_identification:
+  canvas_size: 128
+  collision_threshold: 12
+  hash_methods:
+  - ahash
+  - dhash
+  - phash
+  hash_size: 16
+  preferred_method: dhash
+  recognition_threshold: 10
+  resolutions: []
+  roi:
+    height: 22
+    name: map_name_hash
+    width: 267
+    x: 827
+    y: 81
+  rois:
+  - height: 22
+    name: map_name_hud
+    width: 267
+    x: 827
+    y: 81
+  shift_tolerance: 2
+  text_anchor_width: 52
+  threshold_hash: false
+  tile_cols: 3
+minimap_identification:
+  configs:
+  - id: test
+    identification_threshold: 0.6
+    maps:
+      artefact:
+        zones:
+        - height: 8
+          hsv:
+            h_center: 159
+            h_tol: 10
+            s_center: 86
+            s_tol: 26
+            v_center: 48
+            v_tol: 24
+          id: zone_0
+          min_ratio: 0.3
+          weight: 0.75
+          weight_override: false
+          width: 6
+          x: 189
+          y: 68
+        - height: 6
+          hsv:
+            h_center: 157
+            h_tol: 10
+            s_center: 84
+            s_tol: 24
+            v_center: 56
+            v_tol: 14
+          id: zone_2
+          min_ratio: 0.3
+          weight: 0.75
+          weight_override: false
+          width: 4
+          x: 344
+          y: 71
+        - height: 2
+          hsv:
+            h_center: 159
+            h_tol: 10
+            s_center: 86
+            s_tol: 21
+            v_center: 52
+            v_tol: 13
+          id: zone_5
+          min_ratio: 0.3
+          weight: 0.5
+          weight_override: false
+          width: 3
+          x: 268
+          y: 72
+        - height: 5
+          hsv:
+            h_center: 156
+            h_tol: 10
+            s_center: 86
+            s_tol: 15
+            v_center: 55
+            v_tol: 17
+          id: zone_6
+          min_ratio: 0.3
+          weight: 0.625
+          weight_override: false
+          width: 6
+          x: 171
+          y: 183
+        - height: 3
+          hsv:
+            h_center: 140
+            h_tol: 10
+            s_center: 96
+            s_tol: 8
+            v_center: 60
+            v_tol: 8
+          id: zone_7
+          min_ratio: 0.3
+          weight: 0.625
+          weight_override: false
+          width: 12
+          x: 140
+          y: 244
+        - height: 3
+          hsv:
+            h_center: 211
+            h_tol: 10
+            s_center: 73
+            s_tol: 6
+            v_center: 64
+            v_tol: 7
+          id: zone_57
+          min_ratio: 0.3
+          weight: 0.875
+          weight_override: false
+          width: 8
+          x: 369
+          y: 47
+        - height: 3
+          hsv:
+            h_center: 25
+            h_tol: 14
+            s_center: 34
+            s_tol: 27
+            v_center: 55
+            v_tol: 6
+          id: zone_58
+          min_ratio: 0.3
+          weight: 0.6875
+          weight_override: false
+          width: 3
+          x: 86
+          y: 24
+        - height: 5
+          hsv:
+            h_center: 33
+            h_tol: 10
+            s_center: 62
+            s_tol: 5
+            v_center: 51
+            v_tol: 5
+          id: zone_59
+          min_ratio: 0.3
+          weight: 0.5
+          weight_override: false
+          width: 4
+          x: 90
+          y: 233
+        - height: 3
+          hsv:
+            h_center: 213
+            h_tol: 10
+            s_center: 72
+            s_tol: 5
+            v_center: 62
+            v_tol: 5
+          id: zone_60
+          min_ratio: 0.3
+          weight: 0.5
+          weight_override: false
+          width: 4
+          x: 368
+          y: 233
+        - height: 5
+          hsv:
+            h_center: 212
+            h_tol: 10
+            s_center: 72
+            s_tol: 5
+            v_center: 64
+            v_tol: 5
+          id: zone_61
+          min_ratio: 0.3
+          weight: 0.875
+          weight_override: false
+          width: 3
+          x: 370
+          y: 211
+      atlantis:
+        zones:
+        - height: 5
+          hsv:
+            h_center: 163
+            h_tol: 10
+            s_center: 95
+            s_tol: 12
+            v_center: 68
+            v_tol: 15
+          id: zone_8
+          min_ratio: 0.3
+          weight: 1.0
+          weight_override: false
+          width: 27
+          x: 351
+          y: 159
+        - height: 5
+          hsv:
+            h_center: 162
+            h_tol: 10
+            s_center: 94
+            s_tol: 13
+            v_center: 66
+            v_tol: 15
+          id: zone_9
+          min_ratio: 0.3
+          weight: 1.0
+          weight_override: false
+          width: 27
+          x: 86
+          y: 159
+      ceres:
+        zones:
+        - height: 6
+          hsv:
+            h_center: 237
+            h_tol: 18
+            s_center: 6
+            s_tol: 5
+            v_center: 46
+            v_tol: 5
+          id: zone_10
+          min_ratio: 0.3
+          weight: 0.5
+          weight_override: false
+          width: 9
+          x: 15
+          y: 18
+        - height: 8
+          hsv:
+            h_center: 216
+            h_tol: 10
+            s_center: 16
+            s_tol: 5
+            v_center: 49
+            v_tol: 5
+          id: zone_11
+          min_ratio: 0.3
+          weight: 0.5
+          weight_override: false
+          width: 8
+          x: 429
+          y: 18
+        - height: 8
+          hsv:
+            h_center: 218
+            h_tol: 10
+            s_center: 17
+            s_tol: 5
+            v_center: 50
+            v_tol: 5
+          id: zone_12
+          min_ratio: 0.3
+          weight: 1.0
+          weight_override: false
+          width: 14
+          x: 393
+          y: 208
+        - height: 11
+          hsv:
+            h_center: 222
+            h_tol: 10
+            s_center: 10
+            s_tol: 5
+            v_center: 48
+            v_tol: 5
+          id: zone_13
+          min_ratio: 0.3
+          weight: 0.5
+          weight_override: false
+          width: 10
+          x: 46
+          y: 206
+      engine:
+        zones:
+        - height: 6
+          hsv:
+            h_center: 191
+            h_tol: 20
+            s_center: 2
+            s_tol: 5
+            v_center: 100
+            v_tol: 5
+          id: zone_14
+          min_ratio: 0.3
+          weight: 0.5833
+          weight_override: false
+          width: 6
+          x: 8
+          y: 101
+        - height: 8
+          hsv:
+            h_center: 181
+            h_tol: 10
+            s_center: 2
+            s_tol: 5
+            v_center: 100
+            v_tol: 5
+          id: zone_15
+          min_ratio: 0.3
+          weight: 0.9167
+          weight_override: false
+          width: 4
+          x: 441
+          y: 140
+        - height: 8
+          hsv:
+            h_center: 213
+            h_tol: 42
+            s_center: 3
+            s_tol: 5
+            v_center: 100
+            v_tol: 5
+          id: zone_16
+          min_ratio: 0.3
+          weight: 0.75
+          weight_override: false
+          width: 8
+          x: 368
+          y: 74
+        - height: 8
+          hsv:
+            h_center: 317
+            h_tol: 66
+            s_center: 2
+            s_tol: 5
+            v_center: 100
+            v_tol: 5
+          id: zone_17
+          min_ratio: 0.3
+          weight: 0.9167
+          weight_override: false
+          width: 6
+          x: 80
+          y: 165
+        - height: 3
+          hsv:
+            h_center: 74
+            h_tol: 10
+            s_center: 4
+            s_tol: 5
+            v_center: 99
+            v_tol: 5
+          id: zone_18
+          min_ratio: 0.3
+          weight: 0.0833
+          weight_override: false
+          width: 21
+          x: 86
+          y: 12
+        - height: 6
+          hsv:
+            h_center: 193
+            h_tol: 81
+            s_center: 3
+            s_tol: 5
+            v_center: 100
+            v_tol: 5
+          id: zone_19
+          min_ratio: 0.3
+          weight: 1.0
+          weight_override: false
+          width: 20
+          x: 346
+          y: 230
+      helios:
+        zones:
+        - height: 3
+          hsv:
+            h_center: 164
+            h_tol: 10
+            s_center: 74
+            s_tol: 25
+            v_center: 70
+            v_tol: 18
+          id: zone_20
+          min_ratio: 0.3
+          weight: 1.0
+          weight_override: false
+          width: 3
+          x: 126
+          y: 152
+        - height: 5
+          hsv:
+            h_center: 164
+            h_tol: 10
+            s_center: 94
+            s_tol: 14
+            v_center: 70
+            v_tol: 15
+          id: zone_21
+          min_ratio: 0.3
+          weight: 1.0
+          weight_override: false
+          width: 3
+          x: 171
+          y: 36
+        - height: 5
+          hsv:
+            h_center: 162
+            h_tol: 10
+            s_center: 78
+            s_tol: 15
+            v_center: 71
+            v_tol: 14
+          id: zone_22
+          min_ratio: 0.3
+          weight: 1.0
+          weight_override: false
+          width: 2
+          x: 286
+          y: 212
+      horizon:
+        zones:
+        - height: 6
+          hsv:
+            h_center: 163
+            h_tol: 10
+            s_center: 69
+            s_tol: 10
+            v_center: 60
+            v_tol: 6
+          id: zone_23
+          min_ratio: 0.3
+          weight: 0.9
+          weight_override: false
+          width: 3
+          x: 312
+          y: 186
+        - height: 6
+          hsv:
+            h_center: 167
+            h_tol: 10
+            s_center: 68
+            s_tol: 10
+            v_center: 57
+            v_tol: 5
+          id: zone_24
+          min_ratio: 0.3
+          weight: 0.8
+          weight_override: false
+          width: 3
+          x: 48
+          y: 186
+      outlaw:
+        zones:
+        - height: 5
+          hsv:
+            h_center: 181
+            h_tol: 10
+            s_center: 2
+            s_tol: 5
+            v_center: 100
+            v_tol: 10
+          id: zone_26
+          min_ratio: 0.3
+          weight: 0.4
+          weight_override: false
+          width: 14
+          x: 108
+          y: 319
+        - height: 5
+          hsv:
+            h_center: 79
+            h_tol: 10
+            s_center: 70
+            s_tol: 16
+            v_center: 58
+            v_tol: 5
+          id: zone_27
+          min_ratio: 0.3
+          weight: 1.0
+          weight_override: false
+          width: 8
+          x: 368
+          y: 18
+        - height: 8
+          hsv:
+            h_center: 70
+            h_tol: 10
+            s_center: 72
+            s_tol: 10
+            v_center: 59
+            v_tol: 5
+          id: zone_28
+          min_ratio: 0.3
+          weight: 1.0
+          weight_override: false
+          width: 8
+          x: 22
+          y: 18
+        - height: 6
+          hsv:
+            h_center: 77
+            h_tol: 10
+            s_center: 66
+            s_tol: 15
+            v_center: 56
+            v_tol: 5
+          id: zone_29
+          min_ratio: 0.3
+          weight: 1.0
+          weight_override: false
+          width: 6
+          x: 111
+          y: 368
+        - height: 9
+          hsv:
+            h_center: 88
+            h_tol: 10
+            s_center: 67
+            s_tol: 12
+            v_center: 57
+            v_tol: 5
+          id: zone_30
+          min_ratio: 0.3
+          weight: 1.0
+          weight_override: false
+          width: 6
+          x: 369
+          y: 341
+        - height: 3
+          hsv:
+            h_center: 72
+            h_tol: 10
+            s_center: 62
+            s_tol: 8
+            v_center: 53
+            v_tol: 5
+          id: zone_31
+          min_ratio: 0.3
+          weight: 1.0
+          weight_override: false
+          width: 8
+          x: 344
+          y: 18
+        - height: 6
+          hsv:
+            h_center: 80
+            h_tol: 10
+            s_center: 69
+            s_tol: 5
+            v_center: 54
+            v_tol: 5
+          id: zone_32
+          min_ratio: 0.3
+          weight: 0.6
+          weight_override: false
+          width: 4
+          x: 370
+          y: 39
+      polaris:
+        zones:
+        - height: 6
+          hsv:
+            h_center: 156
+            h_tol: 10
+            s_center: 85
+            s_tol: 33
+            v_center: 54
+            v_tol: 18
+          id: zone_33
+          min_ratio: 0.3
+          weight: 0.75
+          weight_override: false
+          width: 5
+          x: 171
+          y: 66
+        - height: 6
+          hsv:
+            h_center: 157
+            h_tol: 10
+            s_center: 89
+            s_tol: 22
+            v_center: 57
+            v_tol: 19
+          id: zone_34
+          min_ratio: 0.3
+          weight: 0.75
+          weight_override: false
+          width: 5
+          x: 277
+          y: 69
+        - height: 4
+          hsv:
+            h_center: 158
+            h_tol: 10
+            s_center: 96
+            s_tol: 9
+            v_center: 52
+            v_tol: 10
+          id: zone_35
+          min_ratio: 0.3
+          weight: 0.25
+          weight_override: false
+          width: 1
+          x: 405
+          y: 137
+        - height: 3
+          hsv:
+            h_center: 157
+            h_tol: 10
+            s_center: 94
+            s_tol: 10
+            v_center: 57
+            v_tol: 16
+          id: zone_36
+          min_ratio: 0.3
+          weight: 0.5
+          weight_override: false
+          width: 5
+          x: 54
+          y: 153
+        - height: 3
+          hsv:
+            h_center: 212
+            h_tol: 10
+            s_center: 72
+            s_tol: 5
+            v_center: 65
+            v_tol: 5
+          id: zone_37
+          min_ratio: 0.3
+          weight: 0.5
+          weight_override: false
+          width: 11
+          x: 365
+          y: 138
+        - height: 3
+          hsv:
+            h_center: 139
+            h_tol: 15
+            s_center: 52
+            s_tol: 23
+            v_center: 54
+            v_tol: 23
+          id: zone_38
+          min_ratio: 0.3
+          weight: 0.75
+          weight_override: false
+          width: 4
+          x: 77
+          y: 182
+      silva:
+        zones:
+        - height: 6
+          hsv:
+            h_center: 211
+            h_tol: 10
+            s_center: 72
+            s_tol: 5
+            v_center: 64
+            v_tol: 5
+          id: zone_40
+          min_ratio: 0.3
+          weight: 0.9167
+          weight_override: false
+          width: 4
+          x: 332
+          y: 203
+        - height: 8
+          hsv:
+            h_center: 213
+            h_tol: 10
+            s_center: 71
+            s_tol: 5
+            v_center: 66
+            v_tol: 5
+          id: zone_41
+          min_ratio: 0.3
+          weight: 0.6667
+          weight_override: false
+          width: 3
+          x: 332
+          y: 171
+        - height: 5
+          hsv:
+            h_center: 211
+            h_tol: 10
+            s_center: 66
+            s_tol: 17
+            v_center: 63
+            v_tol: 9
+          id: zone_42
+          min_ratio: 0.3
+          weight: 1.0
+          weight_override: false
+          width: 4
+          x: 296
+          y: 171
+        - height: 3
+          hsv:
+            h_center: 32
+            h_tol: 10
+            s_center: 72
+            s_tol: 5
+            v_center: 59
+            v_tol: 5
+          id: zone_43
+          min_ratio: 0.3
+          weight: 1.0
+          weight_override: false
+          width: 4
+          x: 68
+          y: 99
+        - height: 5
+          hsv:
+            h_center: 35
+            h_tol: 10
+            s_center: 64
+            s_tol: 11
+            v_center: 54
+            v_tol: 5
+          id: zone_44
+          min_ratio: 0.3
+          weight: 0.3333
+          weight_override: false
+          width: 4
+          x: 66
+          y: 66
+        - height: 5
+          hsv:
+            h_center: 33
+            h_tol: 10
+            s_center: 66
+            s_tol: 9
+            v_center: 52
+            v_tol: 5
+          id: zone_47
+          min_ratio: 0.3
+          weight: 0.8333
+          weight_override: false
+          width: 4
+          x: 32
+          y: 74
+        - height: 5
+          hsv:
+            h_center: 158
+            h_tol: 10
+            s_center: 70
+            s_tol: 39
+            v_center: 59
+            v_tol: 18
+          id: zone_48
+          min_ratio: 0.3
+          weight: 0.9167
+          weight_override: false
+          width: 6
+          x: 286
+          y: 44
+        - height: 6
+          hsv:
+            h_center: 148
+            h_tol: 10
+            s_center: 69
+            s_tol: 18
+            v_center: 67
+            v_tol: 13
+          id: zone_49
+          min_ratio: 0.3
+          weight: 0.4375
+          weight_override: false
+          width: 6
+          x: 75
+          y: 221
+      the_cliff:
+        zones:
+        - height: 5
+          hsv:
+            h_center: 211
+            h_tol: 10
+            s_center: 74
+            s_tol: 5
+            v_center: 68
+            v_tol: 5
+          id: zone_50
+          min_ratio: 0.3
+          weight: 0.9167
+          weight_override: false
+          width: 6
+          x: 402
+          y: 180
+        - height: 6
+          hsv:
+            h_center: 30
+            h_tol: 10
+            s_center: 68
+            s_tol: 5
+            v_center: 57
+            v_tol: 5
+          id: zone_51
+          min_ratio: 0.3
+          weight: 0.8333
+          weight_override: false
+          width: 6
+          x: 51
+          y: 173
+        - height: 6
+          hsv:
+            h_center: 212
+            h_tol: 10
+            s_center: 73
+            s_tol: 5
+            v_center: 63
+            v_tol: 5
+          id: zone_53
+          min_ratio: 0.3
+          weight: 1.0
+          weight_override: false
+          width: 6
+          x: 390
+          y: 171
+        - height: 5
+          hsv:
+            h_center: 32
+            h_tol: 10
+            s_center: 70
+            s_tol: 6
+            v_center: 59
+            v_tol: 5
+          id: zone_54
+          min_ratio: 0.3
+          weight: 0.8333
+          weight_override: false
+          width: 4
+          x: 51
+          y: 182
+        - height: 6
+          hsv:
+            h_center: 212
+            h_tol: 10
+            s_center: 69
+            s_tol: 5
+            v_center: 59
+            v_tol: 5
+          id: zone_55
+          min_ratio: 0.3
+          weight: 1.0
+          weight_override: false
+          width: 6
+          x: 402
+          y: 170
+    roi:
+      height: 400
+      name: minimap
+      width: 450
+      x: 0
+      y: 0
+output:
+  default_dir: ./output
+  image_format: png
 points_detection:
-  sat_max: 12          # Max saturation (0-255) for white classification
-  val_min: 230         # Min value (0-255) for white classification
-  min_ratio: 0.01      # Min fraction of white pixels to classify as in-game
-  skip_duration: 15.0  # Seconds to skip after detecting an end transition
-  start_confirm_frames: 2   # Consecutive white frames to confirm a start transition
-  end_confirm_frames: 3     # Consecutive non-white frames to confirm an end transition
-  score_offset: 14.5        # Seconds after last in-game KDA frame to extract score screen
-  hud_brightness_max: 100  # Max gray mean for notkda ROI to confirm HUD presence (gameplay: 22-68, score screen: 136+)
-
-# Team bar detection — used by the two-pass prescan for interval-mode videos
+  end_confirm_frames: 3
+  hud_brightness_max: 100
+  min_ratio: 0.01
+  sat_max: 12
+  score_offset: 14.5
+  skip_duration: 15.0
+  start_confirm_frames: 2
+  val_min: 230
+processing:
+  target_height: 720
+reference_resolution:
+  height: 1080
+  width: 1920
 team_bar_detection:
   saturation_threshold: 90
   window_padding: 30.0
-
-# Map identification — perceptual hashing for map name recognition
-map_identification:
-  # Legacy single ROI — kept for backward compatibility with map_config_generator.py
-  roi:
-    name: map_name_hash
-    x: 827
-    y: 81
-    width: 267
-    height: 22
-
-  # ROI list for hash_comparator.py (multi-ROI comparison)
-  # All coordinates at reference_resolution (1920x1080)
-  rois:
-    - name: map_name_hud
-      x: 827
-      y: 81
-      width: 267
-      height: 22
-
-  # Standard canvas: ROI is resized to this fixed square before hashing
-  canvas_size: 128
-
-  # Perceptual hash size (hash_size=8 produces a 64-bit hash)
-  hash_size: 16
-
-  # Hash methods to compare in hash_comparator.py
-  hash_methods: [ahash, dhash, phash]
-
-  # Preferred hash method for map_config.json output.
-  # Overrides auto-selection from hash_comparator.py comparison results.
-  # Set to null or omit to use auto-selection. CLI --force-method takes precedence.
-  preferred_method: dhash
-
-  # Tiling strategy for canvas construction.
-  # Split the ROI strip into this many equal columns and stack vertically before hashing.
-  # 3 = split 267px wide strip into 3×89px columns → 89×66 tiled → resize to 64×64.
-  # 1 = disabled (plain resize, old behavior).
-  tile_cols: 3
-
-  # Width in pixels @reference resolution (1920x1080) of the sub-ROI to hash,
-  # anchored to the first white pixel column found in the ROI.
-  # Set to 0 or omit to disable anchor cropping (use full ROI).
-  text_anchor_width: 52
-
-  # Minimum Hamming Distance between any two map hashes.
-  # Below this threshold, maps are considered "too similar" and a warning is emitted.
-  collision_threshold: 12
-
-  # Max horizontal bit-shift to tolerate when comparing hashes.
-  # 0 = exact match only. 1-2 = absorb sub-pixel text anchor variance across videos.
-  # Each unit ≈ 1/hash_size of the ROI width (e.g. shift=2 on a 52px anchor @720p ≈ 13px).
-  shift_tolerance: 2
-
-  # Binarize the grayscale crop before hashing using Otsu's adaptive threshold.
-  # Recommended for white text on variable-brightness backgrounds (e.g. map name HUD).
-  threshold_hash: false
-
-  # Minimum Hamming Distance to accept a map match. Scores >= this are marked 'unrecognized'.
-  recognition_threshold: 10
-
-  # Optional resolution sweep for hash_comparator.py.
-  # Empty list = use source resolution only. Example: [1080, 720, 540, 360]
-  resolutions: []
-
-# Output settings
-output:
-  # Default output directory for extracted frames
-  default_dir: ./output
-
-  # Filename format: MMmSSs_type_seq.png (e.g. 07m12s_end_001.png)
-  image_format: png

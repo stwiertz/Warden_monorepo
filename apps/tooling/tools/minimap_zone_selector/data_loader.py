@@ -41,6 +41,8 @@ class MinimapDataLoader:
             for fname in sorted(os.listdir(map_dir)):
                 if not fname.lower().endswith(".png"):
                     continue
+                if fname.lower().endswith("_score.png"):
+                    continue
                 path = os.path.join(map_dir, fname)
                 frame = cv2.imread(path)
                 if frame is None:

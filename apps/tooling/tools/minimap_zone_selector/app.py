@@ -1,9 +1,12 @@
 """MinimapZoneSelectorApp — main GUI application."""
 
 import copy
+import math
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 
+import cv2
+import numpy as np
 from PIL import Image
 
 from tools.frame_labeler import MAP_LABELS
@@ -19,7 +22,10 @@ from .zone_model import MinimapConfig, Zone
 
 ZONE_COLORS = ["cyan", "lime", "magenta", "yellow", "orange", "red"]
 
-DEFAULT_ROI = {"name": "minimap", "x": 104, "y": 0, "width": 234, "height": 264}
+_MIN_H_TOL = 10
+_MIN_SV_TOL = 5
+
+DEFAULT_ROI = {"name": "minimap", "x": 0, "y": 0, "width": 450, "height": 400}
 
 REF_W, REF_H = 1920, 1080
 
@@ -251,6 +257,43 @@ class MinimapZoneSelectorApp(tk.Tk):
             return self._active_config.roi
         return dict(DEFAULT_ROI)
 
+    def _compute_zone_hsv(
+        self, bgr_frame: np.ndarray, ref_x: int, ref_y: int, ref_w: int, ref_h: int
+    ) -> tuple[int, int, int, int, int, int]:
+        """Compute HSV center/tolerance from pixels in the zone's reference-coord crop.
+
+        Uses circular mean for hue to handle wraparound at 0°/360°.
+        Returns (h_center, s_center, v_center, h_tol, s_tol, v_tol) in user space
+        (H 0-360, S 0-100, V 0-100).
+        """
+        region = bgr_frame[ref_y:ref_y + ref_h, ref_x:ref_x + ref_w]
+        if region.size == 0:
+            return 0, 0, 50, _MIN_H_TOL, _MIN_SV_TOL, _MIN_SV_TOL
+        hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+
+        h = hsv[:, :, 0].astype(np.float32)
+        s = hsv[:, :, 1].astype(np.float32)
+        v = hsv[:, :, 2].astype(np.float32)
+
+        # Circular mean for hue (OpenCV H: 0-179, each unit = 2°)
+        angles = h * (2.0 * math.pi / 180.0)
+        sin_mean = float(np.mean(np.sin(angles)))
+        cos_mean = float(np.mean(np.cos(angles)))
+        R = math.sqrt(sin_mean ** 2 + cos_mean ** 2)
+        h_mean_deg = math.degrees(math.atan2(sin_mean, cos_mean)) % 360
+        h_std_deg = math.degrees(math.sqrt(-2.0 * math.log(max(R, 1e-9)))) if R < 1.0 else 0.0
+
+        h_center = round(h_mean_deg)
+        h_tol = max(_MIN_H_TOL, math.ceil(h_std_deg * 1.5))
+
+        # Regular mean/std for S and V, convert to user space (0-100)
+        s_center = round(float(np.mean(s)) * 100 / 255)
+        s_tol = max(_MIN_SV_TOL, math.ceil(float(np.std(s)) * 100 / 255 * 1.5))
+        v_center = round(float(np.mean(v)) * 100 / 255)
+        v_tol = max(_MIN_SV_TOL, math.ceil(float(np.std(v)) * 100 / 255 * 1.5))
+
+        return h_center, s_center, v_center, h_tol, s_tol, v_tol
+
     def _update_frame_label(self):
         total = self._loader.frame_count(self._selected_map)
         current = self._current_frame_index + 1 if total > 0 else 0
@@ -329,17 +372,27 @@ class MinimapZoneSelectorApp(tk.Tk):
         zones = self._active_config.maps.setdefault(self._selected_map, [])
         zone_id = f"zone_{self._zone_counter}"
         self._zone_counter += 1
+        frames = self._loader.get_frames(self._selected_map)
+        bgr_frame = frames[self._current_frame_index]
+        fh, fw = bgr_frame.shape[:2]
+        fs = fw / REF_W
+        h_c, s_c, v_c, h_t, s_t, v_t = self._compute_zone_hsv(
+            bgr_frame,
+            round(ref_x * fs), round(ref_y * fs),
+            max(1, round(ref_w * fs)), max(1, round(ref_h * fs)),
+        )
         zone = Zone(
             zone_id=zone_id,
             x=ref_x, y=ref_y, width=ref_w, height=ref_h,
-            h_center=0, h_tol=180,
-            s_center=0, s_tol=12,
-            v_center=100, v_tol=15,
+            h_center=h_c, h_tol=h_t,
+            s_center=s_c, s_tol=s_t,
+            v_center=v_c, v_tol=v_t,
             min_ratio=0.3,
             weight=0.0,
             weight_override=False,
         )
         zones.append(zone)
+        self._hsv_editor.load_zone(zone)
 
         self._status_var.set(
             f"Added {zone_id}: ref({ref_x}, {ref_y}, {ref_w}, {ref_h})"
