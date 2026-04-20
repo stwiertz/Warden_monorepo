@@ -1,16 +1,19 @@
 project: Warden
 created: 2026-02-02
-total_sprints: 5
-total_stories: 27
+total_sprints: 6
+total_stories: 33
 methodology: sequential epics with forward-only dependencies
 
 # Sprint Planning Summary
 # ========================
-# Sprint 1: Foundation (Epic 1) - 5 stories
-# Sprint 2: Video Import & Processing (Epic 2) - 7 stories
-# Sprint 3: Playback & Navigation (Epic 3) - 6 stories
-# Sprint 4: Clip Creation & Voice Commentary (Epic 4) - 6 stories
-# Sprint 5: Export, Sharing & Persistence (Epics 5+6) - 7 stories
+# Sprint 1:   Foundation (Epic 1) - 5 stories
+# Sprint 2:   Video Import & Processing (Epic 2) - 7 stories
+# Sprint 2.5: ROI Detection Redesign & View Mode Expansion (Epic 7) - 6 stories
+#             Inserted 2026-04-20 to rebuild the detection pipeline on the
+#             KDA + pHash methodology BEFORE Sprint 3 consumes it.
+# Sprint 3:   Playback & Navigation (Epic 3) - 6 stories
+# Sprint 4:   Clip Creation & Voice Commentary (Epic 4) - 6 stories
+# Sprint 5:   Export, Sharing & Persistence (Epics 5+6) - 7 stories
 
 sprints:
 
@@ -138,9 +141,83 @@ sprints:
           keep source video), cold start two paths: Resume / Import.
 
   # ──────────────────────────────────────────────────────────
+  # SPRINT 2.5: ROI Detection Redesign & View Mode Expansion
+  # Goal: Replace black-screen detector + template matcher with
+  #       KDA-based gameDetector + pHash mapIdentifier driven by
+  #       Firestore config. Expand view_mode to three values.
+  # Deliverable: New detection pipeline + view mode data model ready
+  #              for Sprint 3 to build on top of.
+  # ──────────────────────────────────────────────────────────
+  - id: sprint-2.5
+    name: ROI Detection Redesign & View Mode Expansion
+    goal: Rebuild detection pipeline on KDA + pHash methodology with remote config; expand view_mode data model to three values before Sprint 3 consumes it
+    status: not_started
+    epic: Epic 7 - ROI Detection Redesign & View Mode Expansion
+    stories:
+      - id: "7.2"
+        title: Update ClipExport.view_mode TypeScript Type
+        status: ready-for-dev
+        frs: []
+        depends_on: ["2.7"]
+        notes: >
+          Change view_mode union to 'full' | 'minimap' | 'minimap_hud',
+          export named ViewMode alias, audit codebase for 'pov' literals.
+          Land alongside 7.1.
+      - id: "7.1"
+        title: Update clip_exports.view_mode Schema
+        status: ready-for-dev
+        frs: []
+        depends_on: ["7.2"]
+        notes: >
+          SQLite CHECK constraint update, migration 'pov' → 'full',
+          schema version bump. Same PR as 7.2.
+      - id: "7.4"
+        title: Remote Detection Config with MMKV Cache
+        status: ready-for-dev
+        frs: []
+        depends_on: ["1.5"]
+        notes: >
+          DetectionConfig schema (ROIs, thresholds, map hashes),
+          Firestore fetch + MMKV cache, offline fallback, version check.
+          Replaces hardcoded constants in Sprint 2 detectors (no-op shim
+          until Story 7.5 lands).
+      - id: "7.5"
+        title: Replace Detectors (Game Detector + pHash Map Identifier)
+        status: ready-for-dev
+        frs: [FR5, FR6, FR7, FR8]
+        depends_on: ["7.4"]
+        notes: >
+          New gameDetector.ts (KDA/HSV 2-state machine), mapIdentifier.ts
+          (pHash 64-bit), blackScreenDetector refactored to 3-state long-GOP
+          fallback, templateMatcher.ts + assets/images/map-templates/ deleted.
+          Supersedes the Sprint 2 detection output.
+      - id: "7.3"
+        title: View Mode Toggle UI (Full / Minimap / Minimap+HUD)
+        status: ready-for-dev
+        frs: [FR14, FR15]
+        depends_on: ["7.2"]
+        notes: >
+          ViewModeToggle + HudToggle components, Zustand playback store
+          with MMKV-persisted viewMode and minimapHud preference.
+          Consumed by Sprint 3 Cinema Mode — SUPERSEDES original Story 3.5.
+      - id: "7.6"
+        title: Export Pipeline for 3 View Modes
+        status: ready-for-dev
+        frs: [FR22, FR23, FR24, FR25]
+        depends_on: ["7.1", "7.4"]
+        notes: >
+          exportRecipes.ts + exportPipeline.ts with FFmpeg recipes for
+          full (no crop), minimap (crop to ROI), minimap_hud (minimap +
+          KDA + Score overlays). Consumed by Sprint 5 — SUPERSEDES
+          original Stories 5.1 / 5.2 for the view-mode-aware export path.
+
+  # ──────────────────────────────────────────────────────────
   # SPRINT 3: Playback & Episode Navigation
   # Goal: Card View + Cinema Mode with minimap toggle
   # Deliverable: Coach navigates episodes and reviews in full-screen
+  # NOTE: Story 3.5 is SUPERSEDED by Story 7.3 (Sprint 2.5).
+  #       Sprint 3 consumes the new detection output from Sprint 2.5
+  #       (map_segments with map_name set via pHash, not template match).
   # ──────────────────────────────────────────────────────────
   - id: sprint-3
     name: Video Playback & Episode Navigation
@@ -182,12 +259,16 @@ sprints:
           explicit buttons (no swipe gestures).
       - id: "3.5"
         title: Full-Screen Minimap Toggle (POV / Minimap)
-        status: not_started
+        status: superseded
+        superseded_by: "7.3"
         frs: [FR14, FR15]
         depends_on: ["3.2"]
         notes: >
-          Toggle icon in controls overlay, Minimap shows cropped ROI full-screen,
-          < 100ms via crop/style change on same source, double-tap top-left shortcut.
+          SUPERSEDED by Story 7.3 (Sprint 2.5). The two-value POV/Minimap
+          toggle is replaced by a three-value toggle (full / minimap /
+          minimap_hud) following approval of Proposal 4 + 6 on 2026-04-20.
+          Wiring into the Cinema Mode controls overlay still happens here
+          during Sprint 3, but the components come from Story 7.3.
       - id: "3.6"
         title: Card View Sorting
         status: not_started
@@ -278,10 +359,12 @@ sprints:
         title: Export Pipeline with Quality Options
         status: not_started
         frs: [FR22, FR23]
-        depends_on: ["4.5"]
+        depends_on: ["4.5", "7.6"]
         notes: >
-          Mobile (720p) and HD (source res) options, FFmpeg demux at selected quality,
-          clip_exports status → exporting, Mobile < 30s/min target.
+          Mobile (720p) and HD (source res) quality options layer on top of
+          the view-mode-aware recipes from Story 7.6. This story focuses on
+          the quality/resolution plumbing; the per-view-mode FFmpeg recipes
+          come from 7.6. Mobile < 30s/min target.
       - id: "5.2"
         title: Assemble Multi-Segment Clip with Voice Overlay
         status: not_started
@@ -290,7 +373,8 @@ sprints:
         notes: >
           FFmpeg concat: [before+still] → [clip+during] → [frozen+overflow] → [after+still].
           All segments optional. Output MP4 H.264/AAC playable without Warden.
-          clip_exports status → ready, file_path set.
+          clip_exports status → ready, file_path set. Voice-overlay merging
+          wraps the view-mode-aware export from 7.6.
       - id: "5.3"
         title: Share Exported Clip via OS Share Sheet
         status: not_started
@@ -340,13 +424,23 @@ sprints:
 # 2.1 → 2.2 → 2.3 → 2.5
 #              2.4 → 2.5 → 2.6
 # 2.1 → 2.7
-# 2.5 → 3.1 → 3.2 → 3.3 → 4.1
-#              3.2 → 3.4
-#              3.2 → 3.5 → 6.1 → 6.2
-#                                 6.3
+#
+# --- Sprint 2.5 (Epic 7) inserted here ---
+# 2.7 → 7.2 → 7.1
+# 1.5 → 7.4 → 7.5
+# 7.2 → 7.3
+# 7.1 + 7.4 → 7.6
+#
+# 2.5 + 7.5 → 3.1 → 3.2 → 3.3 → 4.1
+#                    3.2 → 3.4
+#                    3.2 + 7.3 → (wiring) → 6.1 → 6.2
+#                                            6.3
 # 3.1 → 3.6
 # 4.1 → 4.2 → 4.6
 #        4.3
 #        4.4
 # 4.2 + 4.3 + 4.4 → 4.5 → 5.1 → 5.2 → 5.3
 #                          5.1 → 5.4
+# 7.6 → 5.1  (view-mode-aware export is prerequisite for quality plumbing)
+#
+# Story 3.5 is SUPERSEDED by 7.3 — no longer in the active graph.
