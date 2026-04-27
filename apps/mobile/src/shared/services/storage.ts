@@ -1,6 +1,10 @@
 import { MMKV } from "react-native-mmkv";
 import { type StateStorage } from "zustand/middleware";
 
+// Pinned to react-native-mmkv@^3 — v4 requires Nitro Modules, whose 0.33.x
+// targets RN 0.83 and crashes silently on RN 0.81 (boot-time TypeError on
+// new MMKV() because the JSI binding fails to register). Re-evaluate when
+// upgrading React Native.
 export const mmkv = new MMKV({ id: "warden-storage" });
 
 // MMKV key conventions: dot.notation grouped
