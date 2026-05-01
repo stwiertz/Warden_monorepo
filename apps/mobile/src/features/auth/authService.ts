@@ -8,7 +8,7 @@ import { auth } from "./firebaseConfig";
 import { useAuthStore, type AuthUser } from "./useAuthStore";
 import { subscriptionService } from "./subscriptionService";
 
-async function mapFirebaseUser(user: User): Promise<AuthUser> {
+export async function mapFirebaseUser(user: User): Promise<AuthUser> {
   const isPaid = await subscriptionService.checkSubscription(user);
   return {
     uid: user.uid,
