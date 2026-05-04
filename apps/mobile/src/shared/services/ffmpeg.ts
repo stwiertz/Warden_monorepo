@@ -2,24 +2,47 @@ import { Paths, Directory } from "expo-file-system";
 import type { KeyframeInfo } from "../../features/video-processing/types";
 
 // FFmpeg service — sole entry point for all FFmpeg operations.
-// Uses @wokcito/ffmpeg-kit-react-native (FFmpeg 6.0, native AAR from Maven Central,
-// 16-kb page-aligned for Android 15+). Auto-links via React Native autolinking — no
-// Expo config plugin required.
+// Uses @wokcito/ffmpeg-kit-react-native (FFmpeg-kit 6.1.4 native AAR from
+// Maven Central, 16-kb page-aligned for Android 15+). Auto-links via React
+// Native autolinking — no Expo config plugin required.
 
-let FFmpegKit: any;
-let FFprobeKit: any;
+interface FFmpegSession {
+  getReturnCode(): Promise<{ isValueSuccess(): boolean }>;
+  getOutput(): Promise<string>;
+  getAllLogs(): Promise<Array<{ getMessage(): string | undefined }>>;
+}
 
-async function getFFmpeg() {
-  if (!FFmpegKit) {
+interface FFmpegKitApi {
+  executeWithArguments(args: string[]): Promise<FFmpegSession>;
+}
+
+interface FFprobeKitApi {
+  executeWithArguments(args: string[]): Promise<FFmpegSession>;
+}
+
+let FFmpegKit: FFmpegKitApi | undefined;
+let FFprobeKit: FFprobeKitApi | undefined;
+
+async function getFFmpeg(): Promise<{
+  FFmpegKit: FFmpegKitApi;
+  FFprobeKit: FFprobeKitApi;
+}> {
+  if (!FFmpegKit || !FFprobeKit) {
+    let mod: { FFmpegKit?: FFmpegKitApi; FFprobeKit?: FFprobeKitApi };
     try {
-      const mod = require("@wokcito/ffmpeg-kit-react-native");
-      FFmpegKit = mod.FFmpegKit;
-      FFprobeKit = mod.FFprobeKit;
+      mod = require("@wokcito/ffmpeg-kit-react-native");
     } catch {
       throw new Error(
         "FFmpeg native module not available. Run expo prebuild and build the dev client."
       );
     }
+    if (!mod?.FFmpegKit || !mod?.FFprobeKit) {
+      throw new Error(
+        "FFmpeg native module loaded but FFmpegKit/FFprobeKit exports missing — check @wokcito/ffmpeg-kit-react-native version."
+      );
+    }
+    FFmpegKit = mod.FFmpegKit;
+    FFprobeKit = mod.FFprobeKit;
   }
   return { FFmpegKit, FFprobeKit };
 }
@@ -29,29 +52,50 @@ export interface ExtractKeyframesOptions {
   quality?: number; // JPEG quality 1-31, lower=better, default 5
 }
 
+// Reject session ids that could escape the cache root via path traversal or
+// resolve to the parent processing directory itself.
+const SAFE_SESSION_ID = /^[a-zA-Z0-9_-]+$/;
+
+function assertSafeSessionId(sessionId: string): void {
+  if (!sessionId || !SAFE_SESSION_ID.test(sessionId)) {
+    throw new Error(`Invalid sessionId: ${JSON.stringify(sessionId)}`);
+  }
+}
+
 /**
  * Get the session-scoped processing directory path string.
  */
 export function getProcessingDir(sessionId: string): string {
+  assertSafeSessionId(sessionId);
   const cacheUri = Paths.cache.uri;
-  // Ensure no double slashes and strip trailing slash
   const base = cacheUri.endsWith("/") ? cacheUri.slice(0, -1) : cacheUri;
   return `${base}/processing/${sessionId}`;
 }
 
-/**
- * Ensure a directory exists, creating it if needed.
- */
 function ensureDir(path: string): void {
   const dir = new Directory(path);
-  if (!dir.exists) {
-    dir.create();
+  try {
+    if (!dir.exists) {
+      dir.create();
+    }
+  } catch {
+    // create() races are benign; a subsequent file write will surface a real failure.
+  }
+}
+
+function clearDir(path: string): void {
+  const dir = new Directory(path);
+  if (dir.exists) {
+    dir.delete();
   }
 }
 
 /**
  * Extract keyframes (I-frames only) from a video at low resolution.
  * Returns an array of KeyframeInfo with file path and timestamp.
+ *
+ * Re-running with the same sessionId clears the prior keyframes/ output to
+ * avoid silent overwrite of `frame_%04d.jpg` from a previous attempt.
  */
 export async function extractKeyframes(
   videoPath: string,
@@ -63,19 +107,21 @@ export async function extractKeyframes(
   const quality = options?.quality ?? 5;
 
   const outputDir = `${getProcessingDir(sessionId)}/keyframes`;
+  clearDir(outputDir);
   ensureDir(outputDir);
 
-  // Extract keyframes with timestamps in filename using showinfo filter
-  const command = [
-    `-i "${videoPath}"`,
-    `-skip_frame nokey`,
-    `-vsync vfr`,
-    `-vf "scale=${width}:-1,showinfo"`,
-    `-qscale:v ${quality}`,
-    `"${outputDir}/frame_%04d.jpg"`,
-  ].join(" ");
+  // Pre-tokenized arguments — no shell parsing, no quoting hazards.
+  const args = [
+    "-y",
+    "-i", videoPath,
+    "-skip_frame", "nokey",
+    "-vsync", "vfr",
+    "-vf", `scale=${width}:-1,showinfo`,
+    "-qscale:v", String(quality),
+    `${outputDir}/frame_%04d.jpg`,
+  ];
 
-  const session = await ffmpeg.execute(command);
+  const session = await ffmpeg.executeWithArguments(args);
   const returnCode = await session.getReturnCode();
 
   if (!returnCode.isValueSuccess()) {
@@ -83,44 +129,50 @@ export async function extractKeyframes(
     throw new Error(`FFmpeg keyframe extraction failed: ${output}`);
   }
 
-  // Parse output to get timestamps
+  // Pair pts_time log entries with the on-disk files written by ffmpeg.
+  // showinfo emits one pts_time per decoded keyframe; ffmpeg writes one
+  // frame_NNNN.jpg per such frame in the same order.
   const logs = await session.getAllLogs();
-  const keyframes: KeyframeInfo[] = [];
-  let frameIndex = 1;
-
+  const timestamps: number[] = [];
   for (const log of logs) {
-    const message = log.getMessage();
-    const ptsMatch = message?.match(/pts_time:(\d+\.?\d*)/);
+    const ptsMatch = log.getMessage()?.match(/pts_time:(\d+\.?\d*)/);
     if (ptsMatch) {
-      const timestampMs = Math.round(parseFloat(ptsMatch[1]) * 1000);
-      const paddedIndex = String(frameIndex).padStart(4, "0");
-      keyframes.push({
-        path: `${outputDir}/frame_${paddedIndex}.jpg`,
-        timestampMs,
-      });
-      frameIndex++;
+      timestamps.push(Math.round(parseFloat(ptsMatch[1]) * 1000));
     }
   }
 
-  // Fallback: if log parsing failed, list directory files
-  if (keyframes.length === 0) {
-    const dir = new Directory(outputDir);
-    if (dir.exists) {
-      const entries = dir.list();
-      const jpgFiles = entries
-        .filter((e) => e.name?.endsWith(".jpg"))
+  const dir = new Directory(outputDir);
+  const writtenFiles = dir.exists
+    ? dir
+        .list()
         .map((e) => e.name)
-        .sort();
+        .filter((n): n is string => !!n && n.endsWith(".jpg"))
+        .sort()
+    : [];
 
-      for (let i = 0; i < jpgFiles.length; i++) {
-        keyframes.push({
-          path: `${outputDir}/${jpgFiles[i]}`,
-          timestampMs: 0,
-        });
-      }
-    }
+  // If the file count doesn't match the timestamp count, the showinfo↔file
+  // pairing has desynchronized — return the intersection rather than fabricating.
+  // Downstream stages need real timestamps; fabricated zeros silently corrupt
+  // black-screen detection (Story 2.3) and segmentation (Story 2.5).
+  if (writtenFiles.length === 0) {
+    throw new Error(
+      "FFmpeg keyframe extraction produced no output files; check video path and codec."
+    );
+  }
+  if (timestamps.length === 0) {
+    throw new Error(
+      "FFmpeg keyframe extraction produced files but no pts_time logs; cannot pair timestamps."
+    );
   }
 
+  const pairedCount = Math.min(timestamps.length, writtenFiles.length);
+  const keyframes: KeyframeInfo[] = [];
+  for (let i = 0; i < pairedCount; i++) {
+    keyframes.push({
+      path: `${outputDir}/${writtenFiles[i]}`,
+      timestampMs: timestamps[i],
+    });
+  }
   return keyframes;
 }
 
@@ -138,8 +190,15 @@ export async function extractFrameAt(
   const parentDir = outputPath.substring(0, outputPath.lastIndexOf("/"));
   ensureDir(parentDir);
 
-  const command = `-ss ${timestampSec} -i "${videoPath}" -frames:v 1 -q:v 2 "${outputPath}"`;
-  const session = await ffmpeg.execute(command);
+  const args = [
+    "-y",
+    "-ss", timestampSec,
+    "-i", videoPath,
+    "-frames:v", "1",
+    "-q:v", "2",
+    outputPath,
+  ];
+  const session = await ffmpeg.executeWithArguments(args);
   const returnCode = await session.getReturnCode();
 
   if (!returnCode.isValueSuccess()) {
@@ -155,9 +214,12 @@ export async function extractFrameAt(
 export async function getVideoDuration(videoPath: string): Promise<number> {
   const { FFprobeKit: probe } = await getFFmpeg();
 
-  const session = await probe.execute(
-    `-v quiet -show_entries format=duration -of csv=p=0 "${videoPath}"`
-  );
+  const session = await probe.executeWithArguments([
+    "-v", "quiet",
+    "-show_entries", "format=duration",
+    "-of", "csv=p=0",
+    videoPath,
+  ]);
   const output = await session.getOutput();
   const durationSec = parseFloat(output.trim());
 
@@ -172,8 +234,14 @@ export async function getVideoDuration(videoPath: string): Promise<number> {
  * Clean up session processing files.
  */
 export function cleanupProcessingFiles(sessionId: string): void {
+  // assertSafeSessionId is invoked transitively by getProcessingDir; calling
+  // it here too keeps the precondition local at the destructive call site.
+  assertSafeSessionId(sessionId);
   const dir = new Directory(getProcessingDir(sessionId));
   if (dir.exists) {
     dir.delete();
   }
 }
+
+// Internal export for unit tests — not part of the public service contract.
+export const __testing = { assertSafeSessionId, SAFE_SESSION_ID };
