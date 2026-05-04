@@ -1,12 +1,12 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
+  Dimensions,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
   Text,
   View,
-  useWindowDimensions,
 } from "react-native";
 import {
   HUD,
@@ -29,8 +29,16 @@ import { googleSignInService } from "./googleSignInService";
 // panel right) or portrait (brand top, panel bottom).
 
 export function LoginScreen() {
-  const { width, height } = useWindowDimensions();
-  const isLandscape = width > height;
+  // Use screen (not window) dimensions so the keyboard opening doesn't flip
+  // the orientation flag and remount the inputs while the user is typing.
+  const [screen, setScreen] = useState(() => Dimensions.get("screen"));
+  useEffect(() => {
+    const sub = Dimensions.addEventListener("change", ({ screen: next }) =>
+      setScreen(next)
+    );
+    return () => sub.remove();
+  }, []);
+  const isLandscape = screen.width > screen.height;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -207,7 +215,12 @@ export function LoginScreen() {
                   })}
                 >
                   <GoogleGlyph size={14} />
-                  <Stamp spacing={1.5}>CONTINUE WITH GOOGLE</Stamp>
+                  <Stamp
+                    spacing={1.5}
+                    style={{ lineHeight: 14, includeFontPadding: false }}
+                  >
+                    CONTINUE WITH GOOGLE
+                  </Stamp>
                 </Pressable>
 
                 <View style={{ marginTop: 18, flexDirection: "row", justifyContent: "center" }}>
@@ -222,22 +235,6 @@ export function LoginScreen() {
             </View>
           </View>
         </ScrollView>
-
-        <View
-          style={{
-            flexDirection: "row",
-            justifyContent: "space-between",
-            alignItems: "center",
-            paddingHorizontal: isLandscape ? 28 : 20,
-            paddingVertical: 8,
-            borderTopWidth: 1,
-            borderTopColor: HUD.line,
-            backgroundColor: "rgba(10,10,13,0.6)",
-          }}
-        >
-          <Stamp size={9}>WARDEN · CONFIDENTIAL · TEAM SYS-7</Stamp>
-          <Stamp size={9}>TERMS · PRIVACY</Stamp>
-        </View>
 
         <Toast
           message={error ?? ""}

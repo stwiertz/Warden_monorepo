@@ -3,6 +3,8 @@ import { Animated, Platform, TextInput, View, type TextInputProps } from "react-
 import { HUD, HUD_FONT } from "./tokens";
 import { Stamp } from "./Stamp";
 
+const isIOS = Platform.OS === "ios";
+
 interface FieldProps extends Omit<TextInputProps, "style"> {
   label: string;
   focused: boolean;
@@ -40,12 +42,16 @@ export function Field({ label, focused, trailing, ...inputProps }: FieldProps) {
           borderWidth: 1,
           borderColor: focused ? HUD.accent : HUD.line,
           minHeight: 44,
-          ...(focused && {
+          // iOS-only: a soft accent glow on the focused field. We deliberately
+          // do NOT toggle Android `elevation` on focus — doing so reparents the
+          // View into a new native layer and detaches the child TextInput,
+          // which steals focus on the very first tap and bounces it through
+          // the next inputs until none are left.
+          ...(focused && isIOS && {
             shadowColor: HUD.accent,
             shadowOpacity: 0.25,
             shadowRadius: 12,
             shadowOffset: { width: 0, height: 0 },
-            elevation: 4,
           }),
         }}
       >
