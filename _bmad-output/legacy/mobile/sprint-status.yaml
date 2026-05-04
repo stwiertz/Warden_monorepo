@@ -78,12 +78,12 @@ sprints:
   - id: sprint-2
     name: Video Import & Auto-Slice Processing
     goal: Build the complete video import and auto-slice processing pipeline with FFmpeg and OpenCV
-    status: not_started
+    status: in_progress
     epic: Epic 2 - Video Import & Auto-Slice Processing
     stories:
       - id: "2.1"
         title: Import MP4 Video from Device Storage
-        status: not_started
+        status: completed
         frs: [FR1, FR4]
         depends_on: ["1.5"]
         notes: >
@@ -91,12 +91,15 @@ sprints:
           session record in SQLite (status: importing), video referenced in-place.
       - id: "2.2"
         title: Integrate FFmpeg and Extract Keyframes
-        status: not_started
+        status: in-progress
         frs: []
         depends_on: ["2.1"]
         notes: >
-          Install jdarshan5/ffmpeg-kit-react-native fork, create Expo config plugin
-          (plugins/with-ffmpeg.js), keyframe extraction at low-res, RAM < 2GB.
+          Re-do FFmpeg integration: jdarshan5 fork's JitPack artifact 6.0-2 doesn't
+          resolve (commit 0c75f5d removed with-ffmpeg from app.json plugins). Service
+          wrapper at src/shared/services/ffmpeg.ts already exists with stable contract;
+          downstream processingPipeline.ts already consumes it. Story must drive
+          end-to-end Android dev-client build + real keyframe smoke test, RAM < 2GB.
       - id: "2.3"
         title: Detect Black Screen Timestamps
         status: not_started
