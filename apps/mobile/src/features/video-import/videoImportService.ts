@@ -9,7 +9,6 @@ const ALLOWED_EXTENSIONS = [".mp4"];
 // deferred to the Story 2.2 FFmpeg pipeline — files with a valid .mp4
 // container but unsupported codecs will surface there as a processing error.
 function validateVideoFile(
-  uri: string,
   mimeType: string | null | undefined,
   name: string | null | undefined
 ): ValidationError | null {
@@ -62,11 +61,7 @@ export async function pickAndImportVideo(): Promise<ImportOutcome> {
     };
   }
 
-  const validationError = validateVideoFile(
-    asset.uri,
-    asset.mimeType,
-    asset.name
-  );
+  const validationError = validateVideoFile(asset.mimeType, asset.name);
   if (validationError) {
     return { success: false, error: validationError };
   }
