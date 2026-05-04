@@ -5,29 +5,34 @@ import { createSession } from "../session/sessionRepository";
 const ALLOWED_MIME_TYPES = ["video/mp4"];
 const ALLOWED_EXTENSIONS = [".mp4"];
 
+// Container-only check (MIME + extension). Codec verification (H.264/AAC) is
+// deferred to the Story 2.2 FFmpeg pipeline — files with a valid .mp4
+// container but unsupported codecs will surface there as a processing error.
 function validateVideoFile(
   uri: string,
   mimeType: string | null | undefined,
   name: string | null | undefined
 ): ValidationError | null {
+  const invalidFormat: ValidationError = {
+    code: "INVALID_FORMAT",
+    message:
+      "Only MP4 video files (H.264/AAC) are supported. Please select a valid .mp4 file.",
+  };
+
+  // If the picker reported a MIME type, it must match. We deliberately do NOT
+  // fall back to extension when MIME explicitly disagrees — that would let a
+  // renamed image/audio file slip through.
+  if (mimeType) {
+    return ALLOWED_MIME_TYPES.includes(mimeType.toLowerCase())
+      ? null
+      : invalidFormat;
+  }
+
+  // No MIME reported — fall back to extension.
   const extension = name
     ? name.substring(name.lastIndexOf(".")).toLowerCase()
     : "";
-
-  const hasValidMime =
-    mimeType && ALLOWED_MIME_TYPES.includes(mimeType.toLowerCase());
-  const hasValidExtension =
-    extension && ALLOWED_EXTENSIONS.includes(extension);
-
-  if (!hasValidMime && !hasValidExtension) {
-    return {
-      code: "INVALID_FORMAT",
-      message:
-        "Only MP4 video files (H.264/AAC) are supported. Please select a valid .mp4 file.",
-    };
-  }
-
-  return null;
+  return ALLOWED_EXTENSIONS.includes(extension) ? null : invalidFormat;
 }
 
 export async function pickAndImportVideo(): Promise<ImportOutcome> {

@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Warden · Match Review</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  html, body { margin: 0; padding: 0; background: #f0eee9; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="android-frame.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="screens/shared.jsx"></script>
+<script type="text/babel" src="screens/screens.jsx"></script>
+<script type="text/babel" src="screens/login.jsx"></script>
+
+<script type="text/babel">
+  // Tweakable accent color
+  const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "accent": "#FF6B00"
+  }/*EDITMODE-END*/;
+
+  const ACCENT_PRESETS = {
+    'Orange (default)': '#FF6B00',
+    'Cyan': '#00D9C8',
+    'Red': '#FF3344',
+  };
+
+  // Landscape Pixel-style frame (same chrome, rotated 90°). The Android
+  // starter doesn't ship a landscape variant, so we hand-roll a thin frame
+  // here that matches its aesthetic: thin gray bezel, slim status strip,
+  // gesture pill at the bottom (which becomes the right edge in landscape).
+  function PhoneFrame({ width, height, children, landscape = false }) {
+    // status strip 24px, nav bar 18px
+    const STATUS_H = 22, NAV_H = 18;
+    return (
+      <div style={{
+        width, height,
+        borderRadius: 16, overflow: 'hidden',
+        background: '#000',
+        border: '6px solid rgba(116,119,117,0.5)',
+        boxShadow: '0 18px 50px rgba(0,0,0,0.18)',
+        position: 'relative',
+        boxSizing: 'border-box',
+      }}>
+        {landscape ? (
+          // landscape: status on left edge, nav on right edge
+          <div style={{ width: '100%', height: '100%', display: 'flex' }}>
+            {/* left: status strip */}
+            <div style={{
+              width: STATUS_H, background: '#0a0a0d',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between',
+              padding: '12px 0', boxSizing: 'border-box', position: 'relative',
+            }}>
+              <span style={{ fontFamily: 'Roboto, system-ui', fontSize: 11, color: '#fff', writingMode: 'vertical-rl', transform: 'rotate(180deg)', letterSpacing: 0.5 }}>9:30</span>
+              {/* punch hole on top edge */}
+              <div style={{
+                position: 'absolute', top: '50%', left: 4, transform: 'translateY(-50%)',
+                width: 16, height: 16, borderRadius: '50%', background: '#1a1a1a',
+              }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
+                <svg width="11" height="11" viewBox="0 0 16 16"><path d="M8 13.3L.67 5.97a10.37 10.37 0 0114.66 0L8 13.3z" fill="#fff"/></svg>
+                <svg width="11" height="11" viewBox="0 0 16 16"><rect x="3.75" y="2" width="8.5" height="13" rx="1.5" fill="#fff"/></svg>
+              </div>
+            </div>
+            {/* main content */}
+            <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>{children}</div>
+            {/* right: nav pill */}
+            <div style={{
+              width: NAV_H, background: '#0a0a0d',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <div style={{ width: 4, height: 80, borderRadius: 2, background: 'rgba(255,255,255,0.4)' }} />
+            </div>
+          </div>
+        ) : (
+          // portrait
+          <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div style={{
+              height: 28, background: '#0a0a0d',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '0 14px', boxSizing: 'border-box', position: 'relative',
+            }}>
+              <span style={{ fontFamily: 'Roboto, system-ui', fontSize: 11, color: '#fff', letterSpacing: 0.5 }}>9:30</span>
+              <div style={{
+                position: 'absolute', top: 6, left: '50%', transform: 'translateX(-50%)',
+                width: 16, height: 16, borderRadius: '50%', background: '#1a1a1a',
+              }} />
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <svg width="11" height="11" viewBox="0 0 16 16"><path d="M8 13.3L.67 5.97a10.37 10.37 0 0114.66 0L8 13.3z" fill="#fff"/></svg>
+                <svg width="11" height="11" viewBox="0 0 16 16"><rect x="3.75" y="2" width="8.5" height="13" rx="1.5" fill="#fff"/></svg>
+              </div>
+            </div>
+            <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>{children}</div>
+            <div style={{ height: 22, background: '#0a0a0d', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ width: 96, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.4)' }} />
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Landscape Pixel: ~896 × 412 inner viewport
+  const L_W = 896, L_H = 412;
+  const P_W = 360, P_H = 720;
+
+  // Outer artboard sizes need to include the frame chrome
+  const L_FRAME_W = L_W + 12 + 22 + 18; // bezel + status strip + nav strip = 52
+  const L_FRAME_H = L_H + 12;            // bezel
+  const P_FRAME_W = P_W + 12;
+  const P_FRAME_H = P_H + 12 + 28 + 22;
+
+  function App() {
+    const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+
+    // Apply accent color to CSS var
+    React.useEffect(() => {
+      document.documentElement.style.setProperty('--hud-accent', tweaks.accent);
+      // derive soft / dim variants
+      const hex = tweaks.accent.replace('#', '');
+      const r = parseInt(hex.slice(0,2), 16), g = parseInt(hex.slice(2,4), 16), b = parseInt(hex.slice(4,6), 16);
+      document.documentElement.style.setProperty('--hud-accent-soft', `rgba(${r},${g},${b},0.18)`);
+      document.documentElement.style.setProperty('--hud-accent-dim', `rgba(${r},${g},${b},0.5)`);
+    }, [tweaks.accent]);
+
+    // Helper: wrap a screen in the appropriate frame
+    const land = (Comp, props = {}) => (
+      <PhoneFrame width={L_FRAME_W} height={L_FRAME_H} landscape>
+        <Comp {...props} />
+      </PhoneFrame>
+    );
+    const port = (Comp, props = {}) => (
+      <PhoneFrame width={P_FRAME_W} height={P_FRAME_H}>
+        <Comp {...props} portrait />
+      </PhoneFrame>
+    );
+
+    return (
+      <>
+        <DesignCanvas>
+          <DCSection id="overview" title="Warden · Tactical HUD"
+            subtitle="VR FPS match review · 9 screens · dark-first · landscape primary">
+            <DCArtboard id="login-l" label="00 · Login (landscape)" width={L_FRAME_W} height={L_FRAME_H} style={{ background: '#0a0a0d' }}>
+              {land(LoginScreen)}
+            </DCArtboard>
+            <DCArtboard id="cold-l" label="01 · Cold Start (landscape)" width={L_FRAME_W} height={L_FRAME_H} style={{ background: '#0a0a0d' }}>
+              {land(ColdStart)}
+            </DCArtboard>
+            <DCArtboard id="processing" label="02 · Processing" width={L_FRAME_W} height={L_FRAME_H} style={{ background: '#0a0a0d' }}>
+              {land(Processing)}
+            </DCArtboard>
+            <DCArtboard id="cards-l" label="03 · Card View (landscape)" width={L_FRAME_W} height={L_FRAME_H} style={{ background: '#0a0a0d' }}>
+              {land(CardView)}
+            </DCArtboard>
+            <DCArtboard id="cinema" label="04 · Cinema Mode (POV + overlay)" width={L_FRAME_W} height={L_FRAME_H} style={{ background: '#0a0a0d' }}>
+              {land(CinemaMode, { minimap: false, overlayVisible: true })}
+            </DCArtboard>
+            <DCArtboard id="cinema-mini" label="04b · Cinema · Minimap mode" width={L_FRAME_W} height={L_FRAME_H} style={{ background: '#0a0a0d' }}>
+              {land(CinemaMode, { minimap: true, overlayVisible: true })}
+            </DCArtboard>
+            <DCArtboard id="clip" label="05 · Clip Creation" width={L_FRAME_W} height={L_FRAME_H} style={{ background: '#0a0a0d' }}>
+              {land(ClipMode)}
+            </DCArtboard>
+            <DCArtboard id="export" label="06 · Export / Share" width={L_FRAME_W} height={L_FRAME_H} style={{ background: '#0a0a0d' }}>
+              {land(ExportShare)}
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="portrait" title="Portrait variants"
+            subtitle="Login + Cold Start + Card View — same system, vertical layout">
+            <DCArtboard id="login-p" label="00p · Login (portrait)" width={P_FRAME_W} height={P_FRAME_H} style={{ background: '#0a0a0d' }}>
+              {port(LoginScreen)}
+            </DCArtboard>
+            <DCArtboard id="cold-p" label="01p · Cold Start (portrait)" width={P_FRAME_W} height={P_FRAME_H} style={{ background: '#0a0a0d' }}>
+              {port(ColdStart)}
+            </DCArtboard>
+            <DCArtboard id="cards-p" label="03p · Card View (portrait)" width={P_FRAME_W} height={P_FRAME_H} style={{ background: '#0a0a0d' }}>
+              {port(CardView)}
+            </DCArtboard>
+          </DCSection>
+        </DesignCanvas>
+
+        <TweaksPanel title="Tweaks">
+          <TweakSection title="Accent color">
+            <TweakRadio
+              options={Object.keys(ACCENT_PRESETS)}
+              value={Object.keys(ACCENT_PRESETS).find(k => ACCENT_PRESETS[k].toLowerCase() === tweaks.accent.toLowerCase()) || 'Orange (default)'}
+              onChange={(label) => setTweak('accent', ACCENT_PRESETS[label])}
+            />
+            <div style={{ marginTop: 10 }}>
+              <TweakColor
+                label="Custom"
+                value={tweaks.accent}
+                onChange={(v) => setTweak('accent', v)}
+              />
+            </div>
+          </TweakSection>
+          <div style={{ fontSize: 11, opacity: 0.6, marginTop: 8, lineHeight: 1.4 }}>
+            Accent shows as 1px brackets, separators, and glow only — never as a fill. Whisper, not shout.
+          </div>
+        </TweaksPanel>
+      </>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

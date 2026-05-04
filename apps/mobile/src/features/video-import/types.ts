@@ -5,7 +5,11 @@ export interface ImportResult {
 }
 
 export interface ValidationError {
-  code: "INVALID_FORMAT" | "FILE_NOT_FOUND" | "PICKER_CANCELLED";
+  code:
+    | "INVALID_FORMAT"
+    | "FILE_NOT_FOUND"
+    | "PICKER_CANCELLED"
+    | "UNKNOWN_ERROR";
   message: string;
 }
 

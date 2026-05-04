@@ -1,0 +1,109 @@
+# generated: 2026-05-01
+# project: Warden
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: docs/stories
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog -> in-progress: Automatically when first story is created (via create-story)
+#   - in-progress -> done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+#
+# PROJECT-SPECIFIC NOTES:
+# =======================
+# - Epic 7 (ROI Detection Redesign) was inserted between Epic 2 and Epic 3 mid-project
+#   (sprint 2.5) per Proposal 4 + 6 approved 2026-04-20. Story files exist on disk but
+#   epics.md only contains the Epic 7 summary, not the full story breakdown.
+# - Story 3-5-full-screen-minimap-toggle-pov-minimap is SUPERSEDED by 7-3.
+#   Wiring the new three-value toggle into Cinema Mode still happens in Sprint 3,
+#   but the components come from Story 7.3.
+
+generated: 2026-05-01
+project: Warden
+project_key: NOKEY
+tracking_system: file-system
+story_location: docs/stories
+
+development_status:
+  epic-1: done
+  1-1-initialize-expo-project-from-starter-template: done
+  1-2-set-up-navigation-and-design-system: done
+  1-3-set-up-data-layer-mmkv-sqlite: done
+  1-4-implement-firebase-login-screen: done
+  1-5-implement-subscription-validation-and-offline-auth-cache: done
+  epic-1-retrospective: optional
+
+  epic-2: in-progress
+  2-1-import-mp4-video-from-device-storage: done
+  2-2-integrate-ffmpeg-and-extract-keyframes: ready-for-dev
+  2-3-detect-black-screen-timestamps: ready-for-dev
+  2-4-detect-map-end-screens-via-template-matching: ready-for-dev
+  2-5-segment-video-into-map-episodes: ready-for-dev
+  2-6-background-processing-with-progress-and-crash-recovery: ready-for-dev
+  2-7-session-list-and-management: ready-for-dev
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-card-view-with-episode-grid: backlog
+  3-2-cinema-mode-video-player-with-controls: backlog
+  3-3-timeline-scrubber-with-episode-scoped-seek: backlog
+  3-4-episode-navigation-next-previous-maps: backlog
+  # 3-5 below is superseded by 7-3-view-mode-toggle-ui-full-minimap-minimap-hud
+  3-5-full-screen-minimap-toggle-pov-minimap: backlog
+  3-6-card-view-sorting: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-clip-region-selector-with-draggable-handles: backlog
+  4-2-voice-recording-before-slot: backlog
+  4-3-voice-recording-during-slot: backlog
+  4-4-voice-recording-after-slot: backlog
+  4-5-clip-preview-with-voice-commentary: backlog
+  4-6-delete-and-re-record-voice-comments: backlog
+  epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-export-pipeline-with-quality-options: backlog
+  5-2-assemble-multi-segment-clip-with-voice-overlay: backlog
+  5-3-share-exported-clip-via-os-share-sheet: backlog
+  5-4-export-progress-indication: backlog
+  epic-5-retrospective: optional
+
+  epic-6: backlog
+  6-1-auto-save-session-state-every-30-seconds: backlog
+  6-2-resume-session-exactly-where-left-off: backlog
+  6-3-persist-state-across-app-restarts-and-reboots: backlog
+  epic-6-retrospective: optional
+
+  epic-7: in-progress
+  7-1-update-clip-exports-view-mode-schema: ready-for-dev
+  7-2-update-clip-export-view-mode-typescript-type: ready-for-dev
+  7-3-view-mode-toggle-ui-full-minimap-minimap-hud: ready-for-dev
+  7-4-remote-detection-config-with-mmkv-cache: ready-for-dev
+  7-5-replace-detectors-game-detector-phash-map-identifier: ready-for-dev
+  7-6-export-pipeline-for-3-view-modes: ready-for-dev
+  epic-7-retrospective: optional

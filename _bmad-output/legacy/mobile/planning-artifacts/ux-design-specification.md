@@ -7,8 +7,10 @@ inputDocuments:
   - docs/planning-artifacts/brainstorming-synthesis-2026-01-26.md
   - docs/brainstorming/brainstorming-session-2026-01-26.md
   - docs/planning-artifacts/architecture.md
+  - docs/design/warden-mocks/README.md
 date: 2026-01-30
 author: Sally (UX Designer)
+revisedDate: 2026-05-01
 project_name: Warden
 ---
 
@@ -16,6 +18,15 @@ project_name: Warden
 
 **Author:** Sally (UX Designer)
 **Date:** 2026-01-30
+**Visual revision:** 2026-05-01 — adopted **Tactical HUD** direction (see Visual Design Foundation)
+
+---
+
+## ⚑ Canonical Visual Reference
+
+The authoritative visual design lives in [docs/design/warden-mocks/](../design/warden-mocks/) as static HTML/JSX prototypes — open `Warden.html` in a browser to view all 9 screens. **When in doubt about look, color, spacing, or composition, those mocks win.** This document captures the *behavior, journeys, and component contracts* that should match across implementations; the mocks capture the *visual system* (Tactical HUD: brackets, mono labels, accent-as-whisper, scanlines, dark-first).
+
+When reskinning a screen, work from the mock in [docs/design/warden-mocks/screens/](../design/warden-mocks/screens/) plus the design tokens summarized below in **Visual Design Foundation**. Treat color hex values, typography, and decoration motifs as pixel-targets; treat journeys, gestures, and component states (in this doc) as behavior contracts.
 
 ---
 
@@ -195,34 +206,42 @@ Secondary emotion is **momentum**: after clipping one moment, the feeling should
 
 ### Design System Choice
 
-**React Native Reusables** (shadcn/ui for React Native) with **NativeWind** (Tailwind CSS for React Native).
-
-Copy-paste component architecture -- components live in the project, not in node_modules. Full ownership, full customization capability.
+**Custom Tactical HUD primitives** built on React Native + **NativeWind** (Tailwind CSS for React Native). The look is opinionated enough that off-the-shelf component libraries (Material, React Native Reusables defaults) would fight the design more than help — so we own the primitives.
 
 ### Rationale for Selection
 
-- **Dark theme built-in** -- aligns with the "review is play, not work" game-adjacent aesthetic
-- **NativeWind / Tailwind utility classes** -- fast iteration, consistent spacing/color tokens
-- **Free, open source, active community** -- no licensing constraints, community-driven improvements
-- **Copy-paste ownership model** -- no dependency lock-in, components are yours to modify
-- **Standard UI components covered** -- buttons, sheets, dialogs, cards, navigation handled out of the box
-- **Not Material Design** -- avoids the "Google productivity app" look that conflicts with game-adjacent aesthetic
+- **The Tactical HUD vocabulary is the brand** — bracket corners, mono labels, accent-as-1px are the design. Library defaults assume rounded surfaces and color fills that conflict with this.
+- **NativeWind / Tailwind utility classes** — fast iteration, single source of truth for tokens.
+- **Custom owned primitives** — no dependency lock-in, change the bracket spec once and every screen updates.
+- **Not Material Design** — avoids the "Google productivity app" look entirely.
+
+### Required dependencies
+
+To reproduce the mocks faithfully, the codebase needs:
+
+| Package | Why |
+|---|---|
+| `react-native-svg` | Brand mark (hex outline), all icons, recon-grid pattern, radar progress ring, reticle, clip handles. SVG is everywhere in this design — RN's `<View>` borders alone can't carry it. |
+| `@expo-google-fonts/roboto` | UI sans family. |
+| `@expo-google-fonts/jetbrains-mono` | The mono family — non-negotiable for tactical labels. |
+| `expo-font` | Already installed (transitively via Expo); used to load the Google Fonts above. |
+| `expo-linear-gradient` | Login panel gradient, clip-mode bottom fade, export preview vignette. |
 
 ### Implementation Approach
 
-**Two-tier component strategy:**
+**Three-tier component strategy:**
 
 | Tier | Scope | Approach |
 |------|-------|----------|
-| **Standard UI** | Buttons, modals, navigation, lists, cards, forms | React Native Reusables components, themed with custom dark tokens |
-| **Custom Core** | Video player, minimap view, POV/minimap toggle, clip creation flow, voice recording, timeline scrubber | Fully custom-built -- this is the product differentiator, no library covers it |
+| **Tactical primitives** | `HudBracket`, `Stamp`, `Field`, `CircleBtn`, `Screen` (with optional scanlines), `Reticle`, `WardenMark`, `BigMark`, `Icon` set | Build directly in `src/shared/components/hud/`. Mirror the exports in [docs/design/warden-mocks/screens/shared.jsx](../design/warden-mocks/screens/shared.jsx). These are the vocabulary every screen reuses. |
+| **Standard UI** | Buttons, toasts, modals, bottom sheets | Custom-themed React Native components (or thin wrappers over a minimal dark library) — visual must match Tactical HUD; never accept library defaults. |
+| **Custom Core** | Video player, minimap view, POV/minimap toggle, clip creation flow, voice recording, timeline scrubber, episode card | Fully custom — these are the product differentiator. Compose tactical primitives. |
 
 ### Customization Strategy
 
-- **Design tokens**: Define dark-first color palette, spacing scale, and typography through NativeWind/Tailwind config
-- **Standard components**: Use React Native Reusables defaults, customize theming to match game-adjacent aesthetic
-- **Custom components**: Build video player, minimap, clip creation from scratch -- these are the core product and deserve dedicated engineering
-- **Progressive customization**: Start with library defaults for non-core UI, refine as the product matures
+- **Single source of token truth:** Tailwind config + a runtime accent override (CSS-var-equivalent: a `ThemeProvider` exposing `accent` from a Zustand store, with all tactical colors derived from it). Match the mock token names (`bg`, `surface`, `elev`, `elev2`, `line`, `text`, `muted`, `dim`, `accent`, `accent-soft`, `accent-dim`).
+- **Tactical primitives first:** Before building any screen, the `hud/` primitives must exist and match the mock pixel-for-pixel at the prototype's reference sizes (landscape 896×412, portrait 360×720).
+- **Build screens by composition:** Each screen file (`LoginScreen`, `ColdStart`, `Processing`, `CardView`, `CinemaMode`, `ClipMode`, `ExportShare`) should read like the mock equivalent — short, declarative, reaching for `HudBracket`, `Stamp`, `Field`, etc.
 
 ## Defining Core Experience
 
@@ -297,44 +316,72 @@ Thomas approaches Warden as a **video editing tool** -- not a social app, not a 
 
 ## Visual Design Foundation
 
+> **Direction: Tactical HUD.** Dark-first, military-recon vocabulary — bracketed surfaces, mono tactical labels, accent-as-1px (never as a fill), subtle scanlines on UI surfaces. Inspired by competitive shooter HUDs and recon overlays. The mocks at [docs/design/warden-mocks/](../design/warden-mocks/) are the authoritative visual reference.
+
 ### Color System
 
-**Architecture: Config-driven color tokens.** All colors defined in a single configuration file so the entire palette can be swapped without touching component code.
+**Architecture: Config-driven color tokens.** All colors defined in a single configuration file so the entire palette can be swapped without touching component code. Implement as a CSS variable / theme token (in React Native: NativeWind config + a `--hud-accent` runtime override path so accent can be themed live).
 
-**Base palette (starting point -- swappable via config):**
+**Tactical HUD palette (canonical — match exactly):**
 
-| Token | Role | Starting Value |
-|-------|------|---------------|
-| `background` | Primary background | Very dark with subtle cool tint (~#101014) |
-| `surface` | Cards, elevated surfaces | Slightly lighter dark (~#1A1A1E) |
-| `surfaceElevated` | Modals, sheets | (~#242428) |
-| `textPrimary` | Main text | Soft white (~#F0F0F0) |
-| `textSecondary` | Subdued text, labels | Muted gray (~#8B8F96) |
-| `accent` | Shadows, separators, highlights | Bright orange (~#FF6B00) |
-| `accentSubtle` | Faint accent glow, borders | Low-opacity orange (~#FF6B0020) |
-| `success` | Clip exported, share complete | Green (~#22C55E) |
-| `error` | Failures, warnings, recording dot | Red (~#EF4444) |
+| Token | Hex | Role |
+|---|---|---|
+| `bg` | `#0a0a0d` | Page / app background |
+| `surface` | `#101014` | Card and panel surfaces |
+| `elev` | `#15151a` | Elevated tracks (timeline base) |
+| `elev2` | `#1c1c22` | Map-block geometry / further elevation |
+| `line` | `#26262e` | Hairlines, borders, dividers |
+| `text` | `#F0F0F0` | Primary text |
+| `muted` | `#8a8a92` | Secondary text |
+| `dim` | `#52525a` | Tertiary / disabled text |
+| `accent` | `#FF6B00` | **Default orange** — used ONLY as 1px brackets, separators, glow, recording dot, primary CTA fill, focused field outline. Never as a generic background fill. |
+| `accent-soft` | `rgba(255,107,0,0.18)` | Active backgrounds (subtle), highlight fills |
+| `accent-dim` | `rgba(255,107,0,0.5)` | Mid-state strokes |
+| `team-blue` | `#3a8eff` / `#5b8aff` | Opposing team color on minimap / loss tag |
+| `success` | `#22C55E` | Reserved for "share complete" toast |
+| `error` | `#EF4444` | Failures, recording dot fallback |
 
-**Orange usage philosophy:** Accent color is for **separation and emphasis**, not fills. Orange shadows behind elevated elements, orange tint on active separators, subtle orange glow on selected states. Dark-first with orange as a signature whisper, not a shout.
+**Accent usage philosophy:** "Whisper, not shout." Accent is for **separation and emphasis** — 1px brackets, recording dots, focused field outlines, the primary CTA fill, glow shadows. Never use accent as a generic surface fill or large block of color. Dark with orange as signature accents; the screen should read as ~95% dark and 5% accent.
 
-**Config file approach:** Single source of truth (`theme.config.ts` or equivalent in NativeWind/Tailwind config) -- change the accent color once, the whole app updates.
+Accent is themeable (Orange / Cyan / Red presets + free color picker — see `tweaks-panel.jsx` in the mocks).
 
 ### Typography System
 
-**System defaults -- platform native:**
-- **Android**: Roboto
-- **iOS**: SF Pro
+**Two-family system — both required:**
 
-**Type scale (minimal):**
+- **UI sans:** **Roboto** (400 / 500 / 700) — body, descriptive paragraphs, run-of-the-mill UI labels.
+- **Mono:** **JetBrains Mono** (400 / 500 / 700) — timecodes, scores, all tactical labels (CALLSIGN / EMAIL / PASSWORD / SKYLINE EP04 / 13–9), readouts, stat values. **Always uppercase with letter-spacing 1.5–2.5** for tactical labels.
 
-| Token | Use | Size |
-|-------|-----|------|
-| `heading` | Screen titles, episode names | 20sp |
-| `subheading` | Section labels, metadata | 16sp |
-| `body` | Descriptions, timestamps | 14sp |
-| `caption` | Subtle labels, secondary info | 12sp |
+Bundle both via `@expo-google-fonts/roboto` and `@expo-google-fonts/jetbrains-mono` (or equivalent) so the design works offline. Falls back to platform mono (`SF Mono` on iOS, `monospace` on Android) and platform sans if not loaded — but the tactical aesthetic depends on JetBrains Mono being present.
 
-Soft white text on dark backgrounds. No thin font weights -- minimum medium weight for readability on OLED screens.
+**Type scale (canonical from mocks):**
+
+| Token | Family | Size / weight / spacing | Use |
+|---|---|---|---|
+| `display-mono` | Mono / 700 / +1.0 | 22 px, ALL CAPS, tracking 4 | "WARDEN" wordmark on login |
+| `heading-mono` | Mono / 700 / +1.5 | 16 px, ALL CAPS, tracking 1.5 | Section titles ("LOGIN", "PREPARING CLIP") |
+| `subhead-mono` | Mono / 700 / +1.5 | 12 px, ALL CAPS, tracking 2 | Top-bar brand strip ("WARDEN"), card map names |
+| `value-mono` | Mono / 500 | 11–13 px, tracking 0.3–0.5 | Field values, stat values, timecodes |
+| `body` | Sans / 400 | 13–14 px, line-height 1.5 | Paragraph copy, descriptive text |
+| `stamp` | Mono / 400 | 9–11 px, tracking 1, ALL CAPS, color `muted` or `dim` | Tactical labels everywhere — top-row labels, meta lines, status pills |
+| `score` | Mono / 700 | 16 px, tracking 1, with `text-shadow: 0 1px 4px rgba(0,0,0,0.8)` | Episode card score readouts |
+
+Soft white (`text`) on dark (`bg`). No thin font weights — minimum 400.
+
+### Tactical Decoration (signature motifs)
+
+These are the visual hallmarks of the Tactical HUD direction. Reproduce faithfully — they are the design.
+
+| Motif | Spec | Usage |
+|---|---|---|
+| **HUD brackets** | 1px L-shaped corners, 10×10 legs at the four corners of a rectangle | Cards, panels, focal frames. Active state uses `accent`; inactive uses `rgba(255,255,255,0.18)` ("dim"). |
+| **Scanlines** | `repeating-linear-gradient(0deg, rgba(255,255,255,0.022) 0 1px, transparent 1px 3px)` overlay at `mix-blend-mode: overlay` | Applied to dark UI surfaces only. **Never on video frames.** Implement in RN via a transparent overlay View with the gradient pattern. |
+| **Corner ticks** | Small 14×14 L crosshairs at the four corners of full-screen surfaces (e.g., login) | Pure decoration, `rgba(255,255,255,0.18)`. |
+| **Recon grid** | 32px dotted SVG pattern, `#1c1c22` stroke at low opacity behind login backdrop | Subtle texture under hero surfaces. |
+| **Reticle** | 4-prong open-center crosshair (64×64 dashed accent ring + 4 inward ticks) | Center of POV video, minimap toggle decoration. |
+| **Clip handles** | Reticle-style 14×26 SVG L-bracket: open square corner facing the clip region + inner tick | Drag handles at start/end of a clip region on the timeline. |
+| **Status pills** | 1px border, mono ALL-CAPS label, optional leading "● ACTIVE" / "▸ ACCESS" / "● READY" badges in accent | Sprinkled wherever the UI wants to feel like an op-room readout. |
+| **Glow** | `box-shadow: 0 0 12–18px rgba(255,107,0,0.25–0.6)` | On primary CTA, focused fields, scrub head, recording elements. Reinforces accent emphasis without filling space. |
 
 ### Spacing & Layout Foundation
 
