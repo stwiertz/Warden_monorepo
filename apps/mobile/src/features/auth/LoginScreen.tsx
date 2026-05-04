@@ -8,6 +8,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   HUD,
   HUD_FONT,
@@ -46,6 +47,7 @@ export function LoginScreen() {
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const { isLoading, error, setError } = useAuthStore();
+  const insets = useSafeAreaInsets();
 
   const handleLogin = useCallback(() => {
     if (!email.trim() || !password.trim()) {
@@ -65,10 +67,10 @@ export function LoginScreen() {
       style={{ flex: 1, backgroundColor: HUD.bg }}
     >
       <View style={{ flex: 1, backgroundColor: HUD.bg }}>
-        <CornerTick pos="tl" />
-        <CornerTick pos="tr" />
-        <CornerTick pos="bl" bottomOffset={24} />
-        <CornerTick pos="br" bottomOffset={24} />
+        <CornerTick pos="tl" topOffset={insets.top} />
+        <CornerTick pos="tr" topOffset={insets.top} />
+        <CornerTick pos="bl" bottomOffset={24 + insets.bottom} />
+        <CornerTick pos="br" bottomOffset={24 + insets.bottom} />
 
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
           <View
@@ -76,8 +78,8 @@ export function LoginScreen() {
               flex: 1,
               flexDirection: isLandscape ? "row" : "column",
               paddingHorizontal: isLandscape ? 28 : 20,
-              paddingTop: isLandscape ? 20 : 24,
-              paddingBottom: isLandscape ? 20 : 16,
+              paddingTop: (isLandscape ? 20 : 24) + insets.top,
+              paddingBottom: (isLandscape ? 20 : 16) + insets.bottom,
               gap: isLandscape ? 32 : 0,
             }}
           >

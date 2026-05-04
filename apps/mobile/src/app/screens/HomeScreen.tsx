@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   HUD,
   HUD_FONT,
@@ -37,6 +38,7 @@ export function HomeScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
+  const insets = useSafeAreaInsets();
   const { importing, error, clearError, importVideo } = useVideoImport();
   const [sessions, setSessions] = useState<Session[]>([]);
 
@@ -76,7 +78,12 @@ export function HomeScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: HUD.bg }}>
-      <ScrollView contentContainerStyle={{ flexGrow: 1, paddingBottom: 56 }}>
+      <ScrollView
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingBottom: 56 + insets.bottom,
+        }}
+      >
         {/* Top brand strip */}
         <View
           style={{
@@ -84,7 +91,7 @@ export function HomeScreen() {
             alignItems: "center",
             justifyContent: "space-between",
             paddingHorizontal: 20,
-            paddingTop: 18,
+            paddingTop: 18 + insets.top,
             paddingBottom: 4,
           }}
         >
@@ -183,7 +190,7 @@ export function HomeScreen() {
           position: "absolute",
           left: 20,
           right: 20,
-          bottom: 12,
+          bottom: 12 + insets.bottom,
           flexDirection: "row",
           justifyContent: "space-between",
           alignItems: "center",

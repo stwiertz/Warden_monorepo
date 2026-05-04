@@ -1,6 +1,5 @@
 import React from "react";
 import {
-  FlatList,
   View,
   Text,
   TouchableOpacity,
@@ -100,19 +99,19 @@ export function SessionList({
   onSessionPress,
   onDeleteSession,
 }: SessionListProps) {
+  // Rendered inside HomeScreen's outer ScrollView, so we map plain Views
+  // rather than nesting a FlatList (RN warns about that and virtualization
+  // can't do useful work when the parent owns the scroll).
   return (
-    <FlatList
-      data={sessions}
-      keyExtractor={(item) => item.id}
-      renderItem={({ item }) => (
+    <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
+      {sessions.map((item) => (
         <SessionCard
+          key={item.id}
           session={item}
           onPress={() => onSessionPress(item)}
           onDelete={() => onDeleteSession(item.id)}
         />
-      )}
-      contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8 }}
-      showsVerticalScrollIndicator={false}
-    />
+      ))}
+    </View>
   );
 }

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../app/RootNavigator";
 import {
@@ -29,6 +30,7 @@ export function ProcessingScreen({ route, navigation }: Props) {
   const { progress, stage, status, error, startProcessing } = useVideoProcessing(sessionId);
   const [currentTip, setCurrentTip] = useState(0);
   const tipInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     startProcessing();
@@ -59,7 +61,8 @@ export function ProcessingScreen({ route, navigation }: Props) {
         flex: 1,
         backgroundColor: HUD.bg,
         paddingHorizontal: 20,
-        paddingVertical: 16,
+        paddingTop: 16 + insets.top,
+        paddingBottom: 16 + insets.bottom,
       }}
     >
       {/* Header */}
