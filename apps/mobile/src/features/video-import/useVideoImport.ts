@@ -14,6 +14,35 @@ interface UseVideoImportReturn {
   importVideo: () => Promise<void>;
 }
 
+export interface ImportFlowDeps {
+  onError: (error: ValidationError) => void;
+  onSuccess: (sessionId: string) => void;
+}
+
+// Pure orchestration — extracted from the hook so the picker → validation →
+// session → navigation flow can be unit-tested without React Navigation or
+// react-test-renderer. PICKER_CANCELLED is intentionally swallowed.
+export async function executeImportFlow(deps: ImportFlowDeps): Promise<void> {
+  try {
+    const outcome = await pickAndImportVideo();
+    if (!outcome.success) {
+      if (outcome.error.code !== "PICKER_CANCELLED") {
+        deps.onError(outcome.error);
+      }
+      return;
+    }
+    deps.onSuccess(outcome.result.sessionId);
+  } catch (e) {
+    deps.onError({
+      code: "UNKNOWN_ERROR",
+      message:
+        e instanceof Error
+          ? e.message
+          : "An unexpected error occurred during import.",
+    });
+  }
+}
+
 export function useVideoImport(): UseVideoImportReturn {
   const navigation = useNavigation<NavigationProp>();
   const [importing, setImporting] = useState(false);
@@ -24,28 +53,12 @@ export function useVideoImport(): UseVideoImportReturn {
   const importVideo = useCallback(async () => {
     setImporting(true);
     setError(null);
-
-    try {
-      const outcome = await pickAndImportVideo();
-
-      if (!outcome.success) {
-        if (outcome.error.code !== "PICKER_CANCELLED") {
-          setError(outcome.error);
-        }
-        return;
-      }
-
-      navigation.navigate("Processing", {
-        sessionId: outcome.result.sessionId,
-      });
-    } catch (e) {
-      setError({
-        code: "FILE_NOT_FOUND",
-        message: "An unexpected error occurred during import.",
-      });
-    } finally {
-      setImporting(false);
-    }
+    await executeImportFlow({
+      onError: setError,
+      onSuccess: (sessionId) =>
+        navigation.navigate("Processing", { sessionId }),
+    });
+    setImporting(false);
   }, [navigation]);
 
   return { importing, error, clearError, importVideo };
