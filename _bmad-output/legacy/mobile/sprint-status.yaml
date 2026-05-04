@@ -91,7 +91,7 @@ sprints:
           session record in SQLite (status: importing), video referenced in-place.
       - id: "2.2"
         title: Integrate FFmpeg and Extract Keyframes
-        status: ready-for-dev
+        status: in-progress
         frs: []
         depends_on: ["2.1"]
         notes: >

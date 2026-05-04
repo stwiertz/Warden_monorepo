@@ -2,7 +2,9 @@ import { Paths, Directory } from "expo-file-system";
 import type { KeyframeInfo } from "../../features/video-processing/types";
 
 // FFmpeg service — sole entry point for all FFmpeg operations.
-// Uses jdarshan5/ffmpeg-kit-react-native fork via Expo config plugin.
+// Uses @wokcito/ffmpeg-kit-react-native (FFmpeg 6.0, native AAR from Maven Central,
+// 16-kb page-aligned for Android 15+). Auto-links via React Native autolinking — no
+// Expo config plugin required.
 
 let FFmpegKit: any;
 let FFprobeKit: any;
@@ -10,7 +12,7 @@ let FFprobeKit: any;
 async function getFFmpeg() {
   if (!FFmpegKit) {
     try {
-      const mod = require("ffmpeg-kit-react-native");
+      const mod = require("@wokcito/ffmpeg-kit-react-native");
       FFmpegKit = mod.FFmpegKit;
       FFprobeKit = mod.FFprobeKit;
     } catch {
