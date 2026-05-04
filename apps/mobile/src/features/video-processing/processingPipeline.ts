@@ -155,10 +155,10 @@ export async function runProcessingPipeline(
     if (!lastStage || lastStage === "keyframes") {
       reportProgress("keyframes", 0);
       videoDurationMs = await getVideoDuration(session.video_file_path);
-      keyframes = await extractKeyframes(
-        session.video_file_path,
-        sessionId
-      );
+      keyframes = await extractKeyframes(session.video_file_path, sessionId, {
+        totalDurationMs: videoDurationMs,
+        onProgress: (pct) => reportProgress("keyframes", pct),
+      });
       saveCheckpoint(sessionId, "keyframes");
       reportProgress("keyframes", 100);
     }
@@ -169,11 +169,11 @@ export async function runProcessingPipeline(
 
       // Re-load keyframes if resuming
       if (keyframes.length === 0) {
-        keyframes = await extractKeyframes(
-          session.video_file_path,
-          sessionId
-        );
         videoDurationMs = await getVideoDuration(session.video_file_path);
+        keyframes = await extractKeyframes(session.video_file_path, sessionId, {
+          totalDurationMs: videoDurationMs,
+          onProgress: (pct) => reportProgress("keyframes", pct),
+        });
       }
 
       const blackScreenResult = await detectBlackScreens(keyframes);

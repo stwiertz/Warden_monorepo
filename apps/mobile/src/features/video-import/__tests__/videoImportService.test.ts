@@ -19,7 +19,7 @@ beforeEach(() => {
 });
 
 describe("pickAndImportVideo", () => {
-  it("invokes picker filtered to video/mp4 without copying to cache", async () => {
+  it("invokes picker filtered to video/mp4 with copy-to-cache enabled", async () => {
     mockedPicker.getDocumentAsync.mockResolvedValue({
       canceled: true,
       assets: null,
@@ -27,9 +27,12 @@ describe("pickAndImportVideo", () => {
 
     await pickAndImportVideo();
 
+    // copyToCacheDirectory must be true so the picker resolves to a real
+    // file:// path that FFmpeg-kit can read; content:// SAF URIs break the
+    // processing pipeline at the duration probe.
     expect(mockedPicker.getDocumentAsync).toHaveBeenCalledWith({
       type: ["video/mp4"],
-      copyToCacheDirectory: false,
+      copyToCacheDirectory: true,
     });
   });
 
@@ -189,12 +192,12 @@ describe("pickAndImportVideo", () => {
     }
   });
 
-  it("references the picked file in-place rather than copying it", async () => {
+  it("hands the picker-returned URI through to createSession unchanged", async () => {
     mockedPicker.getDocumentAsync.mockResolvedValue({
       canceled: false,
       assets: [
         {
-          uri: "content://com.android.providers.media/external/raw.mp4",
+          uri: "file:///data/user/0/team.warden.mobile/cache/raw.mp4",
           name: "raw.mp4",
           mimeType: "video/mp4",
           size: 1024,
@@ -203,7 +206,7 @@ describe("pickAndImportVideo", () => {
     } as Awaited<ReturnType<typeof DocumentPicker.getDocumentAsync>>);
     mockedCreateSession.mockResolvedValue({
       id: "s",
-      video_file_path: "content://com.android.providers.media/external/raw.mp4",
+      video_file_path: "file:///data/user/0/team.warden.mobile/cache/raw.mp4",
       name: "raw",
       duration_ms: null,
       status: "importing",
@@ -214,10 +217,10 @@ describe("pickAndImportVideo", () => {
     await pickAndImportVideo();
 
     expect(mockedPicker.getDocumentAsync).toHaveBeenCalledWith(
-      expect.objectContaining({ copyToCacheDirectory: false })
+      expect.objectContaining({ copyToCacheDirectory: true })
     );
     expect(mockedCreateSession).toHaveBeenCalledWith(
-      "content://com.android.providers.media/external/raw.mp4",
+      "file:///data/user/0/team.warden.mobile/cache/raw.mp4",
       "raw"
     );
   });

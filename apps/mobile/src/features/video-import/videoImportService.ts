@@ -35,9 +35,12 @@ function validateVideoFile(
 }
 
 export async function pickAndImportVideo(): Promise<ImportOutcome> {
+  // copyToCacheDirectory must stay true on Android: the picker otherwise
+  // returns a content:// SAF URI that FFmpeg-kit cannot read with
+  // executeWithArguments, breaking the processing pipeline at duration probe.
   const result = await DocumentPicker.getDocumentAsync({
     type: ALLOWED_MIME_TYPES,
-    copyToCacheDirectory: false,
+    copyToCacheDirectory: true,
   });
 
   if (result.canceled) {

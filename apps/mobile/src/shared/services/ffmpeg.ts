@@ -12,12 +12,29 @@ interface FFmpegSession {
   getAllLogs(): Promise<Array<{ getMessage(): string | undefined }>>;
 }
 
+interface FFmpegStatistics {
+  getTime?(): number;
+}
+
+type CompleteCallback = (session: FFmpegSession) => void;
+type StatisticsCallback = (statistics: FFmpegStatistics) => void;
+
 interface FFmpegKitApi {
   executeWithArguments(args: string[]): Promise<FFmpegSession>;
+  executeWithArgumentsAsync(
+    args: string[],
+    completeCallback?: CompleteCallback,
+    logCallback?: undefined,
+    statisticsCallback?: StatisticsCallback
+  ): Promise<FFmpegSession>;
 }
 
 interface FFprobeKitApi {
   executeWithArguments(args: string[]): Promise<FFmpegSession>;
+}
+
+interface FFmpegKitConfigApi {
+  setLogRedirectionStrategy(strategy: number): void;
 }
 
 let FFmpegKit: FFmpegKitApi | undefined;
@@ -28,7 +45,12 @@ async function getFFmpeg(): Promise<{
   FFprobeKit: FFprobeKitApi;
 }> {
   if (!FFmpegKit || !FFprobeKit) {
-    let mod: { FFmpegKit?: FFmpegKitApi; FFprobeKit?: FFprobeKitApi };
+    let mod: {
+      FFmpegKit?: FFmpegKitApi;
+      FFprobeKit?: FFprobeKitApi;
+      FFmpegKitConfig?: FFmpegKitConfigApi;
+      LogRedirectionStrategy?: { NEVER_PRINT_LOGS?: number };
+    };
     try {
       mod = require("@wokcito/ffmpeg-kit-react-native");
     } catch {
@@ -41,6 +63,18 @@ async function getFFmpeg(): Promise<{
         "FFmpeg native module loaded but FFmpegKit/FFprobeKit exports missing — check @wokcito/ffmpeg-kit-react-native version."
       );
     }
+    // Silence the bridge-to-console log forwarding. Sessions still retain
+    // every log line, so getAllLogs() / showinfo pts_time parsing keep
+    // working — we just don't spam Metro with FFmpeg's per-frame output.
+    const neverPrint = mod.LogRedirectionStrategy?.NEVER_PRINT_LOGS;
+    if (mod.FFmpegKitConfig && typeof neverPrint === "number") {
+      try {
+        mod.FFmpegKitConfig.setLogRedirectionStrategy(neverPrint);
+      } catch {
+        // Best-effort; if the strategy can't be set we still get correct
+        // results, just with verbose console output.
+      }
+    }
     FFmpegKit = mod.FFmpegKit;
     FFprobeKit = mod.FFprobeKit;
   }
@@ -50,6 +84,12 @@ async function getFFmpeg(): Promise<{
 export interface ExtractKeyframesOptions {
   width?: number; // default 320
   quality?: number; // JPEG quality 1-31, lower=better, default 5
+  // Total video duration in ms. Required to drive incremental progress.
+  totalDurationMs?: number;
+  // Fires roughly every ~500ms with a 0..100 percentage based on the
+  // currently-processed timestamp. Only invoked when totalDurationMs is also
+  // provided.
+  onProgress?: (percent: number) => void;
 }
 
 // Reject session ids that could escape the cache root via path traversal or
@@ -60,6 +100,15 @@ function assertSafeSessionId(sessionId: string): void {
   if (!sessionId || !SAFE_SESSION_ID.test(sessionId)) {
     throw new Error(`Invalid sessionId: ${JSON.stringify(sessionId)}`);
   }
+}
+
+// FFmpeg's image2 muxer (and several other muxers) call fopen() with the
+// literal filename and don't strip URI schemes — passing "file:///foo.jpg"
+// fails with "Could not open file : file:///foo.jpg". Inputs go through
+// avio_open which understands file://, but for consistency and safety we
+// strip the scheme on every path handed to FFmpeg.
+function toFFmpegPath(uri: string): string {
+  return uri.startsWith("file://") ? uri.slice("file://".length) : uri;
 }
 
 /**
@@ -74,12 +123,20 @@ export function getProcessingDir(sessionId: string): string {
 
 function ensureDir(path: string): void {
   const dir = new Directory(path);
+  if (dir.exists) return;
   try {
+    // intermediates: true is required — the first run for a session creates
+    // both processing/<id>/ and processing/<id>/keyframes/ in one shot.
+    // Without it, the inner create silently failed and FFmpeg's I/O error
+    // surfaced as the only symptom.
+    dir.create({ intermediates: true });
+  } catch (error) {
+    // Race against another concurrent create is benign once the dir exists.
     if (!dir.exists) {
-      dir.create();
+      throw new Error(
+        `Failed to create directory ${path}: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
-  } catch {
-    // create() races are benign; a subsequent file write will surface a real failure.
   }
 }
 
@@ -88,6 +145,42 @@ function clearDir(path: string): void {
   if (dir.exists) {
     dir.delete();
   }
+}
+
+// Run an FFmpeg session and resolve when execution completes. If a duration
+// and progress callback are supplied, attach a statistics callback that
+// translates the kit's per-frame time-in-ms into a 0..100 percentage.
+function runFFmpegWithProgress(
+  ffmpeg: FFmpegKitApi,
+  args: string[],
+  totalDurationMs: number | undefined,
+  onProgress: ((percent: number) => void) | undefined
+): Promise<FFmpegSession> {
+  if (!onProgress || !totalDurationMs || totalDurationMs <= 0) {
+    return ffmpeg.executeWithArguments(args);
+  }
+  return new Promise<FFmpegSession>((resolve, reject) => {
+    let lastReported = -1;
+    ffmpeg
+      .executeWithArgumentsAsync(
+        args,
+        (session) => resolve(session),
+        undefined,
+        (stats) => {
+          const t = stats.getTime?.() ?? 0;
+          if (t < 0) return;
+          const pct = Math.min(100, Math.max(0, (t / totalDurationMs) * 100));
+          // Throttle: only fire on integer percentage changes to keep the
+          // React re-render volume bounded for long videos.
+          const next = Math.floor(pct);
+          if (next !== lastReported) {
+            lastReported = next;
+            onProgress(next);
+          }
+        }
+      )
+      .catch(reject);
+  });
 }
 
 /**
@@ -111,17 +204,26 @@ export async function extractKeyframes(
   ensureDir(outputDir);
 
   // Pre-tokenized arguments — no shell parsing, no quoting hazards.
+  // -skip_frame is a decoder option and MUST appear before -i so it binds to
+  // the input (otherwise FFmpeg tries to apply it to the JPEG encoder and
+  // errors: "Codec AVOption skip_frame ... is not an encoding option").
+  // -fps_mode replaces the deprecated -vsync.
   const args = [
     "-y",
-    "-i", videoPath,
     "-skip_frame", "nokey",
-    "-vsync", "vfr",
+    "-i", toFFmpegPath(videoPath),
+    "-fps_mode", "vfr",
     "-vf", `scale=${width}:-1,showinfo`,
     "-qscale:v", String(quality),
-    `${outputDir}/frame_%04d.jpg`,
+    `${toFFmpegPath(outputDir)}/frame_%04d.jpg`,
   ];
 
-  const session = await ffmpeg.executeWithArguments(args);
+  const session = await runFFmpegWithProgress(
+    ffmpeg,
+    args,
+    options?.totalDurationMs,
+    options?.onProgress
+  );
   const returnCode = await session.getReturnCode();
 
   if (!returnCode.isValueSuccess()) {
@@ -193,10 +295,10 @@ export async function extractFrameAt(
   const args = [
     "-y",
     "-ss", timestampSec,
-    "-i", videoPath,
+    "-i", toFFmpegPath(videoPath),
     "-frames:v", "1",
     "-q:v", "2",
-    outputPath,
+    toFFmpegPath(outputPath),
   ];
   const session = await ffmpeg.executeWithArguments(args);
   const returnCode = await session.getReturnCode();
@@ -218,7 +320,7 @@ export async function getVideoDuration(videoPath: string): Promise<number> {
     "-v", "quiet",
     "-show_entries", "format=duration",
     "-of", "csv=p=0",
-    videoPath,
+    toFFmpegPath(videoPath),
   ]);
   const output = await session.getOutput();
   const durationSec = parseFloat(output.trim());

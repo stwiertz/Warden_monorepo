@@ -29,6 +29,10 @@ export const googleSignInService = {
     setLoading(true);
     try {
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      // Force the account chooser every time. Without this, the native SDK
+      // silently reuses the previously-cached Google account and the picker
+      // never appears.
+      await GoogleSignin.signOut().catch(() => {});
       const result = await GoogleSignin.signIn();
       const idToken = extractIdToken(result);
       if (!idToken) {

@@ -46,7 +46,7 @@ export const storage = {
   },
 
   delete: (key: string): void => {
-    mmkv.remove(key);
+    mmkv.delete(key);
   },
 
   clearAll: (): void => {
@@ -63,6 +63,6 @@ export const zustandMMKVStorage: StateStorage = {
     mmkv.set(name, value);
   },
   removeItem: (name: string) => {
-    mmkv.remove(name);
+    mmkv.delete(name);
   },
 };
