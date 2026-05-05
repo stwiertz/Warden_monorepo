@@ -332,6 +332,49 @@ export async function getVideoDuration(videoPath: string): Promise<number> {
   return Math.round(durationSec * 1000);
 }
 
+export interface GopInfo {
+  averageGopSeconds: number;
+  // True when the keyframe interval is short enough for the KDA gameDetector
+  // to track game state reliably (≤ 2 s per Story 7.5 AC 6). When false, the
+  // pipeline switches to the long-GOP black-screen fallback.
+  hasShortGop: boolean;
+}
+
+/**
+ * Probe the keyframe interval of `videoPath`. Implementation reads
+ * `pts_time` for every I-frame via FFprobe and averages the deltas. A video
+ * with fewer than 2 keyframes returns `hasShortGop: false` (we can't probe
+ * meaningfully — let the fallback handle it).
+ */
+export async function getGopInfo(videoPath: string): Promise<GopInfo> {
+  const { FFprobeKit: probe } = await getFFmpeg();
+  const session = await probe.executeWithArguments([
+    "-v", "error",
+    "-select_streams", "v:0",
+    "-skip_frame", "nokey",
+    "-show_entries", "frame=pts_time",
+    "-of", "csv=p=0",
+    toFFmpegPath(videoPath),
+  ]);
+  const returnCode = await session.getReturnCode();
+  if (!returnCode.isValueSuccess()) {
+    throw new Error("FFprobe failed while probing keyframe interval");
+  }
+  const output = await session.getOutput();
+  const timestamps = output
+    .trim()
+    .split(/\s+/)
+    .map((s) => parseFloat(s))
+    .filter((n) => Number.isFinite(n));
+  if (timestamps.length < 2) {
+    return { averageGopSeconds: Infinity, hasShortGop: false };
+  }
+  let sum = 0;
+  for (let i = 1; i < timestamps.length; i++) sum += timestamps[i] - timestamps[i - 1];
+  const avg = sum / (timestamps.length - 1);
+  return { averageGopSeconds: avg, hasShortGop: avg <= 2.0 };
+}
+
 /**
  * Clean up session processing files.
  */

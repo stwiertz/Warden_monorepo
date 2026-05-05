@@ -1,118 +1,291 @@
-import type { KeyframeInfo, TimestampRange, BlackScreenResult } from "./types";
+// Story 7.5 — Long-GOP black-screen fallback detector.
+//
+// When ffprobe reports a keyframe interval > 2s on the source video, the
+// KDA-based gameDetector loses temporal precision (it only sees frames every
+// 2+ seconds). In that case the pipeline switches to this two-pass black-
+// screen detector, which is more tolerant of sparse keyframes:
+//
+//   Pass 1 (`scanSaturationWindows`)
+//     Walk every I-frame and read the mean saturation of the `team_bar`
+//     ROI. Windows where saturation stays above `min_ratio * 255` are
+//     candidate gameplay regions; the contiguous "high-sat" runs become
+//     [start, end] windows on which Pass 2 runs.
+//
+//   Pass 2 (`detectBlackScreensInWindow`)
+//     A 3-state debouncer applied only to frames inside a Pass-1 window:
+//       - `undetermined`: initial state until we know whether the run
+//         starts inside or outside a game.
+//       - `waiting_for_start`: outside a game, waiting for the first bright
+//         non-black frame (game START at that timestamp).
+//       - `waiting_for_end`: inside a game, waiting for the next sustained
+//         black screen (game END at the timestamp before black began).
+//     Sustained = `start_confirm_frames` consecutive non-black or black
+//     frames respectively, mirroring the gameDetector debouncing.
+//
+// Frame brightness is read from `notkda` ROI grayscale mean — the same
+// signal the gameDetector uses, so config tuning carries over.
+
 import type { DetectionConfig } from "./detectionConfig";
-import { getCachedDetectionConfig } from "./detectionConfigService";
+import type {
+  GameDetectorEvent,
+  KeyframeInfo,
+  TimestampRange,
+} from "./types";
+import {
+  grayscaleMean,
+  saturationMean,
+  scaleRoi,
+  type FrameBuffer,
+  type Resolution,
+} from "../../shared/services/opencv";
 
-// TODO: Replace stub with real detection algorithm.
-// The real implementation will analyze specific ROIs on extracted keyframes
-// to detect black screens. The user is developing this externally and will
-// provide the script to integrate here.
-
-// Legacy hardcoded fallback used when no DetectionConfig is available
-// (e.g. unit tests that don't bootstrap the cache, or pre-Story-7.4 callers
-// passing no config). Story 7.5 rewrites this detector to read everything
-// from the config; for now, keep this constant exported so existing callers
-// keep working unchanged.
+// Re-exported only because legacy callers in pre-7.5 code paths imported it
+// as the constant name. Story 7.5 sources every threshold from DetectionConfig.
 export const BLACK_SCREEN_LUMINOSITY_THRESHOLD = 15;
-const GAP_TOLERANCE_MS = 5000;
 
-/**
- * Read the brightness threshold via DetectionConfig. Story 7.4 lands this
- * as a no-op shim: when no remote config has been fetched, it returns the
- * legacy hardcoded value, preserving behaviour. Story 7.5 replaces this
- * detector with a 3-state long-GOP fallback that reads the config directly.
- */
-export function getBrightnessThreshold(config?: DetectionConfig): number {
-  const source = config ?? getCachedDetectionConfig();
-  if (source) return source.thresholds.brightness_threshold;
-  return BLACK_SCREEN_LUMINOSITY_THRESHOLD;
+export interface BlackScreenDetectorOptions {
+  config: DetectionConfig;
+  processingResolution?: Resolution;
+}
+
+export interface SaturationWindow {
+  startIndex: number; // inclusive, into the keyframes array
+  endIndex: number; // inclusive
+  startMs: number;
+  endMs: number;
+}
+
+export interface FrameSample {
+  timestampMs: number;
+  buffer: FrameBuffer;
 }
 
 /**
- * Detect black screen timestamp ranges from extracted keyframes.
+ * Pass 1 (pure-data variant) — given a per-keyframe saturation array and
+ * the matching keyframe timeline, return contiguous high-saturation runs.
+ * Pulled out so the streaming pipeline can compute `satValues` on the fly
+ * (one float per keyframe, no buffer retention) instead of materialising
+ * a FrameSample[] for the whole video.
  *
- * STUB IMPLEMENTATION: Returns fake black screen ranges for development.
- * The real implementation will:
- * - Load each keyframe image
- * - Analyze specific ROIs for luminosity
- * - Flag frames below threshold as black screens
- * - Group consecutive frames into timestamp ranges
- *
- * @param keyframes - Array of keyframe info from FFmpeg extraction
- * @returns Promise<BlackScreenResult> with detected timestamp ranges
+ * `satValues.length` MUST equal `keyframes.length`. Both arrays MUST be
+ * sorted by timestamp.
  */
-export async function detectBlackScreens(
+export function buildSaturationWindowsFromValues(
+  satValues: number[],
   keyframes: KeyframeInfo[],
-  config?: DetectionConfig
-): Promise<BlackScreenResult> {
-  // No-op shim read until Story 7.5 lands the real detector. Wired now so
-  // that callers can already pass a DetectionConfig without changing the
-  // contract later. The threshold is currently unused by this stub.
-  void getBrightnessThreshold(config);
+  config: DetectionConfig
+): SaturationWindow[] {
+  // Clamp to a sensible floor so a too-loose config can't open a single
+  // window covering the entire video.
+  const satThreshold = Math.max(8, config.thresholds.team_bar_min_sat);
+  const windows: SaturationWindow[] = [];
+  let runStart: number | null = null;
 
-  if (keyframes.length === 0) {
-    return { ranges: [], frameCount: 0, blackFrameCount: 0 };
+  for (let i = 0; i < satValues.length; i++) {
+    const isHigh = satValues[i] >= satThreshold;
+    if (isHigh && runStart === null) {
+      runStart = i;
+    } else if (!isHigh && runStart !== null) {
+      windows.push({
+        startIndex: runStart,
+        endIndex: i - 1,
+        startMs: keyframes[runStart].timestampMs,
+        endMs: keyframes[i - 1].timestampMs,
+      });
+      runStart = null;
+    }
   }
-
-  // --- STUB: Generate fake black screen ranges ---
-  // Simulate detection by placing black screens at regular intervals.
-  // A typical EVA After-h VOD (~80 min) has ~3-5 map transitions.
-  const totalDurationMs =
-    keyframes[keyframes.length - 1].timestampMs - keyframes[0].timestampMs;
-
-  if (totalDurationMs <= 0) {
-    return { ranges: [], frameCount: keyframes.length, blackFrameCount: 0 };
-  }
-
-  const fakeRanges: TimestampRange[] = [];
-  const mapCount = Math.max(2, Math.min(5, Math.floor(totalDurationMs / (20 * 60 * 1000))));
-  const segmentDuration = totalDurationMs / (mapCount + 1);
-
-  // First black screen: ~lobby end
-  fakeRanges.push({
-    startMs: Math.round(segmentDuration * 0.15),
-    endMs: Math.round(segmentDuration * 0.15) + 2000,
-  });
-
-  // Black screens between maps
-  for (let i = 1; i <= mapCount; i++) {
-    const position = Math.round(segmentDuration * i);
-    fakeRanges.push({
-      startMs: position,
-      endMs: position + 2000,
+  if (runStart !== null) {
+    windows.push({
+      startIndex: runStart,
+      endIndex: satValues.length - 1,
+      startMs: keyframes[runStart].timestampMs,
+      endMs: keyframes[satValues.length - 1].timestampMs,
     });
   }
 
-  return {
-    ranges: fakeRanges,
-    frameCount: keyframes.length,
-    blackFrameCount: fakeRanges.length * 2,
-  };
-  // --- END STUB ---
+  return windows;
 }
 
 /**
- * Merge close timestamp ranges that are within gap tolerance.
- * Utility for the real implementation.
+ * Pass 1 — find contiguous runs of high-saturation keyframes via the
+ * `team_bar` ROI. Used to narrow Pass-2 to the regions of the video where
+ * gameplay HUD is plausibly on screen.
+ *
+ * `samples` MUST be sorted by timestampMs. The output windows are also
+ * sorted and non-overlapping.
  */
-export function mergeCloseRanges(
-  ranges: TimestampRange[],
-  gapToleranceMs: number = GAP_TOLERANCE_MS
-): TimestampRange[] {
-  if (ranges.length === 0) return [];
+export function scanSaturationWindows(
+  samples: FrameSample[],
+  opts: BlackScreenDetectorOptions
+): SaturationWindow[] {
+  const { config } = opts;
+  const refRes = config.reference_resolution;
+  const procRes = opts.processingResolution ?? refRes;
+  const teamBarRoi = scaleRoi(config.roi_zones.team_bar, refRes, procRes);
 
-  const sorted = [...ranges].sort((a, b) => a.startMs - b.startMs);
-  const merged: TimestampRange[] = [{ ...sorted[0] }];
+  const satValues = samples.map((s) => saturationMean(s.buffer, teamBarRoi));
+  const keyframes: KeyframeInfo[] = samples.map((s) => ({
+    path: "",
+    timestampMs: s.timestampMs,
+  }));
+  return buildSaturationWindowsFromValues(satValues, keyframes, config);
+}
 
-  for (let i = 1; i < sorted.length; i++) {
-    const current = sorted[i];
-    const last = merged[merged.length - 1];
+/**
+ * Pass 2 — run the 3-state black-screen debouncer over the keyframes inside
+ * a single Pass-1 window. Emits START / END / SCORE_SCREEN events with the
+ * same shape as the primary gameDetector, so the orchestrator can merge
+ * outputs from either path uniformly.
+ */
+export function detectBlackScreensInWindow(
+  samples: FrameSample[],
+  window: SaturationWindow,
+  opts: BlackScreenDetectorOptions
+): GameDetectorEvent[] {
+  const { config } = opts;
+  const refRes = config.reference_resolution;
+  const procRes = opts.processingResolution ?? refRes;
+  const notkdaRoi = scaleRoi(config.roi_zones.notkda, refRes, procRes);
+  const brightnessThreshold = config.thresholds.brightness_threshold;
+  const startConfirm = Math.max(1, Math.floor(config.thresholds.start_confirm_frames));
+  const scoreOffsetMs = Math.round(config.thresholds.score_offset_s * 1000);
 
-    if (current.startMs - last.endMs <= gapToleranceMs) {
-      last.endMs = Math.max(last.endMs, current.endMs);
+  type FsmState = "undetermined" | "waiting_for_start" | "waiting_for_end";
+  let state: FsmState = "undetermined";
+  let runKind: "black" | "non-black" | null = null;
+  let runCount = 0;
+  let runFirstTs = 0;
+  let lastNonBlackTs = 0;
+
+  const events: GameDetectorEvent[] = [];
+
+  for (let i = window.startIndex; i <= window.endIndex; i++) {
+    const sample = samples[i];
+    const brightness = grayscaleMean(sample.buffer, notkdaRoi);
+    const isBlack = brightness < brightnessThreshold;
+    const observed: "black" | "non-black" = isBlack ? "black" : "non-black";
+
+    // Bookkeeping shared by all branches — used to time END events.
+    if (observed === "non-black") lastNonBlackTs = sample.timestampMs;
+
+    // Accumulate or reset the streak of like-kind frames. Same gating as
+    // gameDetector: every transition (including the FSM seed in the
+    // `undetermined` state) waits for `start_confirm_frames` consecutive
+    // observations before it fires, so a single noisy frame at a window
+    // edge never produces a false START.
+    if (runKind !== observed) {
+      runKind = observed;
+      runCount = 1;
+      runFirstTs = sample.timestampMs;
     } else {
-      merged.push({ ...current });
+      runCount++;
+    }
+
+    if (runCount < startConfirm) continue;
+
+    if (state === "undetermined") {
+      // Sustained run at the front of the window seeds the FSM. Non-black
+      // ⇒ we're inside a game (emit START at the run's first ts); black
+      // ⇒ we're between games (no event, just transition).
+      if (observed === "non-black") {
+        state = "waiting_for_end";
+        events.push({ type: "START", timestamp_ms: runFirstTs });
+      } else {
+        state = "waiting_for_start";
+      }
+      runKind = null;
+      runCount = 0;
+      continue;
+    }
+
+    if (state === "waiting_for_start" && observed === "non-black") {
+      // Sustained brightness in a region we believed to be off — game START.
+      state = "waiting_for_end";
+      events.push({ type: "START", timestamp_ms: runFirstTs });
+      runKind = null;
+      runCount = 0;
+      continue;
+    }
+
+    if (state === "waiting_for_end" && observed === "black") {
+      // Sustained black inside a game — END at the last non-black frame.
+      state = "waiting_for_start";
+      const endTs = lastNonBlackTs;
+      events.push({ type: "END", timestamp_ms: endTs });
+      events.push({
+        type: "SCORE_SCREEN",
+        timestamp_ms: endTs + scoreOffsetMs,
+      });
+      runKind = null;
+      runCount = 0;
+      continue;
     }
   }
 
-  return merged;
+  // Window ended while we were inside a game — synthesise END at the last
+  // observed non-black frame so the segment is closed.
+  if (state === "waiting_for_end") {
+    const endTs = lastNonBlackTs;
+    events.push({ type: "END", timestamp_ms: endTs });
+    events.push({
+      type: "SCORE_SCREEN",
+      timestamp_ms: endTs + scoreOffsetMs,
+    });
+  }
+
+  return events;
+}
+
+/**
+ * Convenience wrapper: run the full two-pass fallback over a sequence of
+ * keyframe samples. Delegates to scanSaturationWindows + per-window
+ * detectBlackScreensInWindow.
+ */
+export function detectGameEventsFallback(
+  samples: FrameSample[],
+  opts: BlackScreenDetectorOptions
+): GameDetectorEvent[] {
+  const windows = scanSaturationWindows(samples, opts);
+  const all: GameDetectorEvent[] = [];
+  for (const w of windows) {
+    all.push(...detectBlackScreensInWindow(samples, w, opts));
+  }
+  return all;
+}
+
+/**
+ * Legacy helper retained for the pre-7.5 segmentation path used by
+ * processingPipeline.ts checkpoints. Converts a series of black-screen
+ * windows from a frame sample stream into TimestampRange[]. Story 2.5
+ * removes the last call site once the new segmentation lands.
+ */
+export function blackScreenRangesFromSamples(
+  samples: FrameSample[],
+  opts: BlackScreenDetectorOptions
+): TimestampRange[] {
+  const { config } = opts;
+  const refRes = config.reference_resolution;
+  const procRes = opts.processingResolution ?? refRes;
+  const notkdaRoi = scaleRoi(config.roi_zones.notkda, refRes, procRes);
+  const brightnessThreshold = config.thresholds.brightness_threshold;
+  const ranges: TimestampRange[] = [];
+  let openStart: number | null = null;
+  let lastBlackTs = 0;
+
+  for (const s of samples) {
+    const isBlack =
+      grayscaleMean(s.buffer, notkdaRoi) < brightnessThreshold;
+    if (isBlack && openStart === null) {
+      openStart = s.timestampMs;
+      lastBlackTs = s.timestampMs;
+    } else if (isBlack) {
+      lastBlackTs = s.timestampMs;
+    } else if (!isBlack && openStart !== null) {
+      ranges.push({ startMs: openStart, endMs: lastBlackTs });
+      openStart = null;
+    }
+  }
+  if (openStart !== null) ranges.push({ startMs: openStart, endMs: lastBlackTs });
+  return ranges;
 }

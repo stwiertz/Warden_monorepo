@@ -109,6 +109,6 @@ development_status:
   7-2-update-clip-export-view-mode-typescript-type: ready-for-dev
   7-3-view-mode-toggle-ui-full-minimap-minimap-hud: ready-for-dev
   7-4-remote-detection-config-with-mmkv-cache: ready-for-dev
-  7-5-replace-detectors-game-detector-phash-map-identifier: ready-for-dev
+  7-5-replace-detectors-game-detector-phash-map-identifier: in-progress
   7-6-export-pipeline-for-3-view-modes: ready-for-dev
   epic-7-retrospective: optional

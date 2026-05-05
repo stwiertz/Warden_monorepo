@@ -1,101 +1,99 @@
+// Story 7.5 — Processing pipeline orchestration.
+//
+// Runs the full detection chain for a session:
+//   1. Extract keyframes (Story 2.2 — FFmpeg).
+//   2. Probe GOP interval (FFprobe). Branch on the result:
+//        - shortGop: feed every keyframe through `gameDetector` (KDA/HSV).
+//        - longGop : feed every keyframe through the two-pass black-screen
+//                    fallback in blackScreenDetector.
+//      Both paths emit the same `GameDetectorEvent[]` stream.
+//   3. Pair START/END events into game segments. For each segment, sample a
+//      mid-segment keyframe and run `mapIdentifier` (pHash). Persist the
+//      identified maps alongside the segments.
+//   4. Save `MapSegmentData[]` rows via segmentRepository.
+//   5. Extract one full-resolution score-screen frame per segment at
+//      `endTs + score_offset_s`, clamped to video duration. Persist its
+//      path on the segment row.
+//   6. Mark the session `ready` (or `error` on any failure).
+//
+// Crash recovery: each stage writes its outputs to MMKV under
+// `processing.<sessionId>.<field>` so that a relaunched pipeline can pick up
+// from the last completed checkpoint. Detection-stage outputs are stored as
+// `events`, `gameSegments`, and `mapIdentifications`.
+//
+// Frame loading: detectors take a `FrameLoader` so the pipeline doesn't
+// hard-depend on a real JPEG decoder. The default loader calls
+// `loadFrameFromPath` (which throws until the native binding lands), so in
+// tests the loader is overridden to return synthetic FrameBuffers. The
+// shape lets the rest of the pipeline land while the OpenCV native module
+// is still pending integration.
+
 import {
   extractKeyframes,
   extractFrameAt,
-  getVideoDuration,
+  getGopInfo,
   getProcessingDir,
+  getVideoDuration,
 } from "../../shared/services/ffmpeg";
+import {
+  loadFrameFromPath,
+  saturationMean,
+  scaleRoi,
+  type FrameBuffer,
+  type Resolution,
+} from "../../shared/services/opencv";
 import { getSession, updateSessionStatus } from "../session/sessionRepository";
-import { detectBlackScreens } from "./blackScreenDetector";
-import { matchMapEndScreens } from "./templateMatcher";
-import { insertMapSegments } from "./segmentRepository";
+import {
+  insertMapSegments,
+  updateResultFramePath,
+} from "./segmentRepository";
 import { storage } from "../../shared/services/storage";
+import { getDetectionConfig } from "./detectionConfigService";
+import {
+  createGameDetector,
+  pairEventsIntoSegments,
+  type GameSegmentTimeline,
+} from "./gameDetector";
+import { createMapIdentifier } from "./mapIdentifier";
+import {
+  buildSaturationWindowsFromValues,
+  detectBlackScreensInWindow,
+  type FrameSample,
+} from "./blackScreenDetector";
+import { buildMapSegments } from "./segmentation";
+import type { DetectionConfig } from "./detectionConfig";
 import type {
+  GameDetectorEvent,
   KeyframeInfo,
-  TimestampRange,
-  TemplateMatchResult,
+  MapIdentificationResult,
   MapSegmentData,
   ProcessingStage,
   ProgressCallback,
 } from "./types";
 
-const TEMPLATE_DIR = "assets/images/map-templates";
+export type FrameLoader = (path: string) => Promise<FrameBuffer>;
 
-// Checkpoint keys
+export interface RunPipelineOptions {
+  onProgress?: ProgressCallback;
+  // Defaults to the production loader, which throws until OpenCV is wired up.
+  // Tests inject a synthetic loader.
+  loadFrame?: FrameLoader;
+  // Defaults to the cached DetectionConfig from Story 7.4. Tests inject one
+  // directly to avoid touching Firestore + MMKV.
+  detectionConfig?: DetectionConfig;
+  // Resolution of the FrameBuffers returned by the loader. Defaults to the
+  // detection config's reference resolution (no scaling).
+  processingResolution?: Resolution;
+}
+
 function checkpointKey(sessionId: string, field: string): string {
   return `processing.${sessionId}.${field}`;
 }
 
-/**
- * Segment video into map episodes by combining detection results.
- *
- * Algorithm:
- * - Black screen ranges mark transitions between maps
- * - Template matches (when available) confirm map end screens
- * - First gameplay starts after the first black screen (lobby excluded)
- * - Maps are the gameplay between consecutive black screens
- */
-export function segmentVideo(
-  blackScreenRanges: TimestampRange[],
-  templateMatches: TemplateMatchResult[],
-  videoDurationMs: number
-): MapSegmentData[] {
-  if (blackScreenRanges.length === 0) {
-    // No black screens detected — treat entire video as one segment
-    return [
-      {
-        mapIndex: 0,
-        startTimeMs: 0,
-        endTimeMs: videoDurationMs,
-        mapName: null,
-        resultFramePath: null,
-      },
-    ];
-  }
-
-  const segments: MapSegmentData[] = [];
-  let mapIndex = 0;
-
-  // Skip lobby: first gameplay starts after the first black screen ends
-  for (let i = 0; i < blackScreenRanges.length; i++) {
-    const currentBlackEnd = blackScreenRanges[i].endMs;
-    const nextBlackStart =
-      i + 1 < blackScreenRanges.length
-        ? blackScreenRanges[i + 1].startMs
-        : videoDurationMs;
-
-    // Skip tiny segments (< 30s) — likely transitions, not maps
-    const segmentDuration = nextBlackStart - currentBlackEnd;
-    if (segmentDuration < 30_000) continue;
-
-    // Check if a template match falls within this segment
-    const matchInSegment = templateMatches.find(
-      (m) => m.timestampMs >= currentBlackEnd && m.timestampMs <= nextBlackStart
-    );
-
-    segments.push({
-      mapIndex,
-      startTimeMs: currentBlackEnd,
-      endTimeMs: nextBlackStart,
-      mapName: matchInSegment?.templateName ?? null,
-      resultFramePath: null,
-    });
-
-    mapIndex++;
-  }
-
-  return segments;
-}
-
-/**
- * Save processing checkpoint to MMKV for crash recovery.
- */
 function saveCheckpoint(sessionId: string, stage: ProcessingStage): void {
   storage.setString(checkpointKey(sessionId, "stage"), stage);
 }
 
-/**
- * Get last completed processing stage from checkpoint.
- */
 export function getCheckpoint(sessionId: string): ProcessingStage | null {
   return (
     (storage.getString(checkpointKey(sessionId, "stage")) as ProcessingStage) ??
@@ -103,16 +101,10 @@ export function getCheckpoint(sessionId: string): ProcessingStage | null {
   );
 }
 
-/**
- * Clear processing checkpoint after completion.
- */
 function clearCheckpoint(sessionId: string): void {
   storage.delete(checkpointKey(sessionId, "stage"));
 }
 
-/**
- * Map processing stages to overall progress percentages.
- */
 function stageToOverallProgress(
   stage: ProcessingStage,
   stageProgress: number
@@ -128,17 +120,138 @@ function stageToOverallProgress(
 }
 
 /**
+ * Run the gameDetector or the long-GOP black-screen fallback over every
+ * keyframe. Both paths stream — buffers are loaded one at a time and
+ * dropped immediately so a 60–90 min session doesn't hold ~600 MB+ of
+ * decoded frames in RAM. The long-GOP path runs two passes; Pass 1 keeps
+ * only a saturation float per keyframe, Pass 2 re-loads only the indices
+ * inside high-saturation windows.
+ */
+export async function detectGameEvents(
+  keyframes: KeyframeInfo[],
+  config: DetectionConfig,
+  loadFrame: FrameLoader,
+  hasShortGop: boolean,
+  processingResolution: Resolution | undefined
+): Promise<GameDetectorEvent[]> {
+  if (hasShortGop) {
+    const detector = createGameDetector({ config, processingResolution });
+    const events: GameDetectorEvent[] = [];
+    for (const kf of keyframes) {
+      const buf = await loadFrame(kf.path);
+      events.push(...detector.processFrame(buf, kf.timestampMs));
+    }
+    events.push(...detector.flush());
+    return events;
+  }
+
+  // Long-GOP fallback. Pass 1: collect saturation values without retaining
+  // buffers.
+  const refRes = config.reference_resolution;
+  const procRes = processingResolution ?? refRes;
+  const teamBarRoi = scaleRoi(config.roi_zones.team_bar, refRes, procRes);
+  const satValues: number[] = [];
+  for (const kf of keyframes) {
+    const buf = await loadFrame(kf.path);
+    satValues.push(saturationMean(buf, teamBarRoi));
+  }
+
+  const windows = buildSaturationWindowsFromValues(satValues, keyframes, config);
+
+  // Pass 2: re-load only the buffers within each window.
+  const events: GameDetectorEvent[] = [];
+  for (const w of windows) {
+    const samples: FrameSample[] = [];
+    for (let i = w.startIndex; i <= w.endIndex; i++) {
+      samples.push({
+        timestampMs: keyframes[i].timestampMs,
+        buffer: await loadFrame(keyframes[i].path),
+      });
+    }
+    events.push(
+      ...detectBlackScreensInWindow(samples, w, { config, processingResolution })
+    );
+  }
+  return events;
+}
+
+/**
+ * For each game segment, sample a keyframe near the middle and run the map
+ * identifier. Returns one MapIdentificationResult per segment (mapName = null
+ * when no fingerprint was within the collision threshold; AC 8).
+ */
+export async function identifyMapsForSegments(
+  segments: GameSegmentTimeline[],
+  keyframes: KeyframeInfo[],
+  config: DetectionConfig,
+  loadFrame: FrameLoader,
+  processingResolution: Resolution | undefined
+): Promise<MapIdentificationResult[]> {
+  const identifier = createMapIdentifier({
+    config,
+    processingResolution,
+  });
+  const results: MapIdentificationResult[] = [];
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    const midTs = (seg.startMs + seg.endMs) / 2;
+    const kf = nearestKeyframe(keyframes, midTs);
+    if (!kf) {
+      results.push({
+        segmentIndex: i,
+        mapName: null,
+        hash: "",
+        hammingDistance: null,
+      });
+      continue;
+    }
+    const buffer = await loadFrame(kf.path);
+    const outcome = identifier.identify(buffer);
+    if (outcome.match === null) {
+      console.warn(
+        `[mapIdentifier] segment ${i} (${seg.startMs}-${seg.endMs}ms) — no fingerprint within collision threshold (hash=${outcome.hash})`
+      );
+    }
+    results.push({
+      segmentIndex: i,
+      mapName: outcome.match?.mapName ?? null,
+      hash: outcome.hash,
+      hammingDistance: outcome.match?.hammingDistance ?? null,
+    });
+  }
+  return results;
+}
+
+function nearestKeyframe(
+  keyframes: KeyframeInfo[],
+  targetMs: number
+): KeyframeInfo | null {
+  if (keyframes.length === 0) return null;
+  let best = keyframes[0];
+  let bestDelta = Math.abs(best.timestampMs - targetMs);
+  for (let i = 1; i < keyframes.length; i++) {
+    const d = Math.abs(keyframes[i].timestampMs - targetMs);
+    if (d < bestDelta) {
+      best = keyframes[i];
+      bestDelta = d;
+    }
+  }
+  return best;
+}
+
+/**
  * Run the full processing pipeline for a session.
- *
- * Pipeline: extract keyframes → detect black screens → match templates
- *           → segment video → extract result frames → mark ready
  */
 export async function runProcessingPipeline(
   sessionId: string,
-  onProgress?: ProgressCallback
+  options: RunPipelineOptions = {}
 ): Promise<void> {
   const session = await getSession(sessionId);
   if (!session) throw new Error(`Session ${sessionId} not found`);
+
+  const { onProgress, loadFrame = loadFrameFromPath } = options;
+  const config = options.detectionConfig ?? (await getDetectionConfig());
+  const processingResolution = options.processingResolution;
 
   await updateSessionStatus(sessionId, "processing");
 
@@ -151,8 +264,24 @@ export async function runProcessingPipeline(
     let keyframes: KeyframeInfo[] = [];
     let videoDurationMs = 0;
 
-    // Stage 1: Extract keyframes
-    if (!lastStage || lastStage === "keyframes") {
+    // Checkpoint semantics: lastStage is the LAST FULLY-COMPLETED stage. A
+    // crash before any stage's saveCheckpoint leaves lastStage pointing at
+    // the prior stage (or null), so on resume the corresponding block re-
+    // runs from scratch — but completed stages are skipped.
+    const keyframesDone =
+      lastStage === "keyframes" ||
+      lastStage === "detection" ||
+      lastStage === "segmentation" ||
+      lastStage === "results";
+    const detectionDone =
+      lastStage === "detection" ||
+      lastStage === "segmentation" ||
+      lastStage === "results";
+    const segmentationDone =
+      lastStage === "segmentation" || lastStage === "results";
+    const resultsDone = lastStage === "results";
+
+    if (!keyframesDone) {
       reportProgress("keyframes", 0);
       videoDurationMs = await getVideoDuration(session.video_file_path);
       keyframes = await extractKeyframes(session.video_file_path, sessionId, {
@@ -163,11 +292,9 @@ export async function runProcessingPipeline(
       reportProgress("keyframes", 100);
     }
 
-    // Stage 2: Detection (black screens + template matching)
-    if (!lastStage || lastStage === "keyframes" || lastStage === "detection") {
+    if (!detectionDone) {
       reportProgress("detection", 0);
 
-      // Re-load keyframes if resuming
       if (keyframes.length === 0) {
         videoDurationMs = await getVideoDuration(session.video_file_path);
         keyframes = await extractKeyframes(session.video_file_path, sessionId, {
@@ -176,105 +303,149 @@ export async function runProcessingPipeline(
         });
       }
 
-      const blackScreenResult = await detectBlackScreens(keyframes);
-      const templateMatches = await matchMapEndScreens(
+      const gop = await getGopInfo(session.video_file_path);
+      const events = await detectGameEvents(
         keyframes,
-        TEMPLATE_DIR
+        config,
+        loadFrame,
+        gop.hasShortGop,
+        processingResolution
+      );
+      const gameSegments = pairEventsIntoSegments(events);
+      const mapIdentifications = await identifyMapsForSegments(
+        gameSegments,
+        keyframes,
+        config,
+        loadFrame,
+        processingResolution
       );
 
-      // Store detection results in MMKV for segmentation stage
-      storage.setObject(checkpointKey(sessionId, "blackScreens"), blackScreenResult.ranges);
-      storage.setObject(checkpointKey(sessionId, "templateMatches"), templateMatches);
+      storage.setObject(checkpointKey(sessionId, "events"), events);
+      storage.setObject(
+        checkpointKey(sessionId, "gameSegments"),
+        gameSegments
+      );
+      storage.setObject(
+        checkpointKey(sessionId, "mapIdentifications"),
+        mapIdentifications
+      );
       storage.setNumber(checkpointKey(sessionId, "duration"), videoDurationMs);
 
       saveCheckpoint(sessionId, "detection");
       reportProgress("detection", 100);
     }
 
-    // Stage 3: Segmentation
-    if (
-      !lastStage ||
-      ["keyframes", "detection", "segmentation"].includes(lastStage)
-    ) {
+    if (!segmentationDone) {
       reportProgress("segmentation", 0);
 
-      const blackScreenRanges =
-        storage.getObject<TimestampRange[]>(
-          checkpointKey(sessionId, "blackScreens")
+      const gameSegments =
+        storage.getObject<GameSegmentTimeline[]>(
+          checkpointKey(sessionId, "gameSegments")
         ) ?? [];
-      const templateMatches =
-        storage.getObject<TemplateMatchResult[]>(
-          checkpointKey(sessionId, "templateMatches")
+      const mapIdentifications =
+        storage.getObject<MapIdentificationResult[]>(
+          checkpointKey(sessionId, "mapIdentifications")
         ) ?? [];
       videoDurationMs =
         storage.getNumber(checkpointKey(sessionId, "duration")) ?? 0;
 
-      const segments = segmentVideo(
-        blackScreenRanges,
-        templateMatches,
-        videoDurationMs
-      );
-
+      const segments = buildMapSegments(gameSegments, mapIdentifications);
       const savedSegments = await insertMapSegments(sessionId, segments);
 
-      // Store segment IDs for result frame extraction
       storage.setObject(
         checkpointKey(sessionId, "segmentIds"),
         savedSegments.map((s) => s.id)
       );
-      storage.setObject(
-        checkpointKey(sessionId, "segmentData"),
-        segments
-      );
+      storage.setObject(checkpointKey(sessionId, "segmentData"), segments);
 
       saveCheckpoint(sessionId, "segmentation");
       reportProgress("segmentation", 100);
     }
 
-    // Stage 4: Extract result frames
-    reportProgress("results", 0);
+    if (!resultsDone) {
+      reportProgress("results", 0);
 
-    const segmentData =
-      storage.getObject<MapSegmentData[]>(
-        checkpointKey(sessionId, "segmentData")
-      ) ?? [];
-    const segmentIds =
-      storage.getObject<string[]>(
-        checkpointKey(sessionId, "segmentIds")
-      ) ?? [];
-    const processingDir = getProcessingDir(sessionId);
+      const segmentData =
+        storage.getObject<MapSegmentData[]>(
+          checkpointKey(sessionId, "segmentData")
+        ) ?? [];
+      const segmentIds =
+        storage.getObject<string[]>(checkpointKey(sessionId, "segmentIds")) ??
+        [];
+      const gameSegments =
+        storage.getObject<GameSegmentTimeline[]>(
+          checkpointKey(sessionId, "gameSegments")
+        ) ?? [];
+      if (videoDurationMs === 0) {
+        videoDurationMs =
+          storage.getNumber(checkpointKey(sessionId, "duration")) ?? 0;
+      }
+      if (videoDurationMs === 0) {
+        // Storage cache evicted between stages; re-probe so the score-screen
+        // clamp has a basis. Without this we'd silently send a possibly-past-
+        // EOF timestamp into FFmpeg.
+        videoDurationMs = await getVideoDuration(session.video_file_path);
+        storage.setNumber(checkpointKey(sessionId, "duration"), videoDurationMs);
+      }
+      const processingDir = getProcessingDir(sessionId);
 
-    for (let i = 0; i < segmentData.length; i++) {
-      const seg = segmentData[i];
-      // Extract result frame ~3 seconds before segment end (scoreboard)
-      const frameTimestamp = Math.max(seg.startTimeMs, seg.endTimeMs - 3000);
-      const outputPath = `${processingDir}/results/map_${seg.mapIndex}.jpg`;
-
-      try {
-        await extractFrameAt(
-          session.video_file_path,
-          frameTimestamp,
-          outputPath
-        );
-
-        // Update DB with result frame path
-        if (segmentIds[i]) {
-          const { updateResultFramePath } = await import("./segmentRepository");
-          await updateResultFramePath(segmentIds[i], outputPath);
+      for (let i = 0; i < segmentData.length; i++) {
+        const seg = segmentData[i];
+        const scoreScreenMs = gameSegments[i]?.scoreScreenMs ?? seg.endTimeMs;
+        // Clamp the offset to the last available frame. If the clamp swallows
+        // the entire offset, log a warning but still try to capture *some*
+        // frame near the end so Card View has a thumbnail (Dev Notes AC 5).
+        let frameTimestamp = scoreScreenMs;
+        if (videoDurationMs > 0 && frameTimestamp > videoDurationMs - 50) {
+          const clamped = Math.max(seg.endTimeMs, videoDurationMs - 50);
+          if (clamped - seg.endTimeMs < 1000) {
+            console.warn(
+              `[results] segment ${i}: score_offset_s clamped from ${frameTimestamp}ms to ${clamped}ms (video ends at ${videoDurationMs}ms)`
+            );
+          }
+          frameTimestamp = clamped;
         }
-      } catch {
-        // Non-fatal: result frame is optional for Card View
+        const outputPath = `${processingDir}/results/map_${seg.mapIndex}.jpg`;
+
+        let extracted = false;
+        try {
+          await extractFrameAt(
+            session.video_file_path,
+            frameTimestamp,
+            outputPath
+          );
+          extracted = true;
+        } catch (err) {
+          // Result frame is best-effort: a missing thumbnail still leaves the
+          // segment navigable. Log so prod failures are diagnosable instead
+          // of presenting as silently-empty Card View tiles.
+          console.warn(
+            `[results] segment ${i}: thumbnail extraction failed at ${frameTimestamp}ms`,
+            err
+          );
+        }
+        if (extracted && segmentIds[i]) {
+          try {
+            await updateResultFramePath(segmentIds[i], outputPath);
+          } catch (err) {
+            // FFmpeg succeeded but the DB update failed: file exists on disk
+            // without a row pointing at it. Surface so it can be reconciled.
+            console.warn(
+              `[results] segment ${i}: thumbnail saved at ${outputPath} but DB update failed`,
+              err
+            );
+          }
+        }
+
+        reportProgress(
+          "results",
+          Math.round(((i + 1) / segmentData.length) * 100)
+        );
       }
 
-      reportProgress(
-        "results",
-        Math.round(((i + 1) / segmentData.length) * 100)
-      );
+      saveCheckpoint(sessionId, "results");
     }
 
-    saveCheckpoint(sessionId, "results");
-
-    // Done — mark session ready
     await updateSessionStatus(sessionId, "ready");
     clearCheckpoint(sessionId);
   } catch (error) {

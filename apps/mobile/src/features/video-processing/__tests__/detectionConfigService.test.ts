@@ -44,8 +44,10 @@ function validRemotePayload(version: number) {
       sat_max: 0.4,
       val_min: 0.3,
       min_ratio: 0.5,
+      team_bar_min_sat: 25,
       hud_brightness_max: 60,
       score_offset_s: -1.5,
+      collision_threshold: 12,
     },
     maps: { ascent: "deadbeef" },
   };

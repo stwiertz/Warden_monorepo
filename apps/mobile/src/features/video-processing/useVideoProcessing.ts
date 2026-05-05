@@ -70,13 +70,12 @@ export function useVideoProcessing(
       }
 
       try {
-        await runProcessingPipeline(
-          sessionId,
-          (currentStage, overallProgress) => {
+        await runProcessingPipeline(sessionId, {
+          onProgress: (currentStage, overallProgress) => {
             setStage(currentStage);
             setProgress(overallProgress);
-          }
-        );
+          },
+        });
         setStatus("completed");
         setProgress(100);
       } catch (err) {

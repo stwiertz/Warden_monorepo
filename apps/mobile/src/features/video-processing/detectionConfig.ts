@@ -30,8 +30,14 @@ export interface DetectionConfigThresholds {
   sat_max: number;
   val_min: number;
   min_ratio: number;
+  // Mean saturation (HSV-8U, 0..255) the team_bar ROI must beat for the
+  // long-GOP fallback's Pass-1 to count a keyframe as "high-saturation
+  // gameplay." Independent of `min_ratio` so the kda white-pixel ratio and
+  // the team_bar saturation floor can be tuned separately.
+  team_bar_min_sat: number;
   hud_brightness_max: number;
   score_offset_s: number;
+  collision_threshold: number;
 }
 
 export interface DetectionConfig {
@@ -58,8 +64,10 @@ const THRESHOLD_KEYS: ReadonlyArray<keyof DetectionConfigThresholds> = [
   "sat_max",
   "val_min",
   "min_ratio",
+  "team_bar_min_sat",
   "hud_brightness_max",
   "score_offset_s",
+  "collision_threshold",
 ];
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -162,16 +170,17 @@ export function validateDetectionConfig(raw: unknown): DetectionConfig {
 }
 
 /**
- * Bundled fallback used by the no-op shim from Sprint 2 detectors when no
- * remote config has been fetched yet (e.g. offline-first launch on first
- * install). Mirrors `BLACK_SCREEN_LUMINOSITY_THRESHOLD = 15` from
- * blackScreenDetector.ts so the legacy detector behaves identically when
- * read through the new accessor. Story 7.5 replaces this fallback with the
- * full KDA/HSV-tuned defaults.
+ * Bundled fallback used by detectionConfigService when no remote config has
+ * been fetched yet (e.g. offline-first launch on first install). Threshold
+ * values mirror the Python reference defaults documented in Story 7.5 Dev
+ * Notes so a freshly-fetched cache and the bundled fallback agree on tuning.
  *
- * ROI dimensions are nominal `1×1` placeholders — they exist only to satisfy
- * the strict positive-dimension validator. Sprint 2 detectors do not consume
- * any ROI; Story 7.5 will overwrite these with the real KDA/HSV/pHash zones.
+ * ROI dimensions are nominal `1×1` placeholders — the bootstrap gate blocks
+ * video processing while this fallback is active, so detectors never run
+ * with these ROIs in practice. The thresholds are still kept realistic so
+ * any code path that consults DEFAULT_DETECTION_CONFIG outside the bootstrap
+ * gate degrades gracefully instead of silently classifying every frame as
+ * not-in-game.
  */
 export const DEFAULT_DETECTION_CONFIG: DetectionConfig = {
   version: 0,
@@ -186,13 +195,15 @@ export const DEFAULT_DETECTION_CONFIG: DetectionConfig = {
   },
   thresholds: {
     brightness_threshold: 15,
-    start_confirm_frames: 0,
-    end_confirm_frames: 0,
-    sat_max: 0,
-    val_min: 0,
-    min_ratio: 0,
-    hud_brightness_max: 0,
-    score_offset_s: 0,
+    start_confirm_frames: 2,
+    end_confirm_frames: 3,
+    sat_max: 12,
+    val_min: 230,
+    min_ratio: 0.01,
+    team_bar_min_sat: 25,
+    hud_brightness_max: 100,
+    score_offset_s: 14.5,
+    collision_threshold: 12,
   },
   maps: {},
 };
