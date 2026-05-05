@@ -400,7 +400,9 @@ Warden/
 │   │   │   ├── gameDetector.ts              # KDA/HSV 2-state machine (Story 7.5)
 │   │   │   ├── mapIdentifier.ts             # pHash 64-bit map identification (Story 7.5)
 │   │   │   ├── blackScreenDetector.ts       # Fallback long-GOP 3-state (Story 7.5)
-│   │   │   ├── detectionConfig.ts           # Firestore fetch + MMKV cache (Story 7.4)
+│   │   │   ├── detectionConfig.ts           # Schema + validator (Story 7.4)
+│   │   │   ├── detectionConfigService.ts    # Firestore fetch + MMKV cache + singleflight (Story 7.4)
+│   │   │   ├── detectionConfigBootstrap.ts  # Startup wiring + offline-first-launch gate (Story 7.4)
 │   │   │   ├── processingNotification.ts    # Foreground service notification
 │   │   │   └── types.ts
 │   │   ├── video-playback/              # FR11-15 : Lecture & navigation
@@ -536,7 +538,7 @@ audio_comments (
 | Feature | FRs | Fichiers clés |
 |---------|-----|---------------|
 | video-import | FR1-4 | `videoImportService.ts` (validation format, accès fichier) |
-| video-processing | FR5-10 | `processingPipeline.ts` (orchestration), `gameDetector.ts` (KDA/HSV), `mapIdentifier.ts` (pHash), `blackScreenDetector.ts` (fallback long-GOP), `detectionConfig.ts` (Firestore + MMKV) |
+| video-processing | FR5-10 | `processingPipeline.ts` (orchestration), `gameDetector.ts` (KDA/HSV), `mapIdentifier.ts` (pHash), `blackScreenDetector.ts` (fallback long-GOP), `detectionConfig.ts` + `detectionConfigService.ts` + `detectionConfigBootstrap.ts` (Firestore + MMKV) |
 | video-playback | FR11-15 | `VideoPlayer.tsx` (expo-av), `MinimapView.tsx` (ROI crop), `EpisodeNavigator.tsx` |
 | audio-commentary | FR16-20 | `AudioRecorder.tsx` (expo-av recording), `audioCommentService.ts` (persistence) |
 | clip-export | FR21-25 | `exportPipeline.ts` (FFmpeg demux/mux + audio overlay) |
@@ -569,7 +571,7 @@ Import MP4 → Processing Pipeline → [keyframes → gameDetector (KDA/HSV) →
 |---------|---------------------|---------|
 | Firebase Auth | Login + validation abo | `auth/authService.ts` |
 | Firebase Firestore | Check `user.isPaid` | `auth/subscriptionService.ts` |
-| Firebase Firestore | Detection config (ROIs, KDA/HSV thresholds, map pHash fingerprints) | `video-processing/detectionConfig.ts` |
+| Firebase Firestore | Detection config (ROIs, KDA/HSV thresholds, map pHash fingerprints) | `video-processing/detectionConfigService.ts` (with `detectionConfig.ts` schema + `detectionConfigBootstrap.ts` startup) |
 | Filesystem Android | Import vidéo, stockage audio | `shared/services/ffmpeg.ts`, `shared/utils/fileSystem.ts` |
 | Share API | Partage clips exportés | `clip-export/` (via Expo Sharing) |
 

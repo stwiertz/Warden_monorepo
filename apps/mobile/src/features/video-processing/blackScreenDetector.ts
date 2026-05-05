@@ -1,12 +1,31 @@
 import type { KeyframeInfo, TimestampRange, BlackScreenResult } from "./types";
+import type { DetectionConfig } from "./detectionConfig";
+import { getCachedDetectionConfig } from "./detectionConfigService";
 
 // TODO: Replace stub with real detection algorithm.
 // The real implementation will analyze specific ROIs on extracted keyframes
 // to detect black screens. The user is developing this externally and will
 // provide the script to integrate here.
 
+// Legacy hardcoded fallback used when no DetectionConfig is available
+// (e.g. unit tests that don't bootstrap the cache, or pre-Story-7.4 callers
+// passing no config). Story 7.5 rewrites this detector to read everything
+// from the config; for now, keep this constant exported so existing callers
+// keep working unchanged.
 export const BLACK_SCREEN_LUMINOSITY_THRESHOLD = 15;
 const GAP_TOLERANCE_MS = 5000;
+
+/**
+ * Read the brightness threshold via DetectionConfig. Story 7.4 lands this
+ * as a no-op shim: when no remote config has been fetched, it returns the
+ * legacy hardcoded value, preserving behaviour. Story 7.5 replaces this
+ * detector with a 3-state long-GOP fallback that reads the config directly.
+ */
+export function getBrightnessThreshold(config?: DetectionConfig): number {
+  const source = config ?? getCachedDetectionConfig();
+  if (source) return source.thresholds.brightness_threshold;
+  return BLACK_SCREEN_LUMINOSITY_THRESHOLD;
+}
 
 /**
  * Detect black screen timestamp ranges from extracted keyframes.
@@ -22,8 +41,14 @@ const GAP_TOLERANCE_MS = 5000;
  * @returns Promise<BlackScreenResult> with detected timestamp ranges
  */
 export async function detectBlackScreens(
-  keyframes: KeyframeInfo[]
+  keyframes: KeyframeInfo[],
+  config?: DetectionConfig
 ): Promise<BlackScreenResult> {
+  // No-op shim read until Story 7.5 lands the real detector. Wired now so
+  // that callers can already pass a DetectionConfig without changing the
+  // contract later. The threshold is currently unused by this stub.
+  void getBrightnessThreshold(config);
+
   if (keyframes.length === 0) {
     return { ranges: [], frameCount: 0, blackFrameCount: 0 };
   }

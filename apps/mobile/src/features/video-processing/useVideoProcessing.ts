@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { runProcessingPipeline, getCheckpoint } from "./processingPipeline";
+import {
+  getBootstrapPromise,
+  isVideoProcessingBlocked,
+} from "./detectionConfigBootstrap";
 import type { ProcessingStage } from "./types";
 
 interface UseVideoProcessingReturn {
@@ -39,28 +43,49 @@ export function useVideoProcessing(
     setStatus("processing");
     setError(null);
 
-    // Check for existing checkpoint (crash recovery)
-    const checkpoint = getCheckpoint(sessionId);
-    if (checkpoint) {
-      setStage(checkpoint);
-    }
+    void (async () => {
+      // Await bootstrap before reading the gate — otherwise a fast-tapping
+      // user can reach this entry point in the offline-first-launch case
+      // before the flag is written, bypassing AC 4.
+      const pending = getBootstrapPromise();
+      if (pending) {
+        try {
+          await pending;
+        } catch {
+          // bootstrap is contractually non-throwing; defensive only.
+        }
+      }
 
-    runProcessingPipeline(sessionId, (currentStage, overallProgress) => {
-      setStage(currentStage);
-      setProgress(overallProgress);
-    })
-      .then(() => {
+      const block = isVideoProcessingBlocked();
+      if (block.blocked) {
+        setStatus("error");
+        setError(block.reason ?? "Video processing is unavailable.");
+        isRunning.current = false;
+        return;
+      }
+
+      const checkpoint = getCheckpoint(sessionId);
+      if (checkpoint) {
+        setStage(checkpoint);
+      }
+
+      try {
+        await runProcessingPipeline(
+          sessionId,
+          (currentStage, overallProgress) => {
+            setStage(currentStage);
+            setProgress(overallProgress);
+          }
+        );
         setStatus("completed");
         setProgress(100);
-        isRunning.current = false;
-      })
-      .catch((err) => {
+      } catch (err) {
         setStatus("error");
-        setError(
-          err instanceof Error ? err.message : "Processing failed"
-        );
+        setError(err instanceof Error ? err.message : "Processing failed");
+      } finally {
         isRunning.current = false;
-      });
+      }
+    })();
   }, [sessionId]);
 
   return { progress, stage, status, error, startProcessing };

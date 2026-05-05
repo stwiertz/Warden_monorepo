@@ -20,6 +20,7 @@ import { authService } from "./src/features/auth/authService";
 import { subscriptionService } from "./src/features/auth/subscriptionService";
 import { googleSignInService } from "./src/features/auth/googleSignInService";
 import { useAuthStore } from "./src/features/auth/useAuthStore";
+import { bootstrapDetectionConfig } from "./src/features/video-processing/detectionConfigBootstrap";
 
 // DEV ONLY: bypasses login + subscription gate so the rest of the app can be
 // worked on without a working Firebase/Stripe wiring. Remove this branch (and
@@ -37,6 +38,8 @@ export default function App() {
   });
 
   useEffect(() => {
+    void bootstrapDetectionConfig();
+
     if (AUTH_BYPASS) {
       console.warn(
         "[auth] EXPO_PUBLIC_AUTH_BYPASS is enabled — login and subscription checks are skipped."
