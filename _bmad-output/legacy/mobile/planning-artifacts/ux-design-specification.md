@@ -81,7 +81,7 @@ The core action is **clip creation with minimap + voice**. This is where raw foo
 |------------|------------|
 | Auto-slicing | Invisible. User imports a video, sees episodes. No configuration, no "processing" modal to stare at. The result just appears. |
 | Episode navigation | Netflix-style. Maps/rounds are immediately browsable. The coach's mental model (round 1, round 2...) IS the navigation model. |
-| Minimap toggle | **Explicit, self-explanatory icon.** Not an abstract symbol -- the icon should visually suggest "tactical overhead view." One tap, instant switch. No animation delay. |
+| View-mode toggle | **Three modes: Full / Minimap / Minimap+HUD.** Two-level control: top-level switches Full ↔ Minimap; HUD sub-toggle (only active in Minimap mode) overlays KDA + Score readouts. Self-explanatory icons, one tap, instant switch, no animation delay. |
 | Voice recording | Scoped to clip creation flow only. Not a floating button. Coach selects a moment -> creates clip -> records voice. Linear, predictable. |
 | State persistence | Invisible. Close the app mid-review, come back tomorrow, everything is exactly where you left it. Zero friction resume. |
 
@@ -131,7 +131,7 @@ Secondary emotion is **momentum**: after clipping one moment, the feeling should
 |---------------|-----------------|
 | Purposeful immediacy | **Cold start**: two clear paths -- resume last review or import new video. No assumptions, no wizard. **Background resume**: instant return to exact position. |
 | Momentum | After exporting a clip, return to the timeline at the exact playback position. Don't break flow with success modals. |
-| Tactical understanding | Minimap mode must be **full-screen**, not a tiny overlay. This is the core differentiator -- if it's too small, Warden fails like current tools. |
+| Tactical understanding | Minimap (and Minimap+HUD) modes must be **full-screen**, not tiny overlays. Full-screen tactical view is the core differentiator -- too small = Warden fails like current tools. The HUD overlay surfaces KDA + Score without breaking immersion. |
 | Tone neutrality | Clip sharing UX is neutral infrastructure. No "send feedback" or "coach your player" framing. Just "share." The coach's voice carries the tone. |
 | Review is play, not work | Dark, game-adjacent aesthetic. Review should feel like postgame analysis in an esport, not filling out a form. |
 | Anti-chore | Quick interactions, no mandatory fields, no "save before closing" dialogs. |
@@ -283,7 +283,7 @@ Thomas approaches Warden as a **video editing tool** -- not a social app, not a 
 - Dark, content-first layout (Discord)
 
 **Novel patterns (Warden-defined):**
-- **Full-screen minimap toggle**: No other tool gives full-screen focus to the minimap on mobile. One tap switches between POV and tactical overhead. The icon must be self-explanatory.
+- **Three-mode view toggle (Full / Minimap / Minimap+HUD)**: No other tool gives full-screen focus to a tactical minimap on mobile, let alone with an optional KDA/Score HUD overlay. Two-level toggle: top-level switches Full ↔ Minimap, HUD sub-toggle layers in/out. Both controls must be self-explanatory.
 - **Auto-generated 30-second clip**: Tap to create a clip with default 30s duration at current position. Drag handles to adjust. Lowers the commitment barrier -- you're refining, not creating from scratch.
 - **Voice-over-clip recording**: Scoped to clip creation only. After defining clip boundaries, optional voice recording step. Not a separate feature -- part of the clip flow.
 
@@ -389,7 +389,7 @@ These are the visual hallmarks of the Tactical HUD direction. Reproduce faithful
 - Video takes 100% of screen real estate by default
 - Controls appear on tap, auto-hide after inactivity (YouTube fullscreen model)
 - No persistent toolbars during playback
-- **Double-tap top-left**: Power-user shortcut to toggle minimap/POV (like YouTube double-tap left/right for 10s skip)
+- **Double-tap top-left**: Power-user shortcut to cycle through view modes Full → Minimap → Minimap+HUD (like YouTube double-tap left/right for 10s skip)
 
 **Spacing base unit:** 4px
 - Small gap: 4px | Medium gap: 8px | Large gap: 16px | Section gap: 24px
@@ -465,8 +465,8 @@ Sorting reorders the card grid AND sets the next/previous episode order within C
 
 **Controls (reveal-on-tap):**
 - Video fills 100% of screen by default
-- Tap to reveal: play/pause, timeline, minimap toggle, clip button, next/previous/maps navigation
-- Double-tap top-left: power-user minimap toggle shortcut
+- Tap to reveal: play/pause, timeline, view-mode toggle (Full / Minimap), HUD sub-toggle (when Minimap is active), clip button, next/previous/maps navigation
+- Double-tap top-left: power-user view-mode cycle shortcut (Full → Minimap → Minimap+HUD)
 - Auto-hide after inactivity
 
 ### Design Rationale
@@ -498,7 +498,7 @@ Cold Start → [Resume last / Import new]
                         ↓ (tap a card)
          Cinema Mode: Full-screen POV playback
          [Tap → reveal controls]
-         [Double-tap top-left → minimap shortcut]
+         [Double-tap top-left → view-mode cycle shortcut]
                         ↓ (tap clip button)
          30s clip region on timeline → drag handles to adjust
                         ↓ (optional: tap add voice)
@@ -612,7 +612,7 @@ Can create clips to share with teammates if desired
 **Purpose:** Full-screen video playback with reveal-on-tap controls overlay. Core workspace for all review activity.
 
 **Content:** Source video (POV or Minimap ROI crop), playback controls, timeline
-**Actions:** Play/pause, seek, toggle minimap/POV, create clip, navigate episodes
+**Actions:** Play/pause, seek, cycle view mode (Full / Minimap / Minimap+HUD), create clip, navigate episodes
 **States:**
 - Clean (video only, no UI)
 - Controls visible (tap to reveal, auto-hide after inactivity)
@@ -621,7 +621,33 @@ Can create clips to share with teammates if desired
 
 **Gestures:**
 - Single tap: toggle controls overlay
-- Double-tap top-left: minimap/POV toggle (power-user shortcut)
+- Double-tap top-left: view-mode cycle shortcut (Full → Minimap → Minimap+HUD)
+
+#### View Mode System (Full / Minimap / Minimap+HUD)
+
+**Purpose:** The three-mode view toggle replaces the original two-value POV/Minimap binary, giving coaches finer control over what's visible during review and during clip export. Defined by Stories 7.1–7.3 + 7.6 (Sprint 2.5 / Epic 7).
+
+**Modes:**
+
+| Mode | Visual | Use case |
+|------|--------|----------|
+| **Full** | Source video, no crop | Full-screen POV review (replaces original "POV" mode) |
+| **Minimap** | Cropped to map ROI from detection config | Tactical overhead analysis -- positioning, flank reads |
+| **Minimap+HUD** | Minimap crop + KDA + Score overlays drawn from `map_segments` data | Tactical view enriched with match state |
+
+**UI controls (Story 7.3):**
+- **Top-level toggle:** Full ↔ Minimap (segmented control, single tap)
+- **HUD sub-toggle:** ON/OFF (only active when top-level = Minimap)
+- **Power-user shortcut:** Double-tap top-left cycles Full → Minimap → Minimap+HUD
+- **Persistence:** `prefs.viewMode` and `prefs.minimapHud` stored in MMKV via Zustand
+
+**Export integration (Story 7.6):**
+The selected `view_mode` is stamped onto the `clip_exports` record. FFmpeg recipes per mode:
+- `full`: no crop, source resolution
+- `minimap`: crop to map ROI
+- `minimap_hud`: minimap crop + KDA + Score overlay rendering
+
+**Migration note:** The original `view_mode = 'pov'` value is migrated to `view_mode = 'full'` in Story 7.1.
 
 #### Timeline Scrubber
 
@@ -792,7 +818,7 @@ All segments optional. Silent clips skip all voice segments.
 | Gesture | Context | Action |
 |---------|---------|--------|
 | **Single tap** | Cinema Mode (video area) | Toggle controls overlay visibility |
-| **Double-tap top-left** | Cinema Mode | Toggle minimap/POV (power-user shortcut) |
+| **Double-tap top-left** | Cinema Mode | Cycle view mode Full → Minimap → Minimap+HUD (power-user shortcut) |
 | **Drag horizontal** | Timeline scrubber | Seek within episode |
 | **Drag handles** | Clip region on timeline | Adjust clip start/end boundaries |
 | **Drag down** | Bottom sheet | Dismiss / cancel action |

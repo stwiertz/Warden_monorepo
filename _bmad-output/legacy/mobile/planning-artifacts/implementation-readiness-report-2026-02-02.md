@@ -14,6 +14,8 @@ documentsUsed:
 **Date:** 2026-02-02
 **Project:** Warden
 
+> **⚠ Historical snapshot.** This report reflects the project's state on 2026-02-02 and is preserved as a point-in-time record. Subsequent changes are not reflected in the body below. The most significant post-report change: **Epic 7 (ROI Detection Redesign & View Mode Expansion) was inserted via Sprint 2.5 on 2026-04-20** per Proposals 4+6, superseding original Stories 2.3, 2.4, and 3.5. See [docs/planning-artifacts/epics.md](epics.md) and [docs/planning-artifacts/sprint-change-proposal-2026-05-05.md](sprint-change-proposal-2026-05-05.md) for the current source of truth.
+
 ---
 
 ## Document Inventory

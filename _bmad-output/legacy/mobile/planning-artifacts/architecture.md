@@ -25,7 +25,7 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 | Domaine | FRs | Implications architecturales |
 |---------|-----|------------------------------|
 | Import & gestion vidéo | FR1-4 | File system access, format validation, session management |
-| Traitement vidéo | FR5-10 | Background processing pipeline, FFmpeg/OpenCV native modules, crash recovery |
+| Traitement vidéo | FR5-10 | Keyframe extraction (FFmpeg) + détection game-state (KDA/HSV) + identification carte (pHash) + segmentation, background processing, crash recovery, detection config Firestore |
 | Lecture & navigation | FR11-15 | Video player component, ROI cropping, episode-style UI |
 | Commentaires audio | FR16-20 | Audio recording, storage, synchronization avec vidéo |
 | Export clips | FR21-25 | Demux/mux pipeline, audio overlay, qualité configurable |
@@ -171,13 +171,16 @@ npx create-expo-app@latest Warden --template blank-typescript
 | **Plan B** | Module natif custom via Expo Modules API | Si le fork devient instable, migration vers wrapper natif direct |
 | **Risque** | ffmpeg-kit-react-native deprecated jan 2025 | Fork communautaire actif, surveillance nécessaire |
 
-### OpenCV Integration
+### Detection Methodology (Game State + Map Identification)
 
 | Décision | Choix | Rationale |
 |----------|-------|-----------|
-| **Lib** | `react-native-fast-opencv` | JSI/C++, cross-platform Android+iOS, API TypeScript |
-| **Usage** | Template matching basse résolution sur keyframes | Détection écrans de fin de carte |
-| **Avantage** | Pas de code natif custom | Un seul code C++ partagé, pas de Kotlin/Swift à écrire |
+| **Lib OpenCV** | `react-native-fast-opencv` | JSI/C++, cross-platform Android+iOS, API TypeScript |
+| **Game state detection** | KDA + HSV color-space analysis sur ROIs définis dans la config (machine d'état 2 états : game-on / game-off, avec fallback long-GOP black-screen 3 états) | Méthodologie validée via R&D 2026-04 -- supérieure à l'approche luminosité-only (Proposals 4+6 approuvés 2026-04-20) |
+| **Map identification** | pHash 64-bit comparé aux empreintes de cartes servies par la config Firestore | Plus robuste que template matching contre des assets bundled (résistance aux variations de luminosité, résolution, encodage) |
+| **Config remote** | Firestore + cache MMKV, fallback configuration empaquetée par défaut | Permet de tuner la détection sans redeploy app |
+| **Avantage** | Pas de code natif custom | OpenCV via fast-opencv (JSI/C++ partagé), pas de Kotlin/Swift à écrire, pas d'assets bundled à maintenir |
+| **Note historique** | L'approche initiale (luminosity black-screen + OpenCV template matching contre `assets/images/map-templates/`) est SUPERSEDED par cette méthodologie. `templateMatcher.ts` et `assets/images/map-templates/` sont supprimés en Story 7.5. |
 
 ### Video Playback & Audio
 
@@ -252,13 +255,15 @@ npx create-expo-app@latest Warden --template blank-typescript
 1. Init projet Expo + TypeScript
 2. Setup NativeWind + React Native Reusables + design tokens (tailwind.config.ts)
 3. Setup navigation (React Navigation) + state (Zustand)
-4. Setup data layer (MMKV + SQLite + schema)
+4. Setup data layer (MMKV + SQLite + schema, view_mode CHECK constraint = 3 valeurs)
 5. Intégration FFmpeg (fork + config plugin)
-6. Intégration OpenCV (react-native-fast-opencv)
-7. Video player (expo-av) + UI custom Cinema Mode
-8. Audio recording (expo-av) -- modèle 3 slots (before/during/after)
-9. Auth Firebase + validation abo
-10. Pipeline export (FFmpeg concat multi-segment : still frames + clip vidéo + audio overlay)
+6. Intégration OpenCV (react-native-fast-opencv) -- usage : HSV game-state detection + pHash map ID
+7. Detection config service (Firestore fetch + MMKV cache + offline fallback)
+8. Détecteurs : gameDetector.ts (KDA/HSV) + mapIdentifier.ts (pHash) + blackScreenDetector.ts (fallback long-GOP)
+9. Video player (expo-av) + UI custom Cinema Mode + ViewModeToggle (3-value)
+10. Audio recording (expo-av) -- modèle 3 slots (before/during/after)
+11. Auth Firebase + validation abo
+12. Pipeline export (exportRecipes.ts + exportPipeline.ts -- recettes par view_mode + audio overlay)
 
 **Cross-Component Dependencies:**
 - FFmpeg + OpenCV → Pipeline de traitement vidéo (processing)
@@ -374,8 +379,7 @@ Warden/
 ├── plugins/
 │   └── with-ffmpeg.js                   # Config plugin Expo pour FFmpeg fork
 ├── assets/
-│   ├── images/
-│   │   └── map-templates/               # Templates de fin de carte pour OpenCV matching
+│   ├── images/                          # Iconographie app, pas de templates de carte (pHash-based map ID via config Firestore)
 │   └── fonts/
 ├── src/
 │   ├── app/                             # Entry point & navigation
@@ -393,8 +397,10 @@ Warden/
 │   │   ├── video-processing/            # FR5-10 : Traitement vidéo
 │   │   │   ├── useVideoProcessing.ts
 │   │   │   ├── processingPipeline.ts        # Orchestration keyframes → détection → segments
-│   │   │   ├── blackScreenDetector.ts       # Analyse luminosité keyframes
-│   │   │   ├── templateMatcher.ts           # OpenCV template matching
+│   │   │   ├── gameDetector.ts              # KDA/HSV 2-state machine (Story 7.5)
+│   │   │   ├── mapIdentifier.ts             # pHash 64-bit map identification (Story 7.5)
+│   │   │   ├── blackScreenDetector.ts       # Fallback long-GOP 3-state (Story 7.5)
+│   │   │   ├── detectionConfig.ts           # Firestore fetch + MMKV cache (Story 7.4)
 │   │   │   ├── processingNotification.ts    # Foreground service notification
 │   │   │   └── types.ts
 │   │   ├── video-playback/              # FR11-15 : Lecture & navigation
@@ -498,7 +504,7 @@ clip_exports (
   map_segment_id  TEXT NOT NULL REFERENCES map_segments(id) ON DELETE CASCADE,
   start_time_ms   INTEGER NOT NULL,
   end_time_ms     INTEGER NOT NULL,
-  view_mode       TEXT CHECK(view_mode IN ('pov', 'minimap')) NOT NULL,
+  view_mode       TEXT CHECK(view_mode IN ('full', 'minimap', 'minimap_hud')) NOT NULL,
   status          TEXT CHECK(status IN ('defining', 'locked', 'exporting', 'ready', 'shared')) NOT NULL,
   export_quality  TEXT CHECK(export_quality IN ('mobile', 'hd')),
   file_path       TEXT,           -- NULL jusqu'à export terminé
@@ -530,7 +536,7 @@ audio_comments (
 | Feature | FRs | Fichiers clés |
 |---------|-----|---------------|
 | video-import | FR1-4 | `videoImportService.ts` (validation format, accès fichier) |
-| video-processing | FR5-10 | `processingPipeline.ts` (orchestration), `blackScreenDetector.ts`, `templateMatcher.ts` |
+| video-processing | FR5-10 | `processingPipeline.ts` (orchestration), `gameDetector.ts` (KDA/HSV), `mapIdentifier.ts` (pHash), `blackScreenDetector.ts` (fallback long-GOP), `detectionConfig.ts` (Firestore + MMKV) |
 | video-playback | FR11-15 | `VideoPlayer.tsx` (expo-av), `MinimapView.tsx` (ROI crop), `EpisodeNavigator.tsx` |
 | audio-commentary | FR16-20 | `AudioRecorder.tsx` (expo-av recording), `audioCommentService.ts` (persistence) |
 | clip-export | FR21-25 | `exportPipeline.ts` (FFmpeg demux/mux + audio overlay) |
@@ -540,19 +546,21 @@ audio_comments (
 ### Data Flow
 
 ```
-Import MP4 → Processing Pipeline → [keyframes → black screen detect → template match] → MapSegments
-                                                                                            ↓
-                                                                              Session stored (SQLite)
-                                                                                            ↓
-                                                                              Playback (expo-av)
-                                                                                    ↓           ↓
-                                                                               POV view    Minimap (ROI)
-                                                                                    ↓
-                                                                           Audio commentary (expo-av)
-                                                                                    ↓
-                                                                           Clip export (FFmpeg mux)
-                                                                                    ↓
-                                                                           Standalone MP4 → Share
+DetectionConfig (Firestore + MMKV cache) ┐
+                                         ↓
+Import MP4 → Processing Pipeline → [keyframes → gameDetector (KDA/HSV) → mapIdentifier (pHash)] → MapSegments
+                                         ↑                                                            ↓
+                                         └── blackScreenDetector (fallback long-GOP)        Session stored (SQLite)
+                                                                                                      ↓
+                                                                                          Playback (expo-av)
+                                                                                                      ↓
+                                                            ViewModeToggle (Full / Minimap / Minimap+HUD)
+                                                                                                      ↓
+                                                                                  Audio commentary (expo-av)
+                                                                                                      ↓
+                                                                          Clip export (exportRecipes per view_mode + FFmpeg mux)
+                                                                                                      ↓
+                                                                                          Standalone MP4 → Share
 ```
 
 ### External Integrations
@@ -561,6 +569,7 @@ Import MP4 → Processing Pipeline → [keyframes → black screen detect → te
 |---------|---------------------|---------|
 | Firebase Auth | Login + validation abo | `auth/authService.ts` |
 | Firebase Firestore | Check `user.isPaid` | `auth/subscriptionService.ts` |
+| Firebase Firestore | Detection config (ROIs, KDA/HSV thresholds, map pHash fingerprints) | `video-processing/detectionConfig.ts` |
 | Filesystem Android | Import vidéo, stockage audio | `shared/services/ffmpeg.ts`, `shared/utils/fileSystem.ts` |
 | Share API | Partage clips exportés | `clip-export/` (via Expo Sharing) |
 
@@ -606,7 +615,7 @@ Toutes les technologies choisies sont compatibles entre elles :
 
 | NFR | Cible | Solution architecturale |
 |-----|-------|------------------------|
-| NFR1 | Analyse < 2min | FFmpeg keyframes low-res + OpenCV template matching |
+| NFR1 | Analyse < 2min | FFmpeg keyframes low-res + gameDetector (KDA/HSV) + mapIdentifier (pHash 64-bit) -- profil RAM/CPU validé via R&D 2026-04 |
 | NFR2 | Toggle < 100ms | Crop style change sur même source expo-av |
 | NFR3 | Export rapide | FFmpeg mux, qualité configurable (720p/source) |
 | NFR4 | UI responsive | Foreground service Android, processing séparé |
@@ -627,7 +636,7 @@ Toutes les technologies choisies sont compatibles entre elles :
 |---|-------|--------|------------|
 | 1 | Versions libs non spécifiées | Faible | Fixées à l'init projet, Expo gère la compatibilité |
 | 2 | ~~Schema SQLite non défini~~ | ~~Faible~~ | **Résolu** -- schema défini dans section "SQLite Schema" (sessions, map_segments, clip_exports, audio_comments) |
-| 3 | Templates carte OpenCV | Moyen | Images de référence à capturer, stockées dans `assets/images/map-templates/` |
+| 3 | ~~Templates carte OpenCV~~ | ~~Moyen~~ | **Résolu** -- méthodologie de détection migrée vers KDA/HSV + pHash (Proposals 4+6, 2026-04-20). Plus d'assets de templates à maintenir, fingerprints servis par Firestore (Story 7.4). |
 | 4 | Foreground Service Android | Moyen | Config plugin Expo additionnel ou `expo-task-manager` à évaluer |
 
 ### Architecture Completeness Checklist

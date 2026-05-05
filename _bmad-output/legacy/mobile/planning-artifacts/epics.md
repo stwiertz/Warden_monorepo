@@ -124,8 +124,8 @@ Each epic delivers standalone user value. Stories within an epic have no forward
 | FR2 | Epic 2 | 2.7 |
 | FR3 | Epic 2 | 2.7 |
 | FR4 | Epic 2 | 2.1 |
-| FR5 | Epic 2 | 2.3 |
-| FR6 | Epic 2 | 2.4 |
+| FR5 | Epic 7 | 7.5 |
+| FR6 | Epic 7 | 7.5 |
 | FR7 | Epic 2 | 2.5 |
 | FR8 | Epic 2 | 2.5 |
 | FR9 | Epic 2 | 2.6 |
@@ -133,18 +133,18 @@ Each epic delivers standalone user value. Stories within an epic have no forward
 | FR11 | Epic 3 | 3.1, 3.4 |
 | FR12 | Epic 3 | 3.2 |
 | FR13 | Epic 3 | 3.3 |
-| FR14 | Epic 3 | 3.5 |
-| FR15 | Epic 3 | 3.5 |
+| FR14 | Epic 7 | 7.3 |
+| FR15 | Epic 7 | 7.3 |
 | FR16 | Epic 4 | 4.2 |
 | FR17 | Epic 4 | 4.3 |
 | FR18 | Epic 4 | 4.4 |
 | FR19 | Epic 4 | 4.6 |
 | FR20 | Epic 4 | 4.5 |
 | FR21 | Epic 4 | 4.1 |
-| FR22 | Epic 5 | 5.1 |
-| FR23 | Epic 5 | 5.1 |
-| FR24 | Epic 5 | 5.2 |
-| FR25 | Epic 5 | 5.2 |
+| FR22 | Epic 5 + Epic 7 | 5.1, 7.6 |
+| FR23 | Epic 5 + Epic 7 | 5.1, 7.6 |
+| FR24 | Epic 5 + Epic 7 | 5.2, 7.6 |
+| FR25 | Epic 5 + Epic 7 | 5.2, 7.6 |
 | FR26 | Epic 6 | 6.1 |
 | FR27 | Epic 6 | 6.2 |
 | FR28 | Epic 6 | 6.3 |
@@ -161,8 +161,8 @@ Coach can install Warden, log in with a Firebase account, and access the app wit
 **FRs covered:** FR29, FR30, FR31, FR32, FR33
 
 ### Epic 2: Video Import & Auto-Slice Processing
-Coach can import a training session video and have it automatically sliced into navigable map episodes with lobby segments excluded -- all processed on-device in background mode.
-**FRs covered:** FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9, FR10
+Coach can import a training session video and have it automatically sliced into navigable map episodes with lobby segments excluded -- all processed on-device in background mode. Detection methodology (game-state KDA/HSV + pHash map identification) is delivered by Epic 7 / Story 7.5; Epic 2 owns import, keyframe extraction, segment persistence, and processing UX.
+**FRs covered:** FR1, FR2, FR3, FR4, FR7, FR8, FR9, FR10 (FR5 and FR6 owned by Epic 7 / Story 7.5)
 
 ### Epic 3: Video Playback & Episode Navigation
 Coach can navigate between map episodes in a Card View, enter Cinema Mode for immersive full-screen review, and toggle between POV and full-screen Minimap views instantly.
@@ -181,8 +181,9 @@ Coach can close the app mid-review and resume exactly where left off -- same map
 **FRs covered:** FR26, FR27, FR28
 
 ### Epic 7: ROI Detection Redesign & View Mode Expansion
-Replace the Sprint 2 black-screen detector and template matcher with a KDA-based Game Detector and pHash Map Identifier driven by a Firestore-hosted detection config. Expand the clip `view_mode` from two values (`pov`, `minimap`) to three (`full`, `minimap`, `minimap_hud`) with a two-level UI toggle and corresponding FFmpeg export recipes.
+Replace the originally-planned luminosity black-screen detector + OpenCV template matcher with a KDA/HSV-based Game Detector and pHash Map Identifier driven by a Firestore-hosted detection config. Expand the clip `view_mode` from two values (`pov`, `minimap`) to three (`full`, `minimap`, `minimap_hud`) with a two-level UI toggle and corresponding FFmpeg export recipes. **Inserted via Sprint 2.5 per Proposals 4+6 (approved 2026-04-20)** -- supersedes Stories 2.3, 2.4, and 3.5. Full breakdown below.
 **Stories:** 7.1 (schema) -- 7.2 (type) -- 7.3 (view-mode UI) -- 7.4 (remote config) -- 7.5 (detectors) -- 7.6 (export pipeline)
+**FRs covered:** FR5, FR6, FR14, FR15, FR22, FR23, FR24, FR25 (jointly with Epic 5 for the export FRs)
 
 ---
 
@@ -274,7 +275,9 @@ So that I can use the app offline after initial authentication for up to 30 days
 
 ## Epic 2: Video Import & Auto-Slice Processing
 
-Coach can import a training session video and have it automatically sliced into navigable map episodes. The processing pipeline extracts keyframes, detects black screens and map end screens via template matching, segments the video into rounds with lobby excluded -- all on-device in background mode with crash recovery.
+Coach can import a training session video and have it automatically sliced into navigable map episodes. The processing pipeline extracts keyframes (Story 2.2), consumes detection output from Epic 7 / Story 7.5 (game-state KDA/HSV + pHash map identification), segments the video into rounds with lobby excluded (Story 2.5), and runs in background mode with crash recovery (Story 2.6) -- all on-device.
+
+Stories 2.3 and 2.4 (the original luminosity black-screen detector and OpenCV template matcher) are SUPERSEDED by Story 7.5 per Proposals 4+6 approved 2026-04-20.
 
 ### Story 2.1: Import MP4 Video from Device Storage
 
@@ -309,52 +312,28 @@ So that the processing pipeline can analyze video frames without decoding the fu
 **And** the FFmpeg service wrapper is located at `src/shared/services/ffmpeg.ts`
 **And** RAM usage during extraction stays under 2GB (NFR5)
 
-### Story 2.3: Detect Black Screen Timestamps
+### Story 2.3: Detect Black Screen Timestamps -- SUPERSEDED
 
-As a system,
-I want to detect black screen frames in the extracted keyframes,
-So that I can identify transitions between maps/rounds in the training session.
+> **⚠ SUPERSEDED by Story 7.5** per Proposals 4+6 (approved 2026-04-20). The standalone luminosity-based black-screen detector is replaced by the KDA/HSV `gameDetector` + 3-state long-GOP `blackScreenDetector` fallback delivered together in Story 7.5. Original acceptance criteria preserved in [docs/stories/2.3.md](../stories/2.3.md) for historical reference.
 
-**Acceptance Criteria:**
+### Story 2.4: Detect Map End Screens via Template Matching -- SUPERSEDED
 
-**Given** keyframes extracted from a session video (Story 2.2)
-**When** black screen detection runs
-**Then** the system analyzes average luminosity of each keyframe (FR5)
-**And** frames below the luminosity threshold are flagged as black screen timestamps
-**And** results are stored as an ordered list of timestamp ranges
-**And** detection tolerates variable keyframe spacing
-**And** the detector is located at `src/features/video-processing/blackScreenDetector.ts`
-
-### Story 2.4: Detect Map End Screens via Template Matching
-
-As a system,
-I want to identify map end screens using OpenCV template matching on keyframes,
-So that I can precisely determine where each map/round ends.
-
-**Acceptance Criteria:**
-
-**Given** keyframes extracted from a session video (Story 2.2)
-**When** template matching runs
-**Then** `react-native-fast-opencv` is integrated via JSI/C++ bindings
-**And** low-resolution keyframes are compared against map end-screen templates stored in `assets/images/map-templates/`
-**And** matched frames are flagged with their timestamps and confidence scores
-**And** if no template matches, the system falls back to black screen detection only (FR6)
-**And** the OpenCV service wrapper is located at `src/shared/services/opencv.ts`
-**And** the template matcher is located at `src/features/video-processing/templateMatcher.ts`
+> **⚠ SUPERSEDED by Story 7.5** per Proposals 4+6 (approved 2026-04-20). Template matching against bundled map assets is replaced by the pHash-based `mapIdentifier` (64-bit perceptual hash) in Story 7.5; `templateMatcher.ts` and `assets/images/map-templates/` are deleted as part of 7.5. The OpenCV service wrapper at `src/shared/services/opencv.ts` is retained but its purpose shifts to HSV color analysis + pHash computation. Original acceptance criteria preserved in [docs/stories/2.4.md](../stories/2.4.md) for historical reference.
 
 ### Story 2.5: Segment Video into Map Episodes
 
 As a system,
-I want to combine black screen and template matching results to determine map/round time ranges,
-So that the coach can navigate the session as distinct episodes.
+I want to consume detection output from Story 7.5 (game-state transitions + map identification) and combine it into navigable map episodes,
+So that the coach can navigate the session as distinct rounds/maps.
 
 **Acceptance Criteria:**
 
-**Given** black screen timestamps (Story 2.3) and template match timestamps (Story 2.4)
+**Given** detection output from Story 7.5 (game-on/game-off transitions from `gameDetector` + map identification from `mapIdentifier`)
 **When** segmentation runs
 **Then** the system determines start/end time ranges for each map/round (FR7)
-**And** lobby segments are identified and marked as excluded from navigation (FR8)
-**And** each segment is stored in the `map_segments` SQLite table with session_id, map_index, start_time_ms, end_time_ms
+**And** lobby and between-round segments are identified and marked as excluded from navigation (FR8)
+**And** each segment is stored in the `map_segments` SQLite table with session_id, map_index, start_time_ms, end_time_ms, and map_name (from pHash mapIdentifier)
+**And** segments where `mapIdentifier` returns no match are stored with `map_name = 'unknown'` but remain navigable
 **And** the result frame path is extracted and stored for each segment (scoreboard screenshot for Card View)
 **And** the session status is updated to `ready` in SQLite
 **And** the pipeline is orchestrated by `src/features/video-processing/processingPipeline.ts`
@@ -397,7 +376,7 @@ So that I can manage my review library.
 
 ## Epic 3: Video Playback & Episode Navigation
 
-Coach can navigate between map episodes in a Card View with result frame thumbnails, enter Cinema Mode for immersive full-screen review, and toggle between POV and full-screen Minimap views instantly. This epic delivers the core review experience.
+Coach can navigate between map episodes in a Card View with result frame thumbnails, enter Cinema Mode for immersive full-screen review, and toggle the view mode (Full / Minimap / Minimap+HUD) instantly. This epic delivers the core review experience. The view-mode toggle UI and Zustand store come from Epic 7 / Story 7.3; this epic wires them into Cinema Mode.
 
 ### Story 3.1: Card View with Episode Grid
 
@@ -465,22 +444,9 @@ So that I can move through rounds without leaving Cinema Mode unnecessarily.
 **And** navigation uses explicit buttons (no swipe gestures, to avoid conflicts with timeline scrubbing)
 **And** the navigator is located at `src/features/video-playback/EpisodeNavigator.tsx`
 
-### Story 3.5: Full-Screen Minimap Toggle (POV / Minimap)
+### Story 3.5: Full-Screen Minimap Toggle (POV / Minimap) -- SUPERSEDED
 
-As a coach,
-I want to toggle between POV view and full-screen Minimap view instantly,
-So that I can analyze tactical positioning without the minimap being too small.
-
-**Acceptance Criteria:**
-
-**Given** the coach is in Cinema Mode (Story 3.2)
-**When** the coach taps the minimap toggle icon in the controls overlay
-**Then** the view switches between POV and Minimap mode (FR14)
-**And** the Minimap view shows a cropped ROI of the source video at full screen (FR15)
-**And** the toggle completes in < 100ms (NFR2) by changing crop/style on the same video source
-**And** the minimap toggle icon is self-explanatory (visually suggests "tactical overhead view")
-**And** double-tap on the top-left corner of the screen serves as a power-user shortcut for toggle
-**And** the minimap view is located at `src/features/video-playback/MinimapView.tsx`
+> **⚠ SUPERSEDED by Story 7.3** per Proposals 4+6 (approved 2026-04-20). The two-value POV/Minimap toggle is replaced by a three-value toggle (Full / Minimap / Minimap+HUD). The Cinema Mode wiring still happens in Sprint 3, but the toggle components and Zustand store come from Story 7.3 (Sprint 2.5). FR14 and FR15 are now owned by Story 7.3.
 
 ### Story 3.6: Card View Sorting
 
@@ -606,7 +572,7 @@ So that I can correct mistakes without recreating the entire clip.
 
 ## Epic 5: Clip Export & Sharing
 
-Coach can export clips as standalone MP4 videos with embedded voice commentary in Mobile (720p) or HD (source resolution) quality, and share them to Discord/WhatsApp via the OS share sheet. Exported clips are playable without installing Warden.
+Coach can export clips as standalone MP4 videos with embedded voice commentary in Mobile (720p) or HD (source resolution) quality, and share them to Discord/WhatsApp via the OS share sheet. Exported clips are playable without installing Warden. The view-mode-aware FFmpeg recipes (Full / Minimap / Minimap+HUD) come from Epic 7 / Story 7.6; this epic adds the quality-tier plumbing on top.
 
 ### Story 5.1: Export Pipeline with Quality Options
 
@@ -729,3 +695,113 @@ So that I can trust Warden to never lose my work.
 **And** all MMKV cached state survives restart
 **And** all audio files on filesystem survive restart
 **And** if the previous session was mid-processing, processing resumes from the last checkpoint (NFR7)
+
+---
+
+## Epic 7: ROI Detection Redesign & View Mode Expansion
+
+Replace the originally-planned luminosity black-screen detector + OpenCV template matcher with a KDA/HSV-based game-state detector and a pHash-based map identifier, driven by a Firestore-hosted detection config with MMKV cache + offline fallback. Simultaneously expand the clip `view_mode` data model from two values (`pov`, `minimap`) to three (`full`, `minimap`, `minimap_hud`) with a two-level UI toggle and corresponding FFmpeg export recipes.
+
+**Inserted into the plan via Sprint 2.5 per Proposals 4+6 (approved 2026-04-20).** This epic supersedes Stories 2.3, 2.4, and 3.5 from the original Epic 2/3 breakdown.
+
+### Story 7.1: Update clip_exports.view_mode SQLite Schema
+
+As a developer,
+I want to update the `clip_exports.view_mode` CHECK constraint to accept three values,
+So that the data model supports Full / Minimap / Minimap+HUD export variants.
+
+**Acceptance Criteria:**
+
+**Given** the existing SQLite schema with `view_mode CHECK(view_mode IN ('pov', 'minimap'))`
+**When** Story 7.1 lands
+**Then** the CHECK constraint is updated to `view_mode IN ('full', 'minimap', 'minimap_hud')`
+**And** existing rows with `view_mode = 'pov'` are migrated to `view_mode = 'full'`
+**And** the schema version is bumped and migration is idempotent + reversible
+**And** Story 7.1 ships in the same PR as Story 7.2 (data + type alignment)
+
+### Story 7.2: Update ClipExport.view_mode TypeScript Type
+
+As a developer,
+I want to update the TypeScript `ViewMode` union type to match the new SQLite CHECK constraint,
+So that the type system enforces the same three values across the codebase.
+
+**Acceptance Criteria:**
+
+**Given** the existing `ClipExport.view_mode: 'pov' | 'minimap'` union
+**When** Story 7.2 lands
+**Then** the union becomes `'full' | 'minimap' | 'minimap_hud'`
+**And** a named `ViewMode` type alias is exported from `src/features/clip-export/types.ts`
+**And** the codebase is audited for `'pov'` literal occurrences and migrated
+**And** Story 7.2 ships in the same PR as Story 7.1
+
+### Story 7.3: View Mode Toggle UI (Full / Minimap / Minimap+HUD)
+
+As a coach,
+I want a two-level toggle in Cinema Mode (top-level Full/Minimap and a HUD overlay sub-toggle),
+So that I can switch between three view modes -- Full, Minimap, Minimap+HUD -- instantly.
+
+**Acceptance Criteria:**
+
+**Given** the coach is in Cinema Mode with controls visible
+**When** the coach taps the view-mode toggle
+**Then** the view switches to the selected mode (FR14, FR15)
+**And** the toggle completes in < 100ms (NFR2) via crop/overlay style change on the same video source
+**And** the HudToggle is only active when the top-level toggle is set to `minimap`
+**And** the selected `viewMode` and `minimapHud` preferences persist via Zustand + MMKV (`prefs.viewMode`, `prefs.minimapHud`)
+**And** the components are located at `src/features/video-playback/ViewModeToggle.tsx` and `src/features/video-playback/HudToggle.tsx`
+**And** Story 7.3 SUPERSEDES Story 3.5 from the original Epic 3 breakdown
+
+### Story 7.4: Remote Detection Config with MMKV Cache
+
+As a developer,
+I want detection parameters (ROIs, thresholds, map pHash fingerprints) to be served from Firestore with a local MMKV cache and offline fallback,
+So that detection accuracy can be tuned without app updates and the app still works offline.
+
+**Acceptance Criteria:**
+
+**Given** the app is online and a `DetectionConfig` document exists in Firestore
+**When** the app launches or processing starts
+**Then** the latest config is fetched from Firestore and cached in MMKV under `detection.config`
+**And** if Firestore is unreachable, the cached MMKV config is used
+**And** if no MMKV cache exists, a bundled default config (shipped with the app) is used
+**And** config version is checked and stale caches are refreshed on next online launch
+**And** the config schema includes ROI definitions, KDA/HSV thresholds, and map pHash fingerprints
+**And** the service is located at `src/features/video-processing/detectionConfig.ts`
+**And** Story 7.4 lands as a no-op shim until Story 7.5 consumes the config
+
+### Story 7.5: Replace Detectors (Game Detector + pHash Map Identifier)
+
+As a system,
+I want a new `gameDetector` (KDA/HSV-based 2-state machine) and `mapIdentifier` (pHash-based) replacing the original luminosity black-screen detector and OpenCV template matcher,
+So that game-state transitions and map identification are accurate enough to power Sprint 2/3 segmentation and navigation.
+
+**Acceptance Criteria:**
+
+**Given** keyframes extracted from a session video (Story 2.2) and detection config (Story 7.4)
+**When** detection runs
+**Then** `gameDetector.ts` (KDA/HSV 2-state machine) flags game-on / game-off transitions on each keyframe (FR5)
+**And** `mapIdentifier.ts` computes a 64-bit pHash from each game-on keyframe and matches it against config-supplied fingerprints to identify the map (FR6)
+**And** the original `blackScreenDetector` is refactored to a 3-state long-GOP fallback only -- invoked when `gameDetector` is uncertain due to keyframe gaps
+**And** `templateMatcher.ts` and `assets/images/map-templates/` are deleted from the codebase
+**And** the OpenCV service wrapper (`src/shared/services/opencv.ts`) is retained but its purpose shifts to HSV analysis + pHash computation
+**And** detection output (transitions + map identification) is consumed by Story 2.5 segmentation
+**And** Story 7.5 SUPERSEDES Stories 2.3 and 2.4 from the original Epic 2 breakdown
+
+### Story 7.6: Export Pipeline for 3 View Modes
+
+As a developer,
+I want FFmpeg recipes for the three view modes (Full / Minimap / Minimap+HUD) plus a shared export-pipeline orchestrator,
+So that Sprint 5 quality-tier plumbing (Stories 5.1, 5.2) layers cleanly on top.
+
+**Acceptance Criteria:**
+
+**Given** a clip definition with `view_mode` set to one of `full | minimap | minimap_hud` (Stories 7.1, 7.2)
+**When** export runs
+**Then** `exportRecipes.ts` provides three FFmpeg recipe builders:
+  - `full`: no crop, source resolution
+  - `minimap`: crop to map ROI from detection config
+  - `minimap_hud`: minimap crop + KDA + Score overlays drawn from `map_segments` data
+**And** `exportPipeline.ts` orchestrates: select recipe by view_mode -> demux -> process -> mux with audio overlays
+**And** the recipes are tested headless via FFmpeg dry-run (no full encode in tests)
+**And** Story 7.6 SUPERSEDES the view-mode-aware export portion of Stories 5.1 and 5.2; those stories now layer Mobile/HD quality tiers on top of Story 7.6's recipes
+**And** the modules are located at `src/features/clip-export/exportRecipes.ts` and `src/features/clip-export/exportPipeline.ts`

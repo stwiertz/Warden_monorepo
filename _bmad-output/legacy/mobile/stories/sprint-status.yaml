@@ -41,6 +41,10 @@
 # - Story 3-5-full-screen-minimap-toggle-pov-minimap is SUPERSEDED by 7-3.
 #   Wiring the new three-value toggle into Cinema Mode still happens in Sprint 3,
 #   but the components come from Story 7.3.
+# - Stories 2-3-detect-black-screen-timestamps and 2-4-detect-map-end-screens-via-template-matching
+#   are SUPERSEDED by 7-5-replace-detectors-game-detector-phash-map-identifier. The standalone
+#   black-screen detector + template matcher are replaced by the KDA/HSV gameDetector + pHash
+#   mapIdentifier from 7.5. Story 2-5 now depends on 7.5 (not 2.3 + 2.4).
 
 generated: 2026-05-01
 project: Warden
@@ -59,9 +63,10 @@ development_status:
 
   epic-2: in-progress
   2-1-import-mp4-video-from-device-storage: done
-  2-2-integrate-ffmpeg-and-extract-keyframes: ready-for-dev
-  2-3-detect-black-screen-timestamps: ready-for-dev
-  2-4-detect-map-end-screens-via-template-matching: ready-for-dev
+  2-2-integrate-ffmpeg-and-extract-keyframes: in-progress
+  # 2-3 and 2-4 below are superseded by 7-5-replace-detectors-game-detector-phash-map-identifier
+  2-3-detect-black-screen-timestamps: superseded
+  2-4-detect-map-end-screens-via-template-matching: superseded
   2-5-segment-video-into-map-episodes: ready-for-dev
   2-6-background-processing-with-progress-and-crash-recovery: ready-for-dev
   2-7-session-list-and-management: ready-for-dev

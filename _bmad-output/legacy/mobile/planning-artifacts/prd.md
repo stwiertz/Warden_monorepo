@@ -71,12 +71,12 @@ classification:
 
 | Feature | Description |
 |---------|-------------|
-| Découpage auto | Détection écran noir + template matching |
+| Découpage auto | Détection des transitions de jeu (game-state KDA/HSV) + identification de la carte (pHash) |
 | Vue Minimap | ROI fixe par carte |
 | Commentaires vocaux | Avant/pendant/après clip |
 | Export clip standalone | Vidéo autonome lisible partout |
 | Navigation épisodes | Mode Netflix par carte |
-| Toggle POV/Minimap | Switch instantané |
+| Toggle vue de clip | Switch instantané entre Full / Minimap / Minimap+HUD |
 | Qualité export | Choix Mobile (rapide) / HD (qualité) |
 
 ### Growth Features (Post-MVP)
@@ -185,25 +185,28 @@ Il note mentalement 2-3 points à travailler. Il devient lui-même meilleur anal
 | Étape | Technique |
 |-------|-----------|
 | **1. Keyframe extraction** | FFmpeg `-skip_frame nokey`, basse résolution |
-| **2. Détection écran noir** | Analyse luminosité moyenne sur keyframes |
-| **3. Template matching** | OpenCV sur écrans de fin de carte (low-res) |
-| **4. Output** | Timestamps uniquement (pas de re-encoding) |
-| **5. Mode** | Background processing, notification progress |
+| **2. Game state detection** | Détecteur KDA/HSV (machine d'état 2 ou 3 états) sur keyframes — identifie game-on / game-off / between-round |
+| **3. Map identification** | pHash 64-bit comparé aux empreintes de cartes (config Firestore) |
+| **4. Detection config** | Fetch Firestore + cache MMKV avec fallback offline |
+| **5. Output** | Timestamps + nom de carte par segment (pas de re-encoding) |
+| **6. Mode** | Background processing, notification progress |
 
 ### Dépendances Techniques
 
 | Lib | Usage |
 |-----|-------|
 | **FFmpeg** | Keyframe extraction, demux/mux, export final |
-| **OpenCV** | Template matching basse-res |
+| **OpenCV (react-native-fast-opencv)** | Game state detection (HSV color space analysis), pHash computation pour map identification |
+| **Firestore** | Detection config remote (ROIs, thresholds, map hashes) |
 
 ### Risques & Mitigations
 
 | Risque | Mitigation |
 |--------|------------|
 | Process tué en background | Sauvegarder état, permettre reprise |
-| Keyframe spacing variable | Tolérance sur détection transitions |
-| Template non reconnu | Fallback écran noir seul + correction manuelle |
+| Keyframe spacing variable | Tolérance sur détection transitions, fallback long-GOP black-screen detector |
+| Carte non identifiée (pHash mismatch) | Segment marqué `unknown_map`, navigation Card View toujours fonctionnelle |
+| Detection config Firestore inaccessible | Cache MMKV utilisé, fallback configuration empaquetée par défaut |
 | Codec non supporté | Valider format à l'import, message clair si incompatible |
 
 ## Mobile App Specific Requirements
@@ -222,8 +225,9 @@ Il note mentalement 2-3 points à travailler. Il devient lui-même meilleur anal
 | Composant | Technologie |
 |-----------|-------------|
 | **App** | React Native |
-| **Video Processing** | `ffmpeg-kit-react-native` |
-| **Template Matching** | Native module OpenCV |
+| **Video Processing** | `ffmpeg-kit-react-native` (fork `jdarshan5/ffmpeg-kit-react-native`) |
+| **Computer Vision** | `react-native-fast-opencv` (HSV game-state detection + pHash) |
+| **Detection Config** | Firestore (Firebase) + MMKV cache |
 | **Auth** | Firebase Auth |
 | **Backend** | Firebase |
 | **Web** | NextJS |
@@ -298,12 +302,12 @@ Il note mentalement 2-3 points à travailler. Il devient lui-même meilleur anal
 
 | Feature | Status MVP |
 |---------|------------|
-| Découpage auto (écran noir + template) | ✅ |
+| Découpage auto (game state + pHash map ID) | ✅ |
 | Vue Minimap (ROI) | ✅ |
 | Commentaires vocaux | ✅ |
 | Export clip standalone | ✅ |
 | Navigation épisodes | ✅ |
-| Toggle POV/Minimap | ✅ |
+| Toggle vue de clip (Full / Minimap / Minimap+HUD) | ✅ |
 | Qualité export (Mobile + HD) | ✅ |
 | Auth Firebase + paywall | ✅ |
 
@@ -327,7 +331,7 @@ Il note mentalement 2-3 points à travailler. Il devient lui-même meilleur anal
 
 | Type | Risque | Mitigation |
 |------|--------|------------|
-| **Technical** | Perf FFmpeg/OpenCV mobile | Prototypage PC d'abord, puis portage mobile |
+| **Technical** | Perf FFmpeg/OpenCV mobile | Prototypage PC d'abord, puis portage mobile (validé via R&D 2026-04 sur méthodologie KDA/HSV + pHash) |
 | **Technical** | Bridge React Native | Native modules si overhead trop élevé |
 | **Market** | Niche petite | Valider 20 early adopters, coupons beta |
 | **Resource** | Dev solo | MVP ultra lean, Firebase simplifie backend |
@@ -343,9 +347,9 @@ Il note mentalement 2-3 points à travailler. Il devient lui-même meilleur anal
 
 ### Video Processing
 
-- **FR5:** System can automatically detect black screen timestamps using keyframe analysis
-- **FR6:** System can identify map end screen timestamps using template matching
-- **FR7:** System can determine time ranges for each map/round based on detected timestamps
+- **FR5:** System can automatically detect game-state transitions (game-on / game-off / between-round) in match recordings via on-device keyframe analysis
+- **FR6:** System can identify which map is being played in each game segment
+- **FR7:** System can determine time ranges for each map/round based on detected transitions
 - **FR8:** System can identify and mark lobby segments as excluded from navigation
 - **FR9:** System can process 1h20 video in background mode
 - **FR10:** System can resume processing if interrupted
@@ -355,8 +359,8 @@ Il note mentalement 2-3 points à travailler. Il devient lui-même meilleur anal
 - **FR11:** Coach can navigate between maps using episode-style interface (UI-based on time ranges)
 - **FR12:** Coach can play/pause video at any point within allowed time ranges
 - **FR13:** Coach can seek within a map segment (time range)
-- **FR14:** Coach can toggle between POV view and Minimap view instantly
-- **FR15:** Coach can view minimap as cropped ROI from source video
+- **FR14:** Coach can toggle the clip view mode instantly between Full, Minimap, and Minimap+HUD
+- **FR15:** Coach can view the minimap as a cropped ROI from the source video, optionally overlaid with KDA + Score HUD elements (Minimap+HUD mode)
 
 ### Audio Commentary
 

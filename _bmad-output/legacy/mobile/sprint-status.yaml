@@ -102,29 +102,34 @@ sprints:
           end-to-end Android dev-client build + real keyframe smoke test, RAM < 2GB.
       - id: "2.3"
         title: Detect Black Screen Timestamps
-        status: not_started
+        status: superseded
+        superseded_by: "7.5"
         frs: [FR5]
         depends_on: ["2.2"]
         notes: >
-          Analyze keyframe luminosity, flag frames below threshold,
-          output ordered list of black screen timestamp ranges.
+          SUPERSEDED by Story 7.5 (Sprint 2.5). The standalone black-screen
+          detector is replaced by the KDA/HSV gameDetector + 3-state long-GOP
+          fallback in 7.5 following Proposal 4 + 6 approval on 2026-04-20.
       - id: "2.4"
         title: Detect Map End Screens via Template Matching
-        status: not_started
+        status: superseded
+        superseded_by: "7.5"
         frs: [FR6]
         depends_on: ["2.2"]
         notes: >
-          Integrate react-native-fast-opencv (JSI/C++), match keyframes against
-          map-templates in assets/, fallback to black screen detection if no match.
+          SUPERSEDED by Story 7.5 (Sprint 2.5). Template matching against
+          map assets is replaced by the pHash-based mapIdentifier in 7.5;
+          templateMatcher.ts and assets/images/map-templates/ are deleted
+          per Proposal 4 + 6 approval on 2026-04-20.
       - id: "2.5"
         title: Segment Video into Map Episodes
         status: not_started
         frs: [FR7, FR8]
-        depends_on: ["2.3", "2.4"]
+        depends_on: ["7.5"]
         notes: >
-          Combine black screen + template results, determine map time ranges,
-          mark lobby segments excluded, store in map_segments table,
-          extract result frames, update session status to ready.
+          Consume detection output from Story 7.5 (gameDetector + mapIdentifier),
+          determine map time ranges, mark lobby segments excluded, store in
+          map_segments table, extract result frames, update session status to ready.
       - id: "2.6"
         title: Background Processing with Progress and Crash Recovery
         status: not_started
@@ -424,8 +429,7 @@ sprints:
 
 # Dependency graph (story → depends_on)
 # 1.1 → 1.2 → 1.3 → 1.4 → 1.5 → 2.1
-# 2.1 → 2.2 → 2.3 → 2.5
-#              2.4 → 2.5 → 2.6
+# 2.1 → 2.2
 # 2.1 → 2.7
 #
 # --- Sprint 2.5 (Epic 7) inserted here ---
@@ -434,10 +438,11 @@ sprints:
 # 7.2 → 7.3
 # 7.1 + 7.4 → 7.6
 #
-# 2.5 + 7.5 → 3.1 → 3.2 → 3.3 → 4.1
-#                    3.2 → 3.4
-#                    3.2 + 7.3 → (wiring) → 6.1 → 6.2
-#                                            6.3
+# 7.5 → 2.5 → 2.6      (2.5 consumes new detection output from 7.5)
+# 2.5 → 3.1 → 3.2 → 3.3 → 4.1
+#              3.2 → 3.4
+#              3.2 + 7.3 → (wiring) → 6.1 → 6.2
+#                                      6.3
 # 3.1 → 3.6
 # 4.1 → 4.2 → 4.6
 #        4.3
@@ -446,4 +451,6 @@ sprints:
 #                          5.1 → 5.4
 # 7.6 → 5.1  (view-mode-aware export is prerequisite for quality plumbing)
 #
-# Story 3.5 is SUPERSEDED by 7.3 — no longer in the active graph.
+# Stories 2.3 and 2.4 are SUPERSEDED by 7.5.
+# Story 3.5 is SUPERSEDED by 7.3.
+# Superseded stories are no longer in the active graph.
