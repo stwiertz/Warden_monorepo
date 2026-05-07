@@ -1,5 +1,5 @@
 {
-  "name": "warden",
+  "name": "mobile",
   "version": "1.0.0",
   "main": "index.ts",
   "scripts": {
@@ -8,9 +8,12 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "test": "jest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "expo export --platform android --output-dir dist",
+    "lint": "echo 'eslint not configured for mobile yet'"
   },
   "dependencies": {
+    "@warden/contracts": "workspace:*",
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",
     "@expo-google-fonts/roboto": "^0.4.3",
     "@react-native-async-storage/async-storage": "^2.1.2",
