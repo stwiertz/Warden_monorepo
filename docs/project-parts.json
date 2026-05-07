@@ -1,0 +1,195 @@
+{
+  "schema_version": "1.0",
+  "generated_by": "bmad-document-project (Phase 5b)",
+  "generated_at": "2026-05-07",
+  "repository_type": "monorepo",
+  "monorepo_workspace": {
+    "ts": {
+      "package_manager": "pnpm",
+      "version": "9.12.0",
+      "node_linker": "hoisted",
+      "task_runner": "turborepo",
+      "workspace_globs": ["apps/*", "packages/*"]
+    },
+    "python": {
+      "package_manager": "uv",
+      "workspace_members": ["apps/tooling"]
+    }
+  },
+  "parts": [
+    {
+      "id": "mobile",
+      "display_name": "Mobile (Expo / React Native)",
+      "project_type_id": "mobile",
+      "root_path": "apps/mobile",
+      "workspace_name": "mobile",
+      "primary_language": "TypeScript",
+      "primary_framework": "Expo SDK 54 / React Native 0.81 / React 19.1",
+      "ui": "NativeWind 4 (Tailwind on RN) + custom HUD components",
+      "state_management": "Zustand 5 + Zustand persist (MMKV-backed)",
+      "data_persistence": [
+        "expo-sqlite (sessions, segments, clips, audio)",
+        "react-native-mmkv (auth, prefs, processing checkpoints, detection-config cache)"
+      ],
+      "auth": "Firebase Auth (email/password + Google) via @react-native-google-signin",
+      "media": "@wokcito/ffmpeg-kit-react-native, expo-file-system, expo-document-picker, OpenCV via JSI bridge (pending)",
+      "tests": "jest + jest-expo",
+      "entry_points": ["App.tsx", "index.ts", "src/app/RootNavigator.tsx"],
+      "key_configs": [
+        "app.json",
+        "metro.config.js",
+        "babel.config.js",
+        "tailwind.config.ts",
+        ".env.example"
+      ]
+    },
+    {
+      "id": "web",
+      "display_name": "Web (Next.js)",
+      "project_type_id": "web",
+      "root_path": "apps/web",
+      "workspace_name": "web",
+      "primary_language": "TypeScript",
+      "primary_framework": "Next.js 16.2.2 App Router / React 19.2",
+      "ui": "Tailwind CSS 4 + shadcn/ui (Base UI primitives) + Lucide icons",
+      "state_management": "React Context (AuthContext) + per-route hooks (useAuth, useSubscription)",
+      "data_persistence": [
+        "Firestore via firebase-admin (server) + firebase client SDK",
+        "httpOnly session cookie (Firebase Admin sessionCookie)"
+      ],
+      "auth": "Firebase Auth (email/password + Google) → Firebase Admin sessionCookie (7-day, httpOnly, secure in prod)",
+      "payments": "Stripe SDK 22 (apiVersion '2026-03-25.dahlia') — Checkout, Customer Portal, webhooks (invoice.paid, subscription.deleted, payment_failed)",
+      "tests": "Vitest + jsdom + @testing-library/react",
+      "entry_points": ["src/app/layout.tsx", "src/app/page.tsx"],
+      "api_routes": [
+        "POST /api/auth/session",
+        "DELETE /api/auth/session",
+        "POST /api/checkout/coupon",
+        "POST /api/checkout/session",
+        "GET /api/subscription",
+        "POST /api/subscription/portal",
+        "POST /api/webhooks/stripe"
+      ],
+      "key_configs": [
+        "next.config.ts",
+        "firebase.json",
+        "firestore.rules",
+        "vitest.config.ts",
+        "components.json",
+        ".env.example",
+        "AGENTS.md"
+      ]
+    },
+    {
+      "id": "tooling",
+      "display_name": "Tooling (Python CLI)",
+      "project_type_id": "cli",
+      "root_path": "apps/tooling",
+      "workspace_name": "tooling",
+      "primary_language": "Python",
+      "python_version": ">=3.11",
+      "primary_framework": "questionary TUI + argparse per-tool",
+      "media": "OpenCV (cv2), NumPy, imagehash, FFmpeg (subprocess + ffprobe)",
+      "tests": "pytest (via uv run)",
+      "entry_points": ["wardentooling.py"],
+      "tools": [
+        "tools/black_screen_detector.py",
+        "tools/frame_labeler.py",
+        "tools/map_config_generator.py",
+        "tools/hash_validator.py",
+        "tools/warden_analyzer.py",
+        "tools/game_detector.py",
+        "tools/points_state_detector.py",
+        "tools/bsd_roi_debugger.py",
+        "tools/image_inspector (module)",
+        "tools/minimap_zone_selector (module)"
+      ],
+      "key_configs": ["config/config.yaml", "pyproject.toml", "requirements.txt"]
+    },
+    {
+      "id": "shared",
+      "display_name": "Shared (contracts + tsconfig + eslint-config)",
+      "project_type_id": "library",
+      "root_path": "packages/",
+      "additional_path": "contracts/",
+      "workspace_names": ["@warden/contracts", "@warden/tsconfig", "@warden/eslint-config"],
+      "primary_language": "TypeScript + JSON Schema",
+      "purpose": "Cross-language source of truth (JSON Schema) + auto-generated Zod modules + shared TS/ESLint configs",
+      "codegen": {
+        "tool": "json-schema-to-zod",
+        "input": "contracts/*.schema.json",
+        "output": "packages/contracts/src/generated/*.ts",
+        "command": "pnpm --filter @warden/contracts build"
+      }
+    }
+  ],
+  "integration_points": [
+    {
+      "from": "web",
+      "to": "stripe",
+      "protocol": "https",
+      "details": "Stripe Checkout Session, Billing Portal Session. apiVersion 2026-03-25.dahlia."
+    },
+    {
+      "from": "stripe",
+      "to": "web",
+      "protocol": "webhook",
+      "details": "POST /api/webhooks/stripe. Events: invoice.paid, customer.subscription.deleted, invoice.payment_failed. Signature verified, idempotency via stripe_events/{event.id}."
+    },
+    {
+      "from": "web",
+      "to": "firestore",
+      "protocol": "firebase-admin",
+      "details": "Server-only writes to users/{uid} and stripe_events/{id}. Client writes denied by firestore.rules."
+    },
+    {
+      "from": "web",
+      "to": "firebase-auth",
+      "protocol": "firebase client SDK + admin sessionCookie",
+      "details": "ID token from client traded for httpOnly session cookie via POST /api/auth/session."
+    },
+    {
+      "from": "mobile",
+      "to": "firebase-auth",
+      "protocol": "firebase JS SDK + AsyncStorage persistence",
+      "details": "Email/password + Google sign-in. AuthBypass env var available for dev."
+    },
+    {
+      "from": "mobile",
+      "to": "firestore",
+      "protocol": "firebase JS SDK",
+      "details": "Reads users/{uid} for subscription gate (status + current_period_end). Reads detection_config/latest for tunable detection params."
+    },
+    {
+      "from": "tooling",
+      "to": "filesystem",
+      "protocol": "file emit",
+      "details": "Emits map_config.json. Validated against contracts/map-config.schema.json by tooling itself (jsonschema)."
+    },
+    {
+      "from": "tooling",
+      "to": "mobile",
+      "protocol": "indirect (Firestore detection_config OR Metro bundle — Phase 6 decision)",
+      "details": "Currently mobile fetches detection_config/latest from Firestore; bundle alternative considered."
+    },
+    {
+      "from": "shared/contracts",
+      "to": "mobile",
+      "protocol": "TS workspace import",
+      "details": "@warden/contracts imported via package.json workspace:* dependency."
+    },
+    {
+      "from": "shared/contracts",
+      "to": "web",
+      "protocol": "TS workspace import (not yet wired)",
+      "details": "Web declares its own Zod schemas in src/lib/schemas/ and does NOT yet import @warden/contracts. Phase 6 candidate for unification."
+    }
+  ],
+  "open_decisions": [
+    "users/{uid} schema: drop legacy isPaid, or formalize as denormalized convenience derived from status?",
+    "map_config.json runtime delivery: keep Firestore-fetched (current) or bundle as Metro asset?",
+    "Same Firebase project for web + mobile? (apparent yes; assert in Phase 6 architecture)",
+    "Stripe API version pin (2026-03-25.dahlia) vs installed types (2026-04-22.dahlia) — bump or freeze?",
+    "Migrate apps/mobile auth to @react-native-firebase to escape getReactNativePersistence deprecation?"
+  ]
+}
