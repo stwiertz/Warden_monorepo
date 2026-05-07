@@ -1,0 +1,769 @@
+{
+  "status": "ok",
+  "files": [
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\mobile\\planning-artifacts\\prd.md",
+      "filename": "prd.md",
+      "size_bytes": 16686,
+      "estimated_tokens": 4171,
+      "doc_type": "prd"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\mobile\\planning-artifacts\\architecture.md",
+      "filename": "architecture.md",
+      "size_bytes": 36484,
+      "estimated_tokens": 9121,
+      "doc_type": "architecture-doc"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\mobile\\planning-artifacts\\epics.md",
+      "filename": "epics.md",
+      "size_bytes": 43124,
+      "estimated_tokens": 10781,
+      "doc_type": "unknown"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\mobile\\planning-artifacts\\ux-design-specification.md",
+      "filename": "ux-design-specification.md",
+      "size_bytes": 54606,
+      "estimated_tokens": 13651,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\mobile\\planning-artifacts\\product-brief-warden-2026-01-26.md",
+      "filename": "product-brief-warden-2026-01-26.md",
+      "size_bytes": 8452,
+      "estimated_tokens": 2113,
+      "doc_type": "product-brief"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\mobile\\planning-artifacts\\sprint-change-proposal-2026-05-05.md",
+      "filename": "sprint-change-proposal-2026-05-05.md",
+      "size_bytes": 23469,
+      "estimated_tokens": 5867,
+      "doc_type": "unknown"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\web\\planning-artifacts\\prd.md",
+      "filename": "prd.md",
+      "size_bytes": 22257,
+      "estimated_tokens": 5564,
+      "doc_type": "prd"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\web\\planning-artifacts\\architecture.md",
+      "filename": "architecture.md",
+      "size_bytes": 35598,
+      "estimated_tokens": 8899,
+      "doc_type": "architecture-doc"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\web\\planning-artifacts\\epics.md",
+      "filename": "epics.md",
+      "size_bytes": 29546,
+      "estimated_tokens": 7386,
+      "doc_type": "unknown"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\web\\planning-artifacts\\ux-design-specification.md",
+      "filename": "ux-design-specification.md",
+      "size_bytes": 44477,
+      "estimated_tokens": 11119,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\web\\planning-artifacts\\product-brief-WardenWeb-2026-02-05.md",
+      "filename": "product-brief-WardenWeb-2026-02-05.md",
+      "size_bytes": 10862,
+      "estimated_tokens": 2715,
+      "doc_type": "product-brief"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\web\\planning-artifacts\\sprint-change-proposal-2026-04-16.md",
+      "filename": "sprint-change-proposal-2026-04-16.md",
+      "size_bytes": 4256,
+      "estimated_tokens": 1064,
+      "doc_type": "unknown"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\project-sprint.md",
+      "filename": "project-sprint.md",
+      "size_bytes": 3169,
+      "estimated_tokens": 792,
+      "doc_type": "unknown"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-auto-hsv-from-drawn-roi.md",
+      "filename": "tech-spec-auto-hsv-from-drawn-roi.md",
+      "size_bytes": 9846,
+      "estimated_tokens": 2461,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-black-screen-detector.md",
+      "filename": "tech-spec-black-screen-detector.md",
+      "size_bytes": 14243,
+      "estimated_tokens": 3560,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-adaptive-frame-sampling.md",
+      "filename": "tech-spec-bsd-adaptive-frame-sampling.md",
+      "size_bytes": 20687,
+      "estimated_tokens": 5171,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-dual-state-detection.md",
+      "filename": "tech-spec-bsd-dual-state-detection.md",
+      "size_bytes": 19578,
+      "estimated_tokens": 4894,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-neutral-start-vertical-roi.md",
+      "filename": "tech-spec-bsd-neutral-start-vertical-roi.md",
+      "size_bytes": 10166,
+      "estimated_tokens": 2541,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-points-white-detection.md",
+      "filename": "tech-spec-bsd-points-white-detection.md",
+      "size_bytes": 12459,
+      "estimated_tokens": 3114,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-pre-end-frame-export.md",
+      "filename": "tech-spec-bsd-pre-end-frame-export.md",
+      "size_bytes": 7479,
+      "estimated_tokens": 1869,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-profiling.md",
+      "filename": "tech-spec-bsd-profiling.md",
+      "size_bytes": 12113,
+      "estimated_tokens": 3028,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-roi-debugger.md",
+      "filename": "tech-spec-bsd-roi-debugger.md",
+      "size_bytes": 10078,
+      "estimated_tokens": 2519,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-single-pass-optimization.md",
+      "filename": "tech-spec-bsd-single-pass-optimization.md",
+      "size_bytes": 16110,
+      "estimated_tokens": 4027,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-two-pass-team-bar.md",
+      "filename": "tech-spec-bsd-two-pass-team-bar.md",
+      "size_bytes": 14864,
+      "estimated_tokens": 3716,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-undetermined-start-detection.md",
+      "filename": "tech-spec-bsd-undetermined-start-detection.md",
+      "size_bytes": 10560,
+      "estimated_tokens": 2640,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-consensus-reference-hash.md",
+      "filename": "tech-spec-consensus-reference-hash.md",
+      "size_bytes": 20056,
+      "estimated_tokens": 5014,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-frame-labeler-grouped-export.md",
+      "filename": "tech-spec-frame-labeler-grouped-export.md",
+      "size_bytes": 12475,
+      "estimated_tokens": 3118,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-game-detector-hud-verification.md",
+      "filename": "tech-spec-game-detector-hud-verification.md",
+      "size_bytes": 7869,
+      "estimated_tokens": 1967,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-game-detector-kda-roi.md",
+      "filename": "tech-spec-game-detector-kda-roi.md",
+      "size_bytes": 6584,
+      "estimated_tokens": 1646,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-hash-accuracy-validator-tool4.md",
+      "filename": "tech-spec-hash-accuracy-validator-tool4.md",
+      "size_bytes": 15019,
+      "estimated_tokens": 3754,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-hash-validator-pipeline-parity.md",
+      "filename": "tech-spec-hash-validator-pipeline-parity.md",
+      "size_bytes": 13280,
+      "estimated_tokens": 3320,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-hashing-workflow-tool3.md",
+      "filename": "tech-spec-hashing-workflow-tool3.md",
+      "size_bytes": 15010,
+      "estimated_tokens": 3752,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-hybrid-game-detector.md",
+      "filename": "tech-spec-hybrid-game-detector.md",
+      "size_bytes": 9880,
+      "estimated_tokens": 2470,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-map-config-generator.md",
+      "filename": "tech-spec-map-config-generator.md",
+      "size_bytes": 19261,
+      "estimated_tokens": 4815,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-map-id-force-method-threshold.md",
+      "filename": "tech-spec-map-id-force-method-threshold.md",
+      "size_bytes": 15190,
+      "estimated_tokens": 3797,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-map-name-anchor-subroi.md",
+      "filename": "tech-spec-map-name-anchor-subroi.md",
+      "size_bytes": 12468,
+      "estimated_tokens": 3117,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-minimap-view-mode.md",
+      "filename": "tech-spec-minimap-view-mode.md",
+      "size_bytes": 33187,
+      "estimated_tokens": 8296,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-minimap-zone-selector.md",
+      "filename": "tech-spec-minimap-zone-selector.md",
+      "size_bytes": 24185,
+      "estimated_tokens": 6046,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-threshold-hash-preprocessing.md",
+      "filename": "tech-spec-threshold-hash-preprocessing.md",
+      "size_bytes": 13061,
+      "estimated_tokens": 3265,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-video-named-output-subfolders.md",
+      "filename": "tech-spec-video-named-output-subfolders.md",
+      "size_bytes": 5186,
+      "estimated_tokens": 1296,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-warden-image-inspector.md",
+      "filename": "tech-spec-warden-image-inspector.md",
+      "size_bytes": 14218,
+      "estimated_tokens": 3554,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-warden-round-analyzer.md",
+      "filename": "tech-spec-warden-round-analyzer.md",
+      "size_bytes": 30901,
+      "estimated_tokens": 7725,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-warden-tui-launcher.md",
+      "filename": "tech-spec-warden-tui-launcher.md",
+      "size_bytes": 15667,
+      "estimated_tokens": 3916,
+      "doc_type": "specification"
+    },
+    {
+      "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-wip.md",
+      "filename": "tech-spec-wip.md",
+      "size_bytes": 14358,
+      "estimated_tokens": 3589,
+      "doc_type": "specification"
+    }
+  ],
+  "summary": {
+    "total_files": 44,
+    "total_size_bytes": 789024,
+    "total_estimated_tokens": 197256
+  },
+  "groups": [
+    {
+      "group_key": "prd.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\mobile\\planning-artifacts\\prd.md",
+          "filename": "prd.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "architecture.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\mobile\\planning-artifacts\\architecture.md",
+          "filename": "architecture.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "epics.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\mobile\\planning-artifacts\\epics.md",
+          "filename": "epics.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "ux-design-specification.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\mobile\\planning-artifacts\\ux-design-specification.md",
+          "filename": "ux-design-specification.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "product-brief-warden-2026-01-26.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\mobile\\planning-artifacts\\product-brief-warden-2026-01-26.md",
+          "filename": "product-brief-warden-2026-01-26.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "sprint-change-proposal-2026-05-05.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\mobile\\planning-artifacts\\sprint-change-proposal-2026-05-05.md",
+          "filename": "sprint-change-proposal-2026-05-05.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "prd.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\web\\planning-artifacts\\prd.md",
+          "filename": "prd.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "architecture.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\web\\planning-artifacts\\architecture.md",
+          "filename": "architecture.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "epics.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\web\\planning-artifacts\\epics.md",
+          "filename": "epics.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "ux-design-specification.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\web\\planning-artifacts\\ux-design-specification.md",
+          "filename": "ux-design-specification.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "product-brief-WardenWeb-2026-02-05.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\web\\planning-artifacts\\product-brief-WardenWeb-2026-02-05.md",
+          "filename": "product-brief-WardenWeb-2026-02-05.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "sprint-change-proposal-2026-04-16.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\web\\planning-artifacts\\sprint-change-proposal-2026-04-16.md",
+          "filename": "sprint-change-proposal-2026-04-16.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "project-sprint.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\project-sprint.md",
+          "filename": "project-sprint.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-auto-hsv-from-drawn-roi.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-auto-hsv-from-drawn-roi.md",
+          "filename": "tech-spec-auto-hsv-from-drawn-roi.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-black-screen-detector.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-black-screen-detector.md",
+          "filename": "tech-spec-black-screen-detector.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-bsd-adaptive-frame-sampling.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-adaptive-frame-sampling.md",
+          "filename": "tech-spec-bsd-adaptive-frame-sampling.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-bsd-dual-state-detection.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-dual-state-detection.md",
+          "filename": "tech-spec-bsd-dual-state-detection.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-bsd-neutral-start-vertical-roi.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-neutral-start-vertical-roi.md",
+          "filename": "tech-spec-bsd-neutral-start-vertical-roi.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-bsd-points-white-detection.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-points-white-detection.md",
+          "filename": "tech-spec-bsd-points-white-detection.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-bsd-pre-end-frame-export.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-pre-end-frame-export.md",
+          "filename": "tech-spec-bsd-pre-end-frame-export.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-bsd-profiling.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-profiling.md",
+          "filename": "tech-spec-bsd-profiling.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-bsd-roi-debugger.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-roi-debugger.md",
+          "filename": "tech-spec-bsd-roi-debugger.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-bsd-single-pass-optimization.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-single-pass-optimization.md",
+          "filename": "tech-spec-bsd-single-pass-optimization.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-bsd-two-pass-team-bar.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-two-pass-team-bar.md",
+          "filename": "tech-spec-bsd-two-pass-team-bar.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-bsd-undetermined-start-detection.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-bsd-undetermined-start-detection.md",
+          "filename": "tech-spec-bsd-undetermined-start-detection.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-consensus-reference-hash.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-consensus-reference-hash.md",
+          "filename": "tech-spec-consensus-reference-hash.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-frame-labeler-grouped-export.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-frame-labeler-grouped-export.md",
+          "filename": "tech-spec-frame-labeler-grouped-export.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-game-detector-hud-verification.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-game-detector-hud-verification.md",
+          "filename": "tech-spec-game-detector-hud-verification.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-game-detector-kda-roi.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-game-detector-kda-roi.md",
+          "filename": "tech-spec-game-detector-kda-roi.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-hash-accuracy-validator-tool4.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-hash-accuracy-validator-tool4.md",
+          "filename": "tech-spec-hash-accuracy-validator-tool4.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-hash-validator-pipeline-parity.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-hash-validator-pipeline-parity.md",
+          "filename": "tech-spec-hash-validator-pipeline-parity.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-hashing-workflow-tool3.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-hashing-workflow-tool3.md",
+          "filename": "tech-spec-hashing-workflow-tool3.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-hybrid-game-detector.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-hybrid-game-detector.md",
+          "filename": "tech-spec-hybrid-game-detector.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-map-config-generator.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-map-config-generator.md",
+          "filename": "tech-spec-map-config-generator.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-map-id-force-method-threshold.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-map-id-force-method-threshold.md",
+          "filename": "tech-spec-map-id-force-method-threshold.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-map-name-anchor-subroi.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-map-name-anchor-subroi.md",
+          "filename": "tech-spec-map-name-anchor-subroi.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-minimap-view-mode.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-minimap-view-mode.md",
+          "filename": "tech-spec-minimap-view-mode.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-minimap-zone-selector.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-minimap-zone-selector.md",
+          "filename": "tech-spec-minimap-zone-selector.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-threshold-hash-preprocessing.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-threshold-hash-preprocessing.md",
+          "filename": "tech-spec-threshold-hash-preprocessing.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-video-named-output-subfolders.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-video-named-output-subfolders.md",
+          "filename": "tech-spec-video-named-output-subfolders.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-warden-image-inspector.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-warden-image-inspector.md",
+          "filename": "tech-spec-warden-image-inspector.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-warden-round-analyzer.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-warden-round-analyzer.md",
+          "filename": "tech-spec-warden-round-analyzer.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-warden-tui-launcher.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-warden-tui-launcher.md",
+          "filename": "tech-spec-warden-tui-launcher.md",
+          "role": "standalone"
+        }
+      ]
+    },
+    {
+      "group_key": "tech-spec-wip.md",
+      "files": [
+        {
+          "path": "C:\\Users\\stwie\\Documents\\dev\\Warden_monorepo\\_bmad-output\\legacy\\tooling\\implementation-artifacts\\tech-spec-wip.md",
+          "filename": "tech-spec-wip.md",
+          "role": "standalone"
+        }
+      ]
+    }
+  ],
+  "routing": {
+    "recommendation": "fan-out",
+    "reason": "44 file(s), ~197,256 estimated tokens \u2014 exceeds single compressor threshold (>15000 tokens)"
+  },
+  "split_prediction": {
+    "prediction": "likely",
+    "reason": "Estimated distillate ~65,752 tokens exceeds 5,000 threshold",
+    "estimated_distillate_tokens": 65752
+  }
+}
