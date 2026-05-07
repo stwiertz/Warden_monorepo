@@ -1,0 +1,1343 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WardenWeb - Design Directions</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+      body {
+        font-family: 'Inter', system-ui, sans-serif;
+        background: #080808;
+        color: #f0f0f0;
+      }
+
+      /* Navigation */
+      .dir-nav {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 100;
+        background: #0f0f0f;
+        border-bottom: 1px solid #333;
+        display: flex;
+        justify-content: center;
+        gap: 0;
+      }
+      .dir-nav button {
+        background: none;
+        border: none;
+        color: #999;
+        padding: 16px 24px;
+        font-family: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s;
+      }
+      .dir-nav button:hover {
+        color: #f0f0f0;
+      }
+      .dir-nav button.active {
+        color: #e8731a;
+        border-bottom-color: #e8731a;
+      }
+
+      /* Sections */
+      .direction {
+        display: none;
+        padding-top: 56px;
+      }
+      .direction.active {
+        display: block;
+      }
+
+      .direction-header {
+        text-align: center;
+        padding: 48px 16px 32px;
+        border-bottom: 1px solid #1a1a1a;
+      }
+      .direction-header h2 {
+        font-size: 24px;
+        font-weight: 700;
+        margin-bottom: 8px;
+      }
+      .direction-header p {
+        color: #999;
+        font-size: 14px;
+        max-width: 600px;
+        margin: 0 auto;
+      }
+
+      .page-label {
+        text-align: center;
+        padding: 24px 16px 8px;
+        color: #666;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+      }
+
+      /* ============================================ */
+      /* DIRECTION A: Clean Minimal                   */
+      /* ============================================ */
+      .dir-a .mock {
+        max-width: 420px;
+        margin: 16px auto 48px;
+        background: #0f0f0f;
+        border: 1px solid #252525;
+        border-radius: 12px;
+        overflow: hidden;
+      }
+
+      /* Dir A - Nav */
+      .dir-a .mock-nav {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 20px;
+        border-bottom: 1px solid #1a1a1a;
+      }
+      .dir-a .mock-logo {
+        font-size: 18px;
+        font-weight: 800;
+        color: #e8731a;
+        letter-spacing: -0.5px;
+      }
+      .dir-a .mock-nav-links {
+        display: flex;
+        gap: 16px;
+        font-size: 13px;
+        color: #999;
+      }
+      .dir-a .mock-nav-links span:hover {
+        color: #f0f0f0;
+        cursor: pointer;
+      }
+
+      /* Dir A - Landing */
+      .dir-a .landing-hero {
+        padding: 64px 24px;
+        text-align: center;
+      }
+      .dir-a .landing-hero h1 {
+        font-size: 28px;
+        font-weight: 800;
+        line-height: 1.2;
+        margin-bottom: 12px;
+      }
+      .dir-a .landing-hero h1 span {
+        color: #e8731a;
+      }
+      .dir-a .landing-hero p {
+        color: #999;
+        font-size: 15px;
+        line-height: 1.5;
+        margin-bottom: 24px;
+        max-width: 320px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+      .dir-a .btn-primary {
+        display: inline-block;
+        background: #e8731a;
+        color: #fff;
+        font-weight: 600;
+        font-size: 15px;
+        padding: 14px 32px;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .dir-a .btn-primary:hover {
+        background: #f28a2e;
+      }
+      .dir-a .btn-secondary {
+        display: inline-block;
+        color: #999;
+        font-size: 13px;
+        margin-top: 12px;
+        cursor: pointer;
+      }
+
+      .dir-a .features {
+        display: flex;
+        gap: 12px;
+        padding: 0 20px 32px;
+      }
+      .dir-a .feature-item {
+        flex: 1;
+        background: #1a1a1a;
+        border-radius: 8px;
+        padding: 16px;
+        text-align: center;
+      }
+      .dir-a .feature-icon {
+        font-size: 24px;
+        margin-bottom: 8px;
+      }
+      .dir-a .feature-item h4 {
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      .dir-a .feature-item p {
+        font-size: 11px;
+        color: #666;
+        line-height: 1.3;
+      }
+
+      /* Dir A - Pricing */
+      .dir-a .pricing-cards {
+        display: flex;
+        gap: 12px;
+        padding: 24px 20px 32px;
+      }
+      .dir-a .price-card {
+        flex: 1;
+        background: #1a1a1a;
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 20px 16px;
+        text-align: center;
+        cursor: pointer;
+        transition: border-color 0.2s;
+      }
+      .dir-a .price-card:hover {
+        border-color: #e8731a;
+      }
+      .dir-a .price-card.popular {
+        border-color: #e8731a;
+        position: relative;
+      }
+      .dir-a .popular-tag {
+        position: absolute;
+        top: -10px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #e8731a;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 2px 10px;
+        border-radius: 4px;
+        text-transform: uppercase;
+      }
+      .dir-a .price-card h3 {
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 8px;
+        color: #ccc;
+      }
+      .dir-a .price-amount {
+        font-size: 32px;
+        font-weight: 800;
+        margin-bottom: 4px;
+      }
+      .dir-a .price-amount span {
+        font-size: 14px;
+        font-weight: 400;
+        color: #999;
+      }
+      .dir-a .price-save {
+        font-size: 12px;
+        color: #22c55e;
+        margin-bottom: 16px;
+        min-height: 18px;
+      }
+      .dir-a .price-card .btn-primary {
+        width: 100%;
+        padding: 12px;
+        font-size: 14px;
+      }
+      .dir-a .coupon-row {
+        padding: 0 20px 24px;
+        text-align: center;
+      }
+      .dir-a .coupon-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(232, 115, 26, 0.1);
+        border: 1px solid rgba(232, 115, 26, 0.3);
+        border-radius: 4px;
+        padding: 8px 14px;
+        font-size: 13px;
+        color: #e8731a;
+      }
+
+      /* Dir A - Dashboard */
+      .dir-a .dash-status {
+        margin: 20px;
+        background: #1a1a1a;
+        border-radius: 8px;
+        padding: 20px;
+      }
+      .dir-a .dash-status-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      .dir-a .dash-label {
+        font-size: 13px;
+        color: #999;
+      }
+      .dir-a .dash-value {
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .dir-a .badge {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .dir-a .badge-active {
+        background: rgba(34, 197, 94, 0.15);
+        color: #22c55e;
+      }
+      .dir-a .badge-warning {
+        background: rgba(245, 158, 11, 0.15);
+        color: #f59e0b;
+      }
+
+      .dir-a .dash-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin: 0 20px 24px;
+      }
+      .dir-a .dash-btn {
+        background: #1a1a1a;
+        border: 1px solid #333;
+        border-radius: 6px;
+        padding: 14px 16px;
+        color: #f0f0f0;
+        font-size: 14px;
+        font-weight: 500;
+        text-align: left;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        transition: border-color 0.2s;
+      }
+      .dir-a .dash-btn:hover {
+        border-color: #e8731a;
+      }
+      .dir-a .dash-btn .arrow {
+        color: #666;
+      }
+
+      /* Dir A - Warning state */
+      .dir-a .warning-banner {
+        margin: 20px;
+        background: rgba(245, 158, 11, 0.1);
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        border-radius: 8px;
+        padding: 16px;
+      }
+      .dir-a .warning-banner h4 {
+        font-size: 14px;
+        font-weight: 600;
+        color: #f59e0b;
+        margin-bottom: 4px;
+      }
+      .dir-a .warning-banner p {
+        font-size: 13px;
+        color: #999;
+        margin-bottom: 12px;
+      }
+      .dir-a .warning-banner .btn-warning {
+        background: #f59e0b;
+        color: #000;
+        border: none;
+        border-radius: 6px;
+        padding: 10px 16px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      /* ============================================ */
+      /* DIRECTION B: Bold & Tactical                 */
+      /* ============================================ */
+      .dir-b .mock {
+        max-width: 420px;
+        margin: 16px auto 48px;
+        background: #0a0a0a;
+        border: 1px solid #1a1a1a;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .dir-b .mock-nav {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 20px;
+        background: #0f0f0f;
+        border-bottom: 1px solid #e8731a;
+      }
+      .dir-b .mock-logo {
+        font-size: 20px;
+        font-weight: 800;
+        color: #f0f0f0;
+        letter-spacing: 4px;
+        text-transform: uppercase;
+      }
+      .dir-b .mock-logo span {
+        color: #e8731a;
+      }
+      .dir-b .mock-nav-links {
+        display: flex;
+        gap: 16px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #666;
+      }
+
+      .dir-b .landing-hero {
+        padding: 48px 24px;
+        text-align: left;
+        border-left: 3px solid #e8731a;
+        margin: 24px 20px;
+      }
+      .dir-b .landing-hero .tag {
+        font-size: 11px;
+        font-weight: 700;
+        color: #e8731a;
+        text-transform: uppercase;
+        letter-spacing: 3px;
+        margin-bottom: 12px;
+      }
+      .dir-b .landing-hero h1 {
+        font-size: 26px;
+        font-weight: 800;
+        line-height: 1.15;
+        margin-bottom: 12px;
+        text-transform: uppercase;
+      }
+      .dir-b .landing-hero p {
+        color: #777;
+        font-size: 14px;
+        line-height: 1.5;
+        margin-bottom: 24px;
+      }
+      .dir-b .btn-primary {
+        display: inline-block;
+        background: #e8731a;
+        color: #fff;
+        font-weight: 700;
+        font-size: 13px;
+        padding: 14px 28px;
+        border-radius: 2px;
+        border: none;
+        cursor: pointer;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        transition: background 0.2s;
+      }
+      .dir-b .btn-primary:hover {
+        background: #f28a2e;
+      }
+
+      .dir-b .stats-row {
+        display: flex;
+        gap: 1px;
+        background: #1a1a1a;
+        margin: 0 20px 24px;
+      }
+      .dir-b .stat {
+        flex: 1;
+        background: #0f0f0f;
+        padding: 16px;
+        text-align: center;
+      }
+      .dir-b .stat-value {
+        font-size: 20px;
+        font-weight: 800;
+        color: #e8731a;
+      }
+      .dir-b .stat-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #666;
+        margin-top: 4px;
+      }
+
+      /* Dir B - Pricing */
+      .dir-b .pricing-cards {
+        display: flex;
+        gap: 1px;
+        padding: 20px;
+        background: transparent;
+      }
+      .dir-b .price-card {
+        flex: 1;
+        background: #0f0f0f;
+        border: 1px solid #252525;
+        padding: 24px 16px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .dir-b .price-card:first-child {
+        border-radius: 4px 0 0 4px;
+      }
+      .dir-b .price-card:last-child {
+        border-radius: 0 4px 4px 0;
+      }
+      .dir-b .price-card:hover {
+        border-color: #e8731a;
+      }
+      .dir-b .price-card.popular {
+        border: 2px solid #e8731a;
+        background: linear-gradient(180deg, rgba(232, 115, 26, 0.05) 0%, transparent 50%);
+      }
+      .dir-b .price-card h3 {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        color: #666;
+        margin-bottom: 12px;
+      }
+      .dir-b .price-amount {
+        font-size: 36px;
+        font-weight: 800;
+        margin-bottom: 4px;
+      }
+      .dir-b .price-amount span {
+        font-size: 14px;
+        font-weight: 400;
+        color: #666;
+      }
+      .dir-b .price-save {
+        font-size: 11px;
+        color: #22c55e;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 16px;
+        min-height: 16px;
+      }
+      .dir-b .price-card .btn-primary {
+        width: 100%;
+        padding: 12px;
+      }
+
+      /* Dir B - Dashboard */
+      .dir-b .dash-header {
+        padding: 20px;
+        border-bottom: 1px solid #1a1a1a;
+      }
+      .dir-b .dash-header h2 {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 3px;
+        color: #666;
+        margin-bottom: 4px;
+      }
+      .dir-b .dash-header .plan-name {
+        font-size: 24px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+      .dir-b .dash-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1px;
+        background: #1a1a1a;
+        margin: 20px;
+      }
+      .dir-b .dash-cell {
+        background: #0f0f0f;
+        padding: 16px;
+      }
+      .dir-b .dash-cell .label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #666;
+        margin-bottom: 6px;
+      }
+      .dir-b .dash-cell .value {
+        font-size: 15px;
+        font-weight: 700;
+      }
+      .dir-b .badge {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 2px;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+      .dir-b .badge-active {
+        background: rgba(34, 197, 94, 0.15);
+        color: #22c55e;
+      }
+
+      .dir-b .dash-actions {
+        padding: 0 20px 24px;
+        display: flex;
+        gap: 8px;
+      }
+      .dir-b .dash-btn {
+        flex: 1;
+        background: #0f0f0f;
+        border: 1px solid #252525;
+        border-radius: 2px;
+        padding: 12px;
+        color: #999;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .dir-b .dash-btn:hover {
+        border-color: #e8731a;
+        color: #f0f0f0;
+      }
+
+      /* ============================================ */
+      /* DIRECTION C: Warm & Approachable             */
+      /* ============================================ */
+      .dir-c .mock {
+        max-width: 420px;
+        margin: 16px auto 48px;
+        background: #111111;
+        border: 1px solid #222;
+        border-radius: 16px;
+        overflow: hidden;
+      }
+
+      .dir-c .mock-nav {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 20px;
+      }
+      .dir-c .mock-logo {
+        font-size: 18px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .dir-c .logo-w {
+        background: #e8731a;
+        color: #fff;
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 14px;
+      }
+      .dir-c .mock-nav-links {
+        display: flex;
+        gap: 16px;
+        font-size: 13px;
+        color: #888;
+      }
+
+      .dir-c .landing-hero {
+        padding: 48px 24px;
+        text-align: center;
+      }
+      .dir-c .landing-hero .emoji-tag {
+        font-size: 36px;
+        margin-bottom: 16px;
+      }
+      .dir-c .landing-hero h1 {
+        font-size: 26px;
+        font-weight: 800;
+        line-height: 1.25;
+        margin-bottom: 8px;
+      }
+      .dir-c .landing-hero h1 span {
+        color: #e8731a;
+      }
+      .dir-c .landing-hero p {
+        color: #888;
+        font-size: 15px;
+        line-height: 1.6;
+        margin-bottom: 24px;
+      }
+      .dir-c .btn-primary {
+        display: inline-block;
+        background: #e8731a;
+        color: #fff;
+        font-weight: 600;
+        font-size: 15px;
+        padding: 14px 32px;
+        border-radius: 12px;
+        border: none;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .dir-c .btn-primary:hover {
+        background: #f28a2e;
+      }
+
+      .dir-c .value-props {
+        padding: 0 20px 32px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .dir-c .value-item {
+        background: #1a1a1a;
+        border-radius: 12px;
+        padding: 14px 16px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 14px;
+      }
+      .dir-c .value-icon {
+        font-size: 20px;
+        flex-shrink: 0;
+      }
+      .dir-c .value-item span {
+        color: #ccc;
+      }
+
+      /* Dir C - Pricing */
+      .dir-c .pricing-cards {
+        display: flex;
+        gap: 12px;
+        padding: 20px;
+      }
+      .dir-c .price-card {
+        flex: 1;
+        background: #1a1a1a;
+        border: 2px solid transparent;
+        border-radius: 16px;
+        padding: 24px 16px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .dir-c .price-card:hover {
+        border-color: #e8731a;
+      }
+      .dir-c .price-card.popular {
+        border-color: #e8731a;
+      }
+      .dir-c .price-card h3 {
+        font-size: 14px;
+        font-weight: 600;
+        color: #ccc;
+        margin-bottom: 8px;
+      }
+      .dir-c .price-amount {
+        font-size: 32px;
+        font-weight: 800;
+        margin-bottom: 4px;
+      }
+      .dir-c .price-amount span {
+        font-size: 14px;
+        font-weight: 400;
+        color: #888;
+      }
+      .dir-c .price-save {
+        font-size: 12px;
+        color: #22c55e;
+        font-weight: 500;
+        margin-bottom: 16px;
+        min-height: 18px;
+      }
+      .dir-c .price-card .btn-primary {
+        width: 100%;
+        padding: 12px;
+        font-size: 14px;
+      }
+
+      /* Dir C - Dashboard */
+      .dir-c .dash-welcome {
+        padding: 24px 20px 12px;
+        font-size: 20px;
+        font-weight: 700;
+      }
+      .dir-c .dash-welcome span {
+        color: #e8731a;
+      }
+      .dir-c .dash-card {
+        margin: 8px 20px;
+        background: #1a1a1a;
+        border-radius: 12px;
+        padding: 16px;
+      }
+      .dir-c .dash-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+      }
+      .dir-c .dash-card-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: #888;
+      }
+      .dir-c .badge {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .dir-c .badge-active {
+        background: rgba(34, 197, 94, 0.15);
+        color: #22c55e;
+      }
+
+      .dir-c .dash-info-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 0;
+        border-bottom: 1px solid #252525;
+      }
+      .dir-c .dash-info-row:last-child {
+        border-bottom: none;
+      }
+      .dir-c .dash-info-label {
+        font-size: 13px;
+        color: #888;
+      }
+      .dir-c .dash-info-value {
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .dir-c .dash-actions {
+        display: flex;
+        gap: 8px;
+        margin: 16px 20px 24px;
+      }
+      .dir-c .dash-btn {
+        flex: 1;
+        background: #1a1a1a;
+        border: 1px solid #333;
+        border-radius: 12px;
+        padding: 14px 12px;
+        color: #ccc;
+        font-size: 13px;
+        font-weight: 500;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .dir-c .dash-btn:hover {
+        border-color: #e8731a;
+      }
+
+      /* Footer */
+      .mock-footer {
+        padding: 16px 20px;
+        border-top: 1px solid #1a1a1a;
+        display: flex;
+        justify-content: center;
+        gap: 16px;
+        font-size: 12px;
+        color: #555;
+      }
+
+      /* Responsive */
+      @media (max-width: 480px) {
+        .dir-nav button {
+          padding: 12px 16px;
+          font-size: 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="dir-nav">
+      <button class="active" onclick="showDir('a')">A: Clean Minimal</button>
+      <button onclick="showDir('b')">B: Bold Tactical</button>
+      <button onclick="showDir('c')">C: Warm Approachable</button>
+    </nav>
+
+    <!-- ============================================ -->
+    <!-- DIRECTION A: Clean Minimal                   -->
+    <!-- ============================================ -->
+    <section class="direction dir-a active" id="dir-a">
+      <div class="direction-header">
+        <h2>Direction A: Clean Minimal</h2>
+        <p>
+          Understated, professional, lets the content breathe. Soft borders, rounded cards, subtle
+          accents. The "quiet confidence" approach.
+        </p>
+      </div>
+
+      <div class="page-label">Landing Page</div>
+      <div class="mock">
+        <div class="mock-nav">
+          <div class="mock-logo">Warden</div>
+          <div class="mock-nav-links">
+            <span>Pricing</span>
+            <span>Sign in</span>
+          </div>
+        </div>
+        <div class="landing-hero">
+          <h1>Review faster.<br /><span>Coach smarter.</span></h1>
+          <p>
+            Warden auto-slices your EVA sessions into map-based episodes with unique minimap view
+            and voice-first commentary.
+          </p>
+          <button class="btn-primary">See pricing</button>
+          <div class="btn-secondary">Download the app &darr;</div>
+        </div>
+        <div class="features">
+          <div class="feature-item">
+            <div class="feature-icon">&#9775;</div>
+            <h4>Auto-slice</h4>
+            <p>Maps detected in 2 min</p>
+          </div>
+          <div class="feature-item">
+            <div class="feature-icon">&#9678;</div>
+            <h4>Minimap</h4>
+            <p>Tactical overhead view</p>
+          </div>
+          <div class="feature-item">
+            <div class="feature-icon">&#9835;</div>
+            <h4>Voice-first</h4>
+            <p>Comment from the couch</p>
+          </div>
+        </div>
+        <div class="mock-footer">
+          <span>Privacy</span>
+          <span>Terms</span>
+          <span>&copy; 2026 Warden</span>
+        </div>
+      </div>
+
+      <div class="page-label">Pricing Page</div>
+      <div class="mock">
+        <div class="mock-nav">
+          <div class="mock-logo">Warden</div>
+          <div class="mock-nav-links">
+            <span>Home</span>
+            <span>Sign in</span>
+          </div>
+        </div>
+        <div style="padding: 24px 20px 8px; text-align: center">
+          <h2 style="font-size: 22px; font-weight: 800; margin-bottom: 4px">Simple pricing</h2>
+          <p style="color: #999; font-size: 14px">One plan, two billing options.</p>
+        </div>
+        <div class="pricing-cards">
+          <div class="price-card">
+            <h3>Monthly</h3>
+            <div class="price-amount">&euro;7.99<span>/mo</span></div>
+            <div class="price-save">&nbsp;</div>
+            <button class="btn-primary">Subscribe</button>
+          </div>
+          <div class="price-card popular">
+            <div class="popular-tag">Save 17%</div>
+            <h3>Yearly</h3>
+            <div class="price-amount">&euro;79.90<span>/yr</span></div>
+            <div class="price-save">&euro;6.66/mo effective</div>
+            <button class="btn-primary">Subscribe</button>
+          </div>
+        </div>
+        <div class="coupon-row">
+          <div class="coupon-badge">&#127915; Coupon COACH2FREE applied &mdash; 2 months free</div>
+        </div>
+        <div class="mock-footer">
+          <span>Privacy</span>
+          <span>Terms</span>
+          <span>&copy; 2026 Warden</span>
+        </div>
+      </div>
+
+      <div class="page-label">Dashboard (Active)</div>
+      <div class="mock">
+        <div class="mock-nav">
+          <div class="mock-logo">Warden</div>
+          <div class="mock-nav-links">
+            <span>Sign out</span>
+          </div>
+        </div>
+        <div class="dash-status">
+          <div class="dash-status-row">
+            <span class="dash-label">Status</span>
+            <span class="badge badge-active">Active</span>
+          </div>
+          <div class="dash-status-row">
+            <span class="dash-label">Plan</span>
+            <span class="dash-value">Monthly &mdash; &euro;7.99/mo</span>
+          </div>
+          <div class="dash-status-row">
+            <span class="dash-label">Next payment</span>
+            <span class="dash-value">May 2, 2026</span>
+          </div>
+          <div class="dash-status-row" style="margin-bottom: 0">
+            <span class="dash-label">Email</span>
+            <span class="dash-value">thomas@gmail.com</span>
+          </div>
+        </div>
+        <div class="dash-actions">
+          <div class="dash-btn">Upgrade to yearly <span class="arrow">&rarr;</span></div>
+          <div class="dash-btn">Manage billing <span class="arrow">&rarr;</span></div>
+          <div class="dash-btn" style="color: #999">
+            Cancel subscription <span class="arrow">&rarr;</span>
+          </div>
+        </div>
+        <div class="mock-footer">
+          <span>Privacy</span>
+          <span>Terms</span>
+          <span>&copy; 2026 Warden</span>
+        </div>
+      </div>
+
+      <div class="page-label">Dashboard (Payment Failed)</div>
+      <div class="mock">
+        <div class="mock-nav">
+          <div class="mock-logo">Warden</div>
+          <div class="mock-nav-links">
+            <span>Sign out</span>
+          </div>
+        </div>
+        <div class="warning-banner">
+          <h4>&#9888; Payment failed</h4>
+          <p>
+            Your last payment didn't go through. Update your payment method to keep your
+            subscription active.
+          </p>
+          <button class="btn-warning">Update payment method</button>
+        </div>
+        <div class="dash-status">
+          <div class="dash-status-row">
+            <span class="dash-label">Status</span>
+            <span class="badge badge-warning">Past due</span>
+          </div>
+          <div class="dash-status-row" style="margin-bottom: 0">
+            <span class="dash-label">Plan</span>
+            <span class="dash-value">Monthly &mdash; &euro;7.99/mo</span>
+          </div>
+        </div>
+        <div class="mock-footer">
+          <span>Privacy</span>
+          <span>Terms</span>
+          <span>&copy; 2026 Warden</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- DIRECTION B: Bold Tactical                   -->
+    <!-- ============================================ -->
+    <section class="direction dir-b" id="dir-b">
+      <div class="direction-header">
+        <h2>Direction B: Bold Tactical</h2>
+        <p>
+          Hard edges, uppercase typography, military/tactical feel. Orange accent line at top.
+          Grid-based layouts with sharp borders. The "war room" approach.
+        </p>
+      </div>
+
+      <div class="page-label">Landing Page</div>
+      <div class="mock">
+        <div class="mock-nav">
+          <div class="mock-logo"><span>W</span>ARDEN</div>
+          <div class="mock-nav-links">
+            <span>Pricing</span>
+            <span>Login</span>
+          </div>
+        </div>
+        <div class="landing-hero">
+          <div class="tag">EVA After-h Coaching Tool</div>
+          <h1>Stop playing.<br />Start training.</h1>
+          <p>Auto-slice sessions. Minimap view. Voice commentary. All on-device, all offline.</p>
+          <button class="btn-primary">View plans &rarr;</button>
+        </div>
+        <div class="stats-row">
+          <div class="stat">
+            <div class="stat-value">&lt;2m</div>
+            <div class="stat-label">Session Split</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value">100%</div>
+            <div class="stat-label">On-Device</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value">1-tap</div>
+            <div class="stat-label">Voice Record</div>
+          </div>
+        </div>
+        <div class="mock-footer">
+          <span>Privacy</span>
+          <span>Terms</span>
+          <span>&copy; 2026</span>
+        </div>
+      </div>
+
+      <div class="page-label">Pricing Page</div>
+      <div class="mock">
+        <div class="mock-nav">
+          <div class="mock-logo"><span>W</span>ARDEN</div>
+          <div class="mock-nav-links">
+            <span>Home</span>
+            <span>Login</span>
+          </div>
+        </div>
+        <div style="padding: 24px 20px 8px">
+          <div
+            style="
+              font-size: 10px;
+              font-weight: 700;
+              text-transform: uppercase;
+              letter-spacing: 3px;
+              color: #e8731a;
+              margin-bottom: 4px;
+            "
+          >
+            Select Plan
+          </div>
+          <div style="font-size: 20px; font-weight: 800; text-transform: uppercase">
+            Choose your loadout
+          </div>
+        </div>
+        <div class="pricing-cards">
+          <div class="price-card">
+            <h3>Monthly</h3>
+            <div class="price-amount">&euro;7.99<span>/mo</span></div>
+            <div class="price-save">&nbsp;</div>
+            <button class="btn-primary">Deploy</button>
+          </div>
+          <div class="price-card popular">
+            <h3>Yearly</h3>
+            <div class="price-amount">&euro;79.90<span>/yr</span></div>
+            <div class="price-save">Save 2 months</div>
+            <button class="btn-primary">Deploy</button>
+          </div>
+        </div>
+        <div class="mock-footer">
+          <span>Privacy</span>
+          <span>Terms</span>
+          <span>&copy; 2026</span>
+        </div>
+      </div>
+
+      <div class="page-label">Dashboard</div>
+      <div class="mock">
+        <div class="mock-nav">
+          <div class="mock-logo"><span>W</span>ARDEN</div>
+          <div class="mock-nav-links">
+            <span>Logout</span>
+          </div>
+        </div>
+        <div class="dash-header">
+          <h2>Active Subscription</h2>
+          <div class="plan-name">Monthly &mdash; &euro;7.99</div>
+        </div>
+        <div class="dash-grid">
+          <div class="dash-cell">
+            <div class="label">Status</div>
+            <div class="value"><span class="badge badge-active">Active</span></div>
+          </div>
+          <div class="dash-cell">
+            <div class="label">Next Payment</div>
+            <div class="value">May 2, 2026</div>
+          </div>
+          <div class="dash-cell">
+            <div class="label">Account</div>
+            <div class="value" style="font-size: 13px">thomas@gmail.com</div>
+          </div>
+          <div class="dash-cell">
+            <div class="label">Member Since</div>
+            <div class="value">Feb 2026</div>
+          </div>
+        </div>
+        <div class="dash-actions">
+          <div class="dash-btn">Upgrade</div>
+          <div class="dash-btn">Billing</div>
+          <div class="dash-btn">Cancel</div>
+        </div>
+        <div class="mock-footer">
+          <span>Privacy</span>
+          <span>Terms</span>
+          <span>&copy; 2026</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- DIRECTION C: Warm & Approachable             -->
+    <!-- ============================================ -->
+    <section class="direction dir-c" id="dir-c">
+      <div class="direction-header">
+        <h2>Direction C: Warm & Approachable</h2>
+        <p>
+          Softer corners, emoji accents, friendly tone. Feels like a modern app you'd recommend to a
+          friend. Rounded, spacious, inviting. The "friendly coach" approach.
+        </p>
+      </div>
+
+      <div class="page-label">Landing Page</div>
+      <div class="mock">
+        <div class="mock-nav">
+          <div class="mock-logo">
+            <div class="logo-w">W</div>
+            Warden
+          </div>
+          <div class="mock-nav-links">
+            <span>Pricing</span>
+            <span>Sign in</span>
+          </div>
+        </div>
+        <div class="landing-hero">
+          <div class="emoji-tag">&#127918;</div>
+          <h1>Your EVA sessions<br />deserve a <span>replay</span></h1>
+          <p>
+            Auto-slice, minimap view, voice commentary. Review from the couch in minutes, not hours.
+          </p>
+          <button class="btn-primary">See pricing &rarr;</button>
+        </div>
+        <div class="value-props">
+          <div class="value-item">
+            <span class="value-icon">&#9889;</span>
+            <span>Auto-slice 1h20 sessions in under 2 minutes</span>
+          </div>
+          <div class="value-item">
+            <span class="value-icon">&#128506;</span>
+            <span>Unique minimap view — no competitor has this</span>
+          </div>
+          <div class="value-item">
+            <span class="value-icon">&#127908;</span>
+            <span>Voice-first commentary, zero typing</span>
+          </div>
+          <div class="value-item">
+            <span class="value-icon">&#128247;</span>
+            <span>Export clips directly to Discord & WhatsApp</span>
+          </div>
+        </div>
+        <div class="mock-footer">
+          <span>Privacy</span>
+          <span>Terms</span>
+          <span>&copy; 2026 Warden</span>
+        </div>
+      </div>
+
+      <div class="page-label">Pricing Page</div>
+      <div class="mock">
+        <div class="mock-nav">
+          <div class="mock-logo">
+            <div class="logo-w">W</div>
+            Warden
+          </div>
+          <div class="mock-nav-links">
+            <span>Home</span>
+            <span>Sign in</span>
+          </div>
+        </div>
+        <div style="padding: 24px 20px 8px; text-align: center">
+          <h2 style="font-size: 22px; font-weight: 800">Pick your plan</h2>
+          <p style="color: #888; font-size: 14px; margin-top: 4px">
+            Same features, just billing preference.
+          </p>
+        </div>
+        <div class="pricing-cards">
+          <div class="price-card">
+            <h3>Monthly</h3>
+            <div class="price-amount">&euro;7.99<span>/mo</span></div>
+            <div class="price-save">&nbsp;</div>
+            <button class="btn-primary">Get started</button>
+          </div>
+          <div class="price-card popular">
+            <h3>Yearly</h3>
+            <div class="price-amount">&euro;79.90<span>/yr</span></div>
+            <div class="price-save">Save 2 months free &#127881;</div>
+            <button class="btn-primary">Get started</button>
+          </div>
+        </div>
+        <div class="mock-footer">
+          <span>Privacy</span>
+          <span>Terms</span>
+          <span>&copy; 2026 Warden</span>
+        </div>
+      </div>
+
+      <div class="page-label">Dashboard</div>
+      <div class="mock">
+        <div class="mock-nav">
+          <div class="mock-logo">
+            <div class="logo-w">W</div>
+            Warden
+          </div>
+          <div class="mock-nav-links">
+            <span>Sign out</span>
+          </div>
+        </div>
+        <div class="dash-welcome">Hey <span>Thomas</span> &#128075;</div>
+        <div class="dash-card">
+          <div class="dash-card-header">
+            <span class="dash-card-title">Your subscription</span>
+            <span class="badge badge-active">Active</span>
+          </div>
+          <div class="dash-info-row">
+            <span class="dash-info-label">Plan</span>
+            <span class="dash-info-value">Monthly &mdash; &euro;7.99/mo</span>
+          </div>
+          <div class="dash-info-row">
+            <span class="dash-info-label">Next payment</span>
+            <span class="dash-info-value">May 2, 2026</span>
+          </div>
+          <div class="dash-info-row">
+            <span class="dash-info-label">Email</span>
+            <span class="dash-info-value">thomas@gmail.com</span>
+          </div>
+        </div>
+        <div class="dash-actions">
+          <div class="dash-btn">Upgrade to yearly</div>
+          <div class="dash-btn">Manage billing</div>
+        </div>
+        <div style="padding: 0 20px 24px">
+          <div class="dash-btn" style="color: #666; text-align: center">Cancel subscription</div>
+        </div>
+        <div class="mock-footer">
+          <span>Privacy</span>
+          <span>Terms</span>
+          <span>&copy; 2026 Warden</span>
+        </div>
+      </div>
+    </section>
+
+    <script>
+      function showDir(dir) {
+        document.querySelectorAll('.direction').forEach((d) => d.classList.remove('active'))
+        document.querySelectorAll('.dir-nav button').forEach((b) => b.classList.remove('active'))
+        document.getElementById('dir-' + dir).classList.add('active')
+        document
+          .querySelectorAll('.dir-nav button')
+          [{ a: 0, b: 1, c: 2 }[dir]].classList.add('active')
+        window.scrollTo(0, 0)
+      }
+    </script>
+  </body>
+</html>
