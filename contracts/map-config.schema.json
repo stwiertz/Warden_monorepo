@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://warden.team/schemas/map-config.json",
+  "title": "MapConfig",
+  "description": "Map identification configuration emitted by apps/tooling and consumed by apps/mobile. Each map name is associated with a perceptual hash computed over a fixed ROI of the minimap region in I-frames. Mobile uses these hashes to identify which EVA map a clip is showing without running OpenCV on device.",
+  "type": "object",
+  "required": ["reference_resolution", "roi", "canvas_size", "hash_size", "hash_method", "maps"],
+  "additionalProperties": false,
+  "properties": {
+    "reference_resolution": {
+      "type": "object",
+      "description": "Source video resolution the ROI coordinates are calibrated against. ROI is rescaled proportionally for other resolutions.",
+      "required": ["width", "height"],
+      "additionalProperties": false,
+      "properties": {
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "roi": {
+      "type": "object",
+      "description": "Region of interest within a frame, expressed at reference_resolution. The map name banner sits inside this rectangle.",
+      "required": ["x", "y", "width", "height"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": "integer", "minimum": 0 },
+        "y": { "type": "integer", "minimum": 0 },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "canvas_size": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Square canvas size the ROI is normalized into before hashing."
+    },
+    "hash_size": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Hash dimension. hash_size=16 yields 256-bit hashes encoded as 64 hex chars."
+    },
+    "hash_method": {
+      "type": "string",
+      "enum": ["ahash", "phash", "dhash", "whash"],
+      "description": "Perceptual hash algorithm used to compute the per-map fingerprint."
+    },
+    "text_anchor_width": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Optional. Width in pixels of the anchor text region inside the ROI used for sub-cropping. Omit if the full ROI is hashed."
+    },
+    "maps": {
+      "type": "object",
+      "description": "Map name → hex-encoded perceptual hash string. Map names are lowercased ASCII slugs (e.g. \"the_cliff\").",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]+$",
+        "description": "Hex-encoded perceptual hash. Length depends on hash_size (e.g. hash_size=16 → 64 hex chars)."
+      }
+    }
+  }
+}

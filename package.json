@@ -1,4 +1,26 @@
 {
+  "name": "warden-monorepo",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Warden — esports coaching platform. Mobile (Expo), Web (Next.js), and Desktop tooling (Python) in one repo.",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "dev": "turbo run dev --parallel",
+    "tooling:test": "pnpm --filter tooling test",
+    "contracts:build": "pnpm --filter @warden/contracts build"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.6.3",
+    "prettier": "^3.3.3"
+  },
   "dependencies": {
     "bmad-method": "^6.6.0"
   }

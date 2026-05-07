@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://warden.team/schemas/user-doc.json",
+  "title": "UserDoc",
+  "description": "Firestore `users/{uid}` document — the integration boundary between apps/web (writes via Stripe webhook handlers) and apps/mobile (reads to gate paid features). NOTE: legacy mobile reads only `isPaid`; legacy web writes the rich subscription fields. The unified architecture (Phase 6) decides whether `isPaid` is kept as a denormalized convenience or derived at read time from `status`.",
+  "type": "object",
+  "required": ["status", "plan"],
+  "additionalProperties": true,
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["active", "past_due", "canceled"],
+      "description": "Subscription lifecycle state, mirrored from Stripe by the webhook handler in apps/web."
+    },
+    "plan": {
+      "type": "string",
+      "enum": ["monthly", "yearly"],
+      "description": "Subscription billing cadence."
+    },
+    "current_period_end": {
+      "type": "number",
+      "description": "Unix timestamp (seconds) when the current billing period ends. Mirrored from Stripe."
+    },
+    "stripe_customer_id": {
+      "type": "string",
+      "description": "Stripe customer ID. Used to launch the customer portal."
+    },
+    "stripe_subscription_id": {
+      "type": "string",
+      "description": "Stripe subscription ID. Used by webhook event reconciliation."
+    },
+    "isPaid": {
+      "type": "boolean",
+      "description": "Legacy denormalized flag. Mobile app currently reads this directly. Kept for backward compatibility; new code should derive from `status === 'active'`."
+    }
+  }
+}

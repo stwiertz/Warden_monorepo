@@ -1,1 +1,68 @@
+# Dependencies
 node_modules/
+.pnpm-store/
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+
+# Turborepo
+.turbo/
+
+# Build outputs
+.next/
+.expo/
+.expo-shared/
+out/
+ios/build/
+android/build/
+android/app/build/
+android/.gradle/
+
+# Testing
+coverage/
+.vitest-cache/
+.jest-cache/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Generated artifacts (commit only the schema, not the generated outputs)
+contracts/generated/
+packages/contracts/dist/
+packages/contracts/src/generated/
+
+# BMad personal overrides (team overrides in _bmad/custom/config.toml are committed)
+_bmad/custom/config.user.toml
+
+# Claude Code per-user settings (team settings in .claude/settings.json are committed)
+.claude/settings.local.json
+
+# Tooling source videos and outputs (large binaries — don't commit)
+apps/tooling/source/
+apps/tooling/output/
+apps/tooling/labeled/
+
+# Mobile/Expo native cache
+apps/mobile/.expo/
+apps/mobile/web-build/

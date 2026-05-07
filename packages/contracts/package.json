@@ -1,0 +1,27 @@
+{
+  "name": "@warden/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./map-config": "./src/generated/map-config.ts",
+    "./user-doc": "./src/generated/user-doc.ts"
+  },
+  "scripts": {
+    "build": "node scripts/generate-zod.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'no lint configured yet'",
+    "test": "echo 'no tests yet'"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@warden/tsconfig": "workspace:*",
+    "json-schema-to-zod": "^2.6.1",
+    "typescript": "^5.6.3"
+  }
+}
