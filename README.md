@@ -37,4 +37,4 @@ pnpm tooling:test    # run Python tests in apps/tooling
 
 ## Status
 
-This monorepo is being assembled now from three pre-existing repos. See [the consolidation plan](C:\Users\stwie\.claude\plans\the-goal-of-this-polymorphic-popcorn.md) for the phased approach.
+This monorepo is being assembled now from three pre-existing repos. See [the consolidation plan](C:\Users\stwie.claude\plans\the-goal-of-this-polymorphic-popcorn.md) for the phased approach.

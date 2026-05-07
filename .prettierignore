@@ -1,0 +1,39 @@
+# Build outputs
+**/.next/
+**/.expo/
+**/dist/
+**/build/
+**/.turbo/
+**/coverage/
+
+# Dependencies & lockfiles
+**/node_modules/
+**/.venv/
+package-lock.json
+pnpm-lock.yaml
+uv.lock
+
+# Generated artifacts
+**/*.generated.*
+packages/contracts/src/generated/
+contracts/generated/
+
+# BMad install + output (planning artifacts have their own conventions)
+_bmad/
+_bmad-output/
+
+# Claude Code
+.claude/
+
+# Python project — managed by ruff/black, not prettier
+apps/tooling/
+
+# Mobile native build artifacts
+apps/mobile/android/build/
+apps/mobile/ios/build/
+apps/mobile/.expo/
+
+# Imported codebases preserve their original formatting until explicitly modernized
+# (remove these entries when each codebase is brought up to monorepo prettier conventions)
+apps/web/AGENTS.md
+apps/web/CLAUDE.md

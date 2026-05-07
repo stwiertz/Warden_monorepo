@@ -13,13 +13,20 @@
     "test": "turbo run test",
     "lint": "turbo run lint",
     "dev": "turbo run dev --parallel",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky",
     "tooling:test": "pnpm --filter tooling test",
     "contracts:build": "pnpm --filter @warden/contracts build"
   },
   "devDependencies": {
+    "@commitlint/cli": "^20.5.0",
+    "@commitlint/config-conventional": "^20.5.0",
+    "husky": "^9.1.7",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.7.2",
     "turbo": "^2.3.0",
-    "typescript": "^5.6.3",
-    "prettier": "^3.3.3"
+    "typescript": "^5.6.3"
   },
   "dependencies": {
     "bmad-method": "^6.6.0"

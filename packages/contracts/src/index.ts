@@ -1,2 +1,2 @@
-export * from "./generated/map-config.js";
-export * from "./generated/user-doc.js";
+export * from './generated/map-config.js'
+export * from './generated/user-doc.js'
