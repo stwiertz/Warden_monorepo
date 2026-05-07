@@ -1,0 +1,456 @@
+project: Warden
+created: 2026-02-02
+total_sprints: 6
+total_stories: 33
+methodology: sequential epics with forward-only dependencies
+
+# Sprint Planning Summary
+# ========================
+# Sprint 1:   Foundation (Epic 1) - 5 stories
+# Sprint 2:   Video Import & Processing (Epic 2) - 7 stories
+# Sprint 2.5: ROI Detection Redesign & View Mode Expansion (Epic 7) - 6 stories
+#             Inserted 2026-04-20 to rebuild the detection pipeline on the
+#             KDA + pHash methodology BEFORE Sprint 3 consumes it.
+# Sprint 3:   Playback & Navigation (Epic 3) - 6 stories
+# Sprint 4:   Clip Creation & Voice Commentary (Epic 4) - 6 stories
+# Sprint 5:   Export, Sharing & Persistence (Epics 5+6) - 7 stories
+
+sprints:
+
+  # ──────────────────────────────────────────────────────────
+  # SPRINT 1: Foundation
+  # Goal: Scaffolded project with auth, navigation, data layer
+  # Deliverable: User can install, log in, see home screen
+  # ──────────────────────────────────────────────────────────
+  - id: sprint-1
+    name: Foundation
+    goal: Scaffold project, set up navigation/styling/data layer, implement Firebase auth with subscription validation
+    status: completed
+    epic: Epic 1 - Project Setup & User Authentication
+    stories:
+      - id: "1.1"
+        title: Initialize Expo Project from Starter Template
+        status: completed
+        frs: []
+        notes: >
+          npx create-expo-app@latest Warden --template blank-typescript.
+          Set up src/features/, src/shared/, src/app/ structure.
+          Enable strict TypeScript.
+      - id: "1.2"
+        title: Set Up Navigation and Design System
+        status: completed
+        frs: []
+        depends_on: ["1.1"]
+        notes: >
+          React Navigation root stack, NativeWind + Tailwind config,
+          React Native Reusables (Button, Card, Dialog, Toast) themed dark.
+          Design tokens: bg #101014, surface #1A1A1E, accent #FF6B00.
+      - id: "1.3"
+        title: Set Up Data Layer (MMKV + SQLite)
+        status: completed
+        frs: []
+        depends_on: ["1.2"]
+        notes: >
+          MMKV instance + storage service, SQLite + database service,
+          sessions table created, Zustand persist middleware configured.
+      - id: "1.4"
+        title: Implement Firebase Login Screen
+        status: completed
+        frs: [FR29, FR33]
+        depends_on: ["1.3"]
+        notes: >
+          Email/password login, dark themed, Reader App model (no pricing/CTA),
+          error toast for invalid credentials.
+      - id: "1.5"
+        title: Implement Subscription Validation and Offline Auth Cache
+        status: completed
+        frs: [FR30, FR31, FR32]
+        depends_on: ["1.4"]
+        notes: >
+          Check user.isPaid via Firebase, cache auth in MMKV (30 days offline),
+          periodic re-validation when online, auto token refresh.
+
+  # ──────────────────────────────────────────────────────────
+  # SPRINT 2: Video Import & Processing Pipeline
+  # Goal: Import MP4, auto-slice into map episodes
+  # Deliverable: Coach imports video, sees processing, gets episodes
+  # ──────────────────────────────────────────────────────────
+  - id: sprint-2
+    name: Video Import & Auto-Slice Processing
+    goal: Build the complete video import and auto-slice processing pipeline with FFmpeg and OpenCV
+    status: in_progress
+    epic: Epic 2 - Video Import & Auto-Slice Processing
+    stories:
+      - id: "2.1"
+        title: Import MP4 Video from Device Storage
+        status: completed
+        frs: [FR1, FR4]
+        depends_on: ["1.5"]
+        notes: >
+          File picker filtered to video, MP4 H.264/AAC validation,
+          session record in SQLite (status: importing), video referenced in-place.
+      - id: "2.2"
+        title: Integrate FFmpeg and Extract Keyframes
+        status: in-progress
+        frs: []
+        depends_on: ["2.1"]
+        notes: >
+          Re-do FFmpeg integration: jdarshan5 fork's JitPack artifact 6.0-2 doesn't
+          resolve (commit 0c75f5d removed with-ffmpeg from app.json plugins). Service
+          wrapper at src/shared/services/ffmpeg.ts already exists with stable contract;
+          downstream processingPipeline.ts already consumes it. Story must drive
+          end-to-end Android dev-client build + real keyframe smoke test, RAM < 2GB.
+      - id: "2.3"
+        title: Detect Black Screen Timestamps
+        status: superseded
+        superseded_by: "7.5"
+        frs: [FR5]
+        depends_on: ["2.2"]
+        notes: >
+          SUPERSEDED by Story 7.5 (Sprint 2.5). The standalone black-screen
+          detector is replaced by the KDA/HSV gameDetector + 3-state long-GOP
+          fallback in 7.5 following Proposal 4 + 6 approval on 2026-04-20.
+      - id: "2.4"
+        title: Detect Map End Screens via Template Matching
+        status: superseded
+        superseded_by: "7.5"
+        frs: [FR6]
+        depends_on: ["2.2"]
+        notes: >
+          SUPERSEDED by Story 7.5 (Sprint 2.5). Template matching against
+          map assets is replaced by the pHash-based mapIdentifier in 7.5;
+          templateMatcher.ts and assets/images/map-templates/ are deleted
+          per Proposal 4 + 6 approval on 2026-04-20.
+      - id: "2.5"
+        title: Segment Video into Map Episodes
+        status: not_started
+        frs: [FR7, FR8]
+        depends_on: ["7.5"]
+        notes: >
+          Consume detection output from Story 7.5 (gameDetector + mapIdentifier),
+          determine map time ranges, mark lobby segments excluded, store in
+          map_segments table, extract result frames, update session status to ready.
+      - id: "2.6"
+        title: Background Processing with Progress and Crash Recovery
+        status: not_started
+        frs: [FR9, FR10]
+        depends_on: ["2.5"]
+        notes: >
+          Processing screen with progress bar + rotating tips,
+          Android foreground service, 1h20 < 2min target,
+          checkpoint-based crash recovery, auto-navigate to Card View on completion.
+      - id: "2.7"
+        title: Session List and Management
+        status: not_started
+        frs: [FR2, FR3]
+        depends_on: ["2.1"]
+        notes: >
+          Session list on home screen, delete session (cascade SQLite records,
+          keep source video), cold start two paths: Resume / Import.
+
+  # ──────────────────────────────────────────────────────────
+  # SPRINT 2.5: ROI Detection Redesign & View Mode Expansion
+  # Goal: Replace black-screen detector + template matcher with
+  #       KDA-based gameDetector + pHash mapIdentifier driven by
+  #       Firestore config. Expand view_mode to three values.
+  # Deliverable: New detection pipeline + view mode data model ready
+  #              for Sprint 3 to build on top of.
+  # ──────────────────────────────────────────────────────────
+  - id: sprint-2.5
+    name: ROI Detection Redesign & View Mode Expansion
+    goal: Rebuild detection pipeline on KDA + pHash methodology with remote config; expand view_mode data model to three values before Sprint 3 consumes it
+    status: not_started
+    epic: Epic 7 - ROI Detection Redesign & View Mode Expansion
+    stories:
+      - id: "7.2"
+        title: Update ClipExport.view_mode TypeScript Type
+        status: ready-for-dev
+        frs: []
+        depends_on: ["2.7"]
+        notes: >
+          Change view_mode union to 'full' | 'minimap' | 'minimap_hud',
+          export named ViewMode alias, audit codebase for 'pov' literals.
+          Land alongside 7.1.
+      - id: "7.1"
+        title: Update clip_exports.view_mode Schema
+        status: ready-for-dev
+        frs: []
+        depends_on: ["7.2"]
+        notes: >
+          SQLite CHECK constraint update, migration 'pov' → 'full',
+          schema version bump. Same PR as 7.2.
+      - id: "7.4"
+        title: Remote Detection Config with MMKV Cache
+        status: done
+        frs: []
+        depends_on: ["1.5"]
+        notes: >
+          DetectionConfig schema (ROIs, thresholds, map hashes),
+          Firestore fetch + MMKV cache, offline fallback, version check.
+          Replaces hardcoded constants in Sprint 2 detectors (no-op shim
+          until Story 7.5 lands).
+      - id: "7.5"
+        title: Replace Detectors (Game Detector + pHash Map Identifier)
+        status: ready-for-dev
+        frs: [FR5, FR6, FR7, FR8]
+        depends_on: ["7.4"]
+        notes: >
+          New gameDetector.ts (KDA/HSV 2-state machine), mapIdentifier.ts
+          (pHash 64-bit), blackScreenDetector refactored to 3-state long-GOP
+          fallback, templateMatcher.ts + assets/images/map-templates/ deleted.
+          Supersedes the Sprint 2 detection output.
+      - id: "7.3"
+        title: View Mode Toggle UI (Full / Minimap / Minimap+HUD)
+        status: ready-for-dev
+        frs: [FR14, FR15]
+        depends_on: ["7.2"]
+        notes: >
+          ViewModeToggle + HudToggle components, Zustand playback store
+          with MMKV-persisted viewMode and minimapHud preference.
+          Consumed by Sprint 3 Cinema Mode — SUPERSEDES original Story 3.5.
+      - id: "7.6"
+        title: Export Pipeline for 3 View Modes
+        status: ready-for-dev
+        frs: [FR22, FR23, FR24, FR25]
+        depends_on: ["7.1", "7.4"]
+        notes: >
+          exportRecipes.ts + exportPipeline.ts with FFmpeg recipes for
+          full (no crop), minimap (crop to ROI), minimap_hud (minimap +
+          KDA + Score overlays). Consumed by Sprint 5 — SUPERSEDES
+          original Stories 5.1 / 5.2 for the view-mode-aware export path.
+
+  # ──────────────────────────────────────────────────────────
+  # SPRINT 3: Playback & Episode Navigation
+  # Goal: Card View + Cinema Mode with minimap toggle
+  # Deliverable: Coach navigates episodes and reviews in full-screen
+  # NOTE: Story 3.5 is SUPERSEDED by Story 7.3 (Sprint 2.5).
+  #       Sprint 3 consumes the new detection output from Sprint 2.5
+  #       (map_segments with map_name set via pHash, not template match).
+  # ──────────────────────────────────────────────────────────
+  - id: sprint-3
+    name: Video Playback & Episode Navigation
+    goal: Build Card View episode grid, Cinema Mode player, timeline scrubber, episode nav, and minimap toggle
+    status: not_started
+    epic: Epic 3 - Video Playback & Episode Navigation
+    stories:
+      - id: "3.1"
+        title: Card View with Episode Grid
+        status: not_started
+        frs: [FR11]
+        depends_on: ["2.5"]
+        notes: >
+          Responsive grid (1col small, 2col standard), result frame thumbnails,
+          map name/index, temporal order default, tap to Cinema Mode.
+      - id: "3.2"
+        title: Cinema Mode Video Player with Controls
+        status: not_started
+        frs: [FR12]
+        depends_on: ["3.1"]
+        notes: >
+          Full-screen player (expo-av), reveal-on-tap controls, auto-hide 4s,
+          play/pause, portrait persistent controls, landscape overlay.
+      - id: "3.3"
+        title: Timeline Scrubber with Episode-Scoped Seek
+        status: not_started
+        frs: [FR13]
+        depends_on: ["3.2"]
+        notes: >
+          Draggable scrubber, seek constrained to episode time range,
+          full episode duration shown with position indicator.
+      - id: "3.4"
+        title: Episode Navigation (Next/Previous/Maps)
+        status: not_started
+        frs: [FR11]
+        depends_on: ["3.2"]
+        notes: >
+          Next/Previous buttons in sort order, Maps button returns to Card View,
+          explicit buttons (no swipe gestures).
+      - id: "3.5"
+        title: Full-Screen Minimap Toggle (POV / Minimap)
+        status: superseded
+        superseded_by: "7.3"
+        frs: [FR14, FR15]
+        depends_on: ["3.2"]
+        notes: >
+          SUPERSEDED by Story 7.3 (Sprint 2.5). The two-value POV/Minimap
+          toggle is replaced by a three-value toggle (full / minimap /
+          minimap_hud) following approval of Proposal 4 + 6 on 2026-04-20.
+          Wiring into the Cinema Mode controls overlay still happens here
+          during Sprint 3, but the components come from Story 7.3.
+      - id: "3.6"
+        title: Card View Sorting
+        status: not_started
+        frs: []
+        depends_on: ["3.1"]
+        notes: >
+          Sort dropdown: temporal (default), orange biggest win, blue biggest win,
+          closest map. Sort persists via MMKV. Score sort degrades to temporal in MVP.
+
+  # ──────────────────────────────────────────────────────────
+  # SPRINT 4: Clip Creation & Voice Commentary
+  # Goal: Define clips and record 3-slot voice commentary
+  # Deliverable: Coach creates clips with voice, previews them
+  # ──────────────────────────────────────────────────────────
+  - id: sprint-4
+    name: Clip Creation & Voice Commentary
+    goal: Build clip region selector, 3-slot voice recording (before/during/after), preview, and delete/re-record
+    status: not_started
+    epic: Epic 4 - Clip Creation & Voice Commentary
+    stories:
+      - id: "4.1"
+        title: Clip Region Selector with Draggable Handles
+        status: not_started
+        frs: [FR21]
+        depends_on: ["3.3"]
+        notes: >
+          Tap clip button, 30s region centered on playback, orange bracket handles,
+          draggable start/end, clip_exports record (status: defining),
+          bottom sheet < 40% screen, cancel by dragging down.
+      - id: "4.2"
+        title: Voice Recording - Before Slot
+        status: not_started
+        frs: [FR16]
+        depends_on: ["4.1"]
+        notes: >
+          Still frame of first clip frame, blinking mic + red dot,
+          tap-to-start/stop, AAC .m4a via expo-av, persist immediately,
+          audio_comments record (slot: before), waveform display after.
+      - id: "4.3"
+        title: Voice Recording - During Slot
+        status: not_started
+        frs: [FR17]
+        depends_on: ["4.1"]
+        notes: >
+          Countdown then clip plays while recording, blinking mic,
+          freeze last frame if talking past clip end, tap-to-stop,
+          AAC persist immediately, audio_comments (slot: during).
+      - id: "4.4"
+        title: Voice Recording - After Slot
+        status: not_started
+        frs: [FR18]
+        depends_on: ["4.1"]
+        notes: >
+          Still frame of last clip frame, blinking mic, tap-to-start/stop,
+          AAC persist immediately, audio_comments (slot: after).
+      - id: "4.5"
+        title: Clip Preview with Voice Commentary
+        status: not_started
+        frs: [FR20]
+        depends_on: ["4.2", "4.3", "4.4"]
+        notes: >
+          Preview plays: [before + still] → [clip + during] → [frozen + overflow]
+          → [after + still]. Skip empty slots. Replay available.
+      - id: "4.6"
+        title: Delete and Re-Record Voice Comments
+        status: not_started
+        frs: [FR19]
+        depends_on: ["4.2"]
+        notes: >
+          Delete icon per recording, removes file + SQLite record,
+          slot becomes available for re-record, other slots unaffected.
+
+  # ──────────────────────────────────────────────────────────
+  # SPRINT 5: Export, Sharing & Session Persistence
+  # Goal: Export clips, share via OS, persist state reliably
+  # Deliverable: Full end-to-end workflow complete
+  # ──────────────────────────────────────────────────────────
+  - id: sprint-5
+    name: Export, Sharing & Session Persistence
+    goal: Build export pipeline with quality options, OS sharing, and reliable session state persistence with auto-save
+    status: not_started
+    epics:
+      - Epic 5 - Clip Export & Sharing
+      - Epic 6 - Session Persistence & Reliability
+    stories:
+      # Epic 5 stories
+      - id: "5.1"
+        title: Export Pipeline with Quality Options
+        status: not_started
+        frs: [FR22, FR23]
+        depends_on: ["4.5", "7.6"]
+        notes: >
+          Mobile (720p) and HD (source res) quality options layer on top of
+          the view-mode-aware recipes from Story 7.6. This story focuses on
+          the quality/resolution plumbing; the per-view-mode FFmpeg recipes
+          come from 7.6. Mobile < 30s/min target.
+      - id: "5.2"
+        title: Assemble Multi-Segment Clip with Voice Overlay
+        status: not_started
+        frs: [FR24, FR25]
+        depends_on: ["5.1"]
+        notes: >
+          FFmpeg concat: [before+still] → [clip+during] → [frozen+overflow] → [after+still].
+          All segments optional. Output MP4 H.264/AAC playable without Warden.
+          clip_exports status → ready, file_path set. Voice-overlay merging
+          wraps the view-mode-aware export from 7.6.
+      - id: "5.3"
+        title: Share Exported Clip via OS Share Sheet
+        status: not_started
+        frs: []
+        depends_on: ["5.2"]
+        notes: >
+          OS share sheet opens automatically with exported MP4,
+          status → shared, return to Cinema Mode at exact position.
+          Uses Expo Sharing API.
+      - id: "5.4"
+        title: Export Progress Indication
+        status: not_started
+        frs: []
+        depends_on: ["5.1"]
+        notes: >
+          Modal with progress bar + percentage, no navigation during export,
+          cancel option available, share sheet on completion, error toast on failure.
+
+      # Epic 6 stories
+      - id: "6.1"
+        title: Auto-Save Session State Every 30 Seconds
+        status: not_started
+        frs: [FR26]
+        depends_on: ["3.5"]
+        notes: >
+          Persist to MMKV every 30s: session ID, episode index, playback position,
+          view mode, sort order, clip in progress. Silent, no UI indication.
+      - id: "6.2"
+        title: Resume Session Exactly Where Left Off
+        status: not_started
+        frs: [FR27]
+        depends_on: ["6.1"]
+        notes: >
+          Cold start "Resume last review" restores exact position,
+          view mode, sort order, clips with voice recordings intact.
+      - id: "6.3"
+        title: Persist State Across App Restarts and Reboots
+        status: not_started
+        frs: [FR28]
+        depends_on: ["6.1"]
+        notes: >
+          MMKV + SQLite + filesystem all survive force-close/reboot,
+          cold start offers resume, mid-processing resumes from checkpoint.
+
+# Dependency graph (story → depends_on)
+# 1.1 → 1.2 → 1.3 → 1.4 → 1.5 → 2.1
+# 2.1 → 2.2
+# 2.1 → 2.7
+#
+# --- Sprint 2.5 (Epic 7) inserted here ---
+# 2.7 → 7.2 → 7.1
+# 1.5 → 7.4 → 7.5
+# 7.2 → 7.3
+# 7.1 + 7.4 → 7.6
+#
+# 7.5 → 2.5 → 2.6      (2.5 consumes new detection output from 7.5)
+# 2.5 → 3.1 → 3.2 → 3.3 → 4.1
+#              3.2 → 3.4
+#              3.2 + 7.3 → (wiring) → 6.1 → 6.2
+#                                      6.3
+# 3.1 → 3.6
+# 4.1 → 4.2 → 4.6
+#        4.3
+#        4.4
+# 4.2 + 4.3 + 4.4 → 4.5 → 5.1 → 5.2 → 5.3
+#                          5.1 → 5.4
+# 7.6 → 5.1  (view-mode-aware export is prerequisite for quality plumbing)
+#
+# Stories 2.3 and 2.4 are SUPERSEDED by 7.5.
+# Story 3.5 is SUPERSEDED by 7.3.
+# Superseded stories are no longer in the active graph.
