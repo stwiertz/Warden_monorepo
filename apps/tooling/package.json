@@ -1,0 +1,12 @@
+{
+  "name": "tooling",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Thin Turborepo wrapper over the Python tooling project. Real code is Python — see pyproject.toml.",
+  "scripts": {
+    "test": "uv run pytest",
+    "typecheck": "echo 'Python project — typecheck via mypy not configured yet'",
+    "lint": "echo 'Python project — lint via ruff not configured yet'",
+    "build": "echo 'Python project — no JS build step'"
+  }
+}
