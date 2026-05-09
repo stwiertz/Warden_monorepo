@@ -1,5 +1,5 @@
 # generated: 2026-05-09
-# last_updated: 2026-05-09 (post code-review patch round)
+# last_updated: 2026-05-09 (Story 1.1 AR-SPIKE in-progress on branch ar-spike-perf-floor cut from main; epic-1 backlog → in-progress and 1-1 backlog → in-progress; Tasks 1-2 code-side work executed by dev agent, Tasks 3-9 paused pending Stephane-driven device measurements on Poco X5. Story 0.2 docs branch in parallel review will merge first per G0; this branch will rebase against main after that.)
 # project: Warden_monorepo
 # project_key: NOKEY
 # tracking_system: file-system
@@ -53,8 +53,8 @@ development_status:
   # ───────────────────────────────────────────────────────────────────
   # EPIC 1 — Foundations: V1-Blocking Spike, Brownfield, Cross-Language Contracts
   # ───────────────────────────────────────────────────────────────────
-  epic-1: backlog
-  1-1-pre-prd-performance-spike-ar-spike: backlog
+  epic-1: in-progress
+  1-1-pre-prd-performance-spike-ar-spike: in-progress
   1-2-foreground-service-android-config-plugin: backlog
   1-3-stripe-api-pin-bump: backlog
   1-4-firebase-v12-rn-auth-migration-add-deps-prebuild: backlog
