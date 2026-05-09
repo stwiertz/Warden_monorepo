@@ -2,14 +2,43 @@
 // mapIdentifier, blackScreenDetector fallback). The story's algorithms are
 // pure-data: they consume a typed RGB FrameBuffer plus an ROI and return
 // scalar/hash results, with no native dependency. JPEG decoding (turning a
-// keyframe path on disk into a FrameBuffer) is the only step that still
-// requires a native binding (react-native-fast-opencv); that boundary lives
-// behind `loadFrameFromPath` and currently throws until the native wrapper
-// is wired up. Tests construct synthetic FrameBuffers directly.
+// keyframe path on disk into a FrameBuffer) is the only step that requires
+// a native binding (react-native-fast-opencv); that boundary lives behind
+// `loadFrameFromPath` (Story 1.1 / AR-SPIKE wired the real JSI binding).
+// Tests still construct synthetic FrameBuffers directly via injected
+// FrameLoaders, so no jest mock of the native module is required.
 //
 // All primitives operate on tightly packed byte arrays so the same code paths
 // run on Android, iOS, and Node (jest). HSV is computed from RGB on demand —
 // we never need a separate HSV buffer.
+
+// Native dependencies for `loadFrameFromPath` are lazy-required at call time
+// (see the function body) to keep `opencv.ts` importable in jest/node, where
+// react-native-fast-opencv's JSI bindings cannot install. Detector tests in
+// `__tests__/opencv.test.ts` import the pure-TS primitives above and inject
+// synthetic FrameLoaders, so they never hit the lazy require path. This
+// mirrors the existing pattern in `ffmpeg.ts` (see `getFFmpeg()`).
+import type {
+  OpenCVModel,
+  ColorConversionCodes as ColorConversionCodesType,
+  DataTypes as DataTypesType,
+  ObjectType as ObjectTypeType,
+} from "react-native-fast-opencv";
+
+interface FastOpencvModule {
+  OpenCV: OpenCVModel;
+  ColorConversionCodes: typeof ColorConversionCodesType;
+  DataTypes: typeof DataTypesType;
+  ObjectType: typeof ObjectTypeType;
+}
+
+interface LegacyFileSystemModule {
+  readAsStringAsync: (
+    fileUri: string,
+    options?: { encoding?: string }
+  ) => Promise<string>;
+  EncodingType: { Base64: string };
+}
 
 export interface FrameBuffer {
   // RGB packed: data[i*3+0]=R, data[i*3+1]=G, data[i*3+2]=B, all 0..255.
@@ -370,16 +399,71 @@ export function hammingDistance(a: string, b: string): number {
 }
 
 /**
- * Decode a JPEG (or PNG) keyframe on disk into an RGB FrameBuffer. The
- * native binding (react-native-fast-opencv) is not yet wired into the dev
- * client, so this throws — call sites that need full pipeline execution
- * pass an alternative loader (tests synthesise FrameBuffers directly).
+ * Decode a JPEG (or PNG) keyframe on disk into an RGB FrameBuffer.
+ *
+ * Pipeline: read the file as base64 → `OpenCV.base64ToMat` decodes it as a
+ * BGR `Mat` (OpenCV's native colour order) → `cvtColor` converts BGR→RGB →
+ * `matToBuffer` extracts the packed `Uint8Array` → wrap in `Uint8ClampedArray`
+ * to match the existing `FrameBuffer` contract. The Mat handles are released
+ * via `clearBuffers([])` so native heap doesn't grow across thousands of
+ * keyframes during a long auto-slice run (PERF-002 budget is hardware-bound;
+ * native-heap leak would OOM-kill the app mid-pipeline).
  *
  * The boundary is intentionally narrow: every detection algorithm above is
- * pure TS and works on any FrameBuffer source.
+ * pure TS and works on any FrameBuffer source. Tests inject synthetic
+ * FrameLoaders directly, so they don't depend on the native module loading.
  */
-export async function loadFrameFromPath(_path: string): Promise<FrameBuffer> {
-  throw new Error(
-    "loadFrameFromPath: JPEG decode requires react-native-fast-opencv. Wire up the native module to enable on-device processing."
-  );
+export async function loadFrameFromPath(path: string): Promise<FrameBuffer> {
+  let fastOpencv: FastOpencvModule;
+  let legacyFs: LegacyFileSystemModule;
+  try {
+    fastOpencv = require("react-native-fast-opencv") as FastOpencvModule;
+    legacyFs = require("expo-file-system/legacy") as LegacyFileSystemModule;
+  } catch {
+    throw new Error(
+      "loadFrameFromPath: react-native-fast-opencv or expo-file-system not available. Run expo prebuild and build the dev client."
+    );
+  }
+  const { OpenCV, ColorConversionCodes, DataTypes, ObjectType } = fastOpencv;
+
+  const base64 = await legacyFs.readAsStringAsync(path, {
+    encoding: legacyFs.EncodingType.Base64,
+  });
+
+  const bgrMat = OpenCV.base64ToMat(base64);
+  // 0×0 placeholder Mat with the destination element type — OpenCV's cvtColor
+  // resizes dst as it writes the converted output (the standard C++ behaviour
+  // is preserved through this JSI binding).
+  const rgbMat = OpenCV.createObject(ObjectType.Mat, 0, 0, DataTypes.CV_8UC3);
+  try {
+    OpenCV.invoke(
+      "cvtColor",
+      bgrMat,
+      rgbMat,
+      ColorConversionCodes.COLOR_BGR2RGB
+    );
+    const { buffer, rows, cols, channels } = OpenCV.matToBuffer(
+      rgbMat,
+      "uint8"
+    );
+
+    if (channels !== 3) {
+      throw new Error(
+        `loadFrameFromPath: expected 3-channel RGB Mat, got ${channels} channels`
+      );
+    }
+    if (buffer.length !== rows * cols * 3) {
+      throw new Error(
+        `loadFrameFromPath: buffer length ${buffer.length} ≠ rows*cols*3 (${rows}*${cols}*3=${rows * cols * 3})`
+      );
+    }
+
+    return {
+      data: new Uint8ClampedArray(buffer),
+      width: cols,
+      height: rows,
+    };
+  } finally {
+    OpenCV.clearBuffers([]);
+  }
 }
