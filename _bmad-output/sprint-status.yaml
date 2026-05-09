@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-05-09
-last_updated: 2026-05-09  # 0-2 backlog→review (Story 0.2 complete: 10 disposition blocks inserted + audit footer "Lifted on 2026-05-09" appended; PR opens with verbatim AC8 title for G0 gate-lift; AC checkbox tighten convention applied — all ACs `[ ]` until post-merge verification).
+last_updated: 2026-05-09  # 0-2 review→done post-merge of PR #3 (merge commit e6ad6e0). G0 gate LIFTED — Sprint 3 stories cleared to merge to main per Sprint Plan §2 Gate G0. Audit-file footer "Lifted on 2026-05-09" matches actual merge date (no refresh needed). AR-SPIKE branch (ar-spike-perf-floor) to rebase against post-0.2 main next.
 project: Warden_monorepo
 project_key: NOKEY
 tracking_system: file-system
@@ -47,7 +47,7 @@ development_status:
   # ───────────────────────────────────────────────────────────────────
   epic-0: in-progress
   0-1-conduct-per-story-conflict-audit-for-sprint-2-5-in-flight-mobile-work: done
-  0-2-execute-sprint-2-5-per-story-dispositions: review
+  0-2-execute-sprint-2-5-per-story-dispositions: done
   epic-0-retrospective: optional
 
   # ───────────────────────────────────────────────────────────────────
