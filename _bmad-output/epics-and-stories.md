@@ -246,7 +246,7 @@ This document provides the complete epic and story breakdown for **Warden_monore
 - **PERF-007 (web):** LCP ≤ 2.5 s on 4G mobile; CLS ≤ 0.1; TTI on `/pricing` ≤ 3 s.
 - **PERF-008 (web):** Webhook handler end-to-end latency ≤ 1 s p95 under nominal load.
 - **PERF-009 (tooling):** BSD round-detection processes within 1× source duration on developer-class hardware.
-- **PERF-010 (mobile):** Reference-device performance floor — TBD per architecture pre-PRD spike. **V1 launch is gated on the spike's completion.** Spike artifact: `_bmad-output/architecture-spike-perf-floor.md`.
+- **PERF-010 (mobile):** Reference-device performance — **soft target.** Reference device is the Poco X5 Pro 5G (SM7325 / Snapdragon 778G class); no committed minimum-supported-device floor. V1 launch is **not gated** on a measurement (the AR-SPIKE follow-up Story 1.1.1 was cancelled 2026-05-09 — ship-and-observe). Spike artifact: `_bmad-output/architecture-spike-perf-floor.md` (see decision banner at top).
 
 #### Security — 7 NFRs
 
@@ -468,15 +468,15 @@ This map traces every FR, NFR, architecture work item (AR), brownfield dispositi
 | NFR | Epic(s) | Notes |
 |---|---|---|
 | PERF-001 | Epic 2, Epic 10 | Telemetry instrument; post-launch verification on reference device |
-| PERF-002 | Epic 1 | Spike measures auto-slice ≤5% of source duration |
-| PERF-003 | Epic 1, Epic 5 | Spike validates ≤100 ms; Epic 5 implementation enforces no-player-swap pattern |
-| PERF-004 | Epic 1, Epic 5 | Spike validates Cinema Mode cold-start ≤1.5 s |
-| PERF-005 | Epic 1, Epic 6 | Spike validates clip-export ≤2× clip duration on Mobile-tier |
+| PERF-002 | Epic 1 | Soft target: auto-slice ≤5% of source duration. Verified via manual on-device run during auto-slice path build (ship-and-observe per spike decision 2026-05-09). |
+| PERF-003 | Epic 5 | Soft target: ≤100 ms view-mode toggle. Epic 5 implementation enforces no-player-swap pattern; verified by manual feel-test, not measurement gate. |
+| PERF-004 | Epic 5 | Soft target: Cinema Mode cold-start ≤1.5 s. Verified by manual feel-test during Story 5.4 build. |
+| PERF-005 | Epic 6 | Soft target: clip-export ≤2× clip duration on Mobile-tier. Verified by manual encode timing during Story 6.6 build. |
 | PERF-006 | Epic 4 | Web FCP ≤1.5 s (already met by current legacy implementation; regression coverage) |
 | PERF-007 | Epic 4 | Web LCP ≤2.5 s; CLS ≤0.1; TTI ≤3 s |
 | PERF-008 | Epic 1 | Webhook ≤1 s p95 (already met; AR-9 regression coverage) |
 | PERF-009 | Epic 9 | Tooling BSD linear scaling |
-| PERF-010 | Epic 1 | AR-SPIKE binds the floor; **V1 launch gated** |
+| PERF-010 | Epic 1 | AR-SPIKE published binding-viability evidence; numeric floor cancelled 2026-05-09 in favour of soft "X5 Pro 5G class" target. V1 launch NOT gated. |
 | SEC-001 | Epic 1 | Stripe signature verification (already implemented; AR-9 regression) |
 | SEC-002 | Epic 1 | Server-only writes via firebase-admin; AR-6 rules layer |
 | SEC-003 | Epic 1 | BF-2 firestore.rules prod deploy; **V1-blocking** |
@@ -735,7 +735,7 @@ So that **complete-as-legacy stories merge through their existing AC, re-scoped 
 
 ## Epic 1: Foundations — V1-Blocking Spike, Brownfield Reconciliation & Cross-Language Contracts
 
-**Goal:** All V1-launch-blocking foundation work is complete and verified: pre-PRD performance spike published with measured PERF-010 floor and Innovation #1 ladder rung; Firebase v12 RN auth migration signed off end-to-end; user-doc + map-config contracts single-sourced and strict; Foreground Service plugin keeps mobile pipeline alive; Stripe webhook idempotency regression-covered; Firestore rules deployed to production with extended coverage.
+**Goal:** All V1-launch-blocking foundation work is complete and verified: pre-PRD performance spike published with binding-viability evidence and provisional rung-0 verdict accepted as final (the originally-planned measurement follow-up was cancelled 2026-05-09 in favour of build-and-observe — see `_bmad-output/architecture-spike-perf-floor.md` decision banner); Firebase v12 RN auth migration signed off end-to-end; user-doc + map-config contracts single-sourced and strict; Foreground Service plugin keeps mobile pipeline alive; Stripe webhook idempotency regression-covered; Firestore rules deployed to production with extended coverage.
 
 ### Story 1.1: Pre-PRD Performance Spike (AR-SPIKE) — Resolves Decision #ES-2
 
@@ -2040,7 +2040,7 @@ So that **the video is the focus of attention; UI chrome is out of the way unles
 - Test: tap reveals controls.
 - Test: cold-start time within budget (mocked; verified manually on device).
 
-**Dependencies:** Epic 0 Story 0.2 (legacy Sprint 2.5 7.3 view-mode toggle UI lands); Story 1.1 spike (PERF-004 measured).
+**Dependencies:** Epic 0 Story 0.2 (legacy Sprint 2.5 7.3 view-mode toggle UI lands). *(PERF-004 ≤1.5 s is a soft target verified by manual feel-test during build; Story 1.1.1 measurement cancelled 2026-05-09.)*
 
 **Sprint fit:** fits-in-one-sprint.
 
@@ -2078,7 +2078,7 @@ So that **view-mode switching is fast, gesture-discoverable, and doesn't interru
 - Test: T1-active-player emission on first toggle (mocked telemetry wrapper).
 - Test: unknown map disables Minimap / Minimap+HUD options.
 
-**Dependencies:** Stories 5.4, 2.5; Story 1.1 spike (PERF-003 measured); Epic 0 Story 0.2 legacy 7.3 view-mode toggle UI as foundation.
+**Dependencies:** Stories 5.4, 2.5; Epic 0 Story 0.2 legacy 7.3 view-mode toggle UI as foundation. *(PERF-003 ≤100 ms is a soft target verified by manual feel-test during build; Story 1.1.1 measurement cancelled 2026-05-09.)*
 
 **Sprint fit:** fits-in-one-sprint.
 
@@ -2336,7 +2336,7 @@ So that **I can match the encode to the share context — Mobile for quick Disco
 - Test: HD-tier encode produces correct recipe.
 - Test: encode failure preserves clip-mode state.
 
-**Dependencies:** Stories 6.1, 6.3, 6.5; Story 1.1 spike (PERF-005 measured).
+**Dependencies:** Stories 6.1, 6.3, 6.5. *(PERF-005 ≤2× clip duration on Mobile-tier is a soft target verified by manual encode timing during build; Story 1.1.1 measurement cancelled 2026-05-09.)*
 
 **Sprint fit:** fits-in-one-sprint.
 
@@ -2713,7 +2713,7 @@ So that **launch readiness is unambiguous; every V1-blocker has a checkable row;
 
 | # | Gate | Story Ref | Owner | Status |
 |---|------|-----------|-------|--------|
-| L1 | AR-SPIKE published `_bmad-output/architecture-spike-perf-floor.md` with measured PERF-010 + ladder rung verdict | 1.1 | Stephane | TBD |
+| L1 | AR-SPIKE published `_bmad-output/architecture-spike-perf-floor.md` with binding-viability evidence + accepted provisional rung-0 verdict (measurement follow-up cancelled 2026-05-09; ship-and-observe) | 1.1 | Stephane | DONE |
 | L2 | Firebase v12 RN auth migration Story 3.F E2E sign-off of all 10 PRD journeys (J1–J10) | 1.9 | Stephane | TBD |
 | L3 | Firestore Security Rules deployed to production | 1.15 | Stephane | TBD |
 | L4 | Reader-App CI gate green on mainline (mobile build artifacts contain zero monetization-surface artifacts) | 2.1 | Stephane | TBD |
@@ -2723,7 +2723,7 @@ So that **launch readiness is unambiguous; every V1-blocker has a checkable row;
 | L8 | Web token bump A11Y-001 contrast re-verify pass | 4.1 | Stephane | TBD |
 | L9 | Web → Stripe Customer Portal cancel flow (J8) verified end-to-end with anti-dark-pattern policy | 4.5 | Stephane | TBD |
 | L10 | OG card preview verified on Discord | 4.2 | Stephane | TBD |
-| L11 | Mobile Cinema Mode + view-mode toggle PERF-003 ≤100 ms verified on reference device | 5.5 | Stephane | TBD |
+| L11 | Mobile Cinema Mode + view-mode toggle: ≤100 ms feels-instant verified by manual on-device feel-test (PERF-003 is a soft target, not a measurement gate; spike measurement cancelled 2026-05-09) | 5.5 | Stephane | TBD |
 | L12 | Discord-inline-playable MP4 verified on Discord (J5) | 6.8 | Stephane | TBD |
 | L13 | clipDeletion cascade verified — zero orphans (PRIV-003) | 6.9 | Stephane | TBD |
 | L14 | J2 interruption + resume verified on Android (Battery Optimization both enabled + disabled) | 7.3 | Stephane | TBD |

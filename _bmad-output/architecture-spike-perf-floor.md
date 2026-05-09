@@ -1,6 +1,17 @@
 # AR-SPIKE — Pre-PRD Performance Floor (Story 1.1)
 
-**Status:** Binding-only cut (Session 2, 2026-05-09). Provisional rung verdict published. Final rung TBD post-Story-1.1.1 measurement.
+**Status:** Binding-only cut (Session 2, 2026-05-09). Provisional rung verdict accepted as final. **Story 1.1.1 measurement CANCELLED 2026-05-09** — decision below.
+
+> **Decision update — 2026-05-09 (Stephane).** The follow-up measurement story (Story 1.1.1) is **cancelled**. We are not running a formal measurement spike. Rationale: feasibility is already proven by the binding-viability evidence in this report (AC1, AC2, AC3 closed); committing engineering hours to measure a perf surface we have not yet built risks optimising something we may not need. Build the surfaces (Stories 5.4 / 5.5 / 6.6 + the auto-slice path), observe real behaviour during V1, and optimise only if real users complain.
+>
+> **Effects:**
+> - **Provisional rung-0 is accepted as the working V1 verdict.** It will not be re-affirmed by a measurement run. It can still be revised post-V1 if observed behaviour forces it (e.g., if real users on mid-tier devices report unacceptable processing or playback experience).
+> - **PERF-002/003/004/005 numeric budgets become soft UX targets**, not measurement gates. Future devs building Stories 5.4 / 5.5 / 6.6 should aim at them as design targets and verify with manual on-device testing; they are not blocking acceptance criteria.
+> - **PERF-010 softens** from "measured floor TBD" to "soft reference target — Poco X5 Pro 5G class; no committed minimum supported device." V1 ships with whatever Play Store filters accept.
+> - **Cloud-fallback remains FORBIDDEN per AC11** — that is an architecture decision, not a measurement outcome, and stands regardless.
+> - **Sprint Plan §2 Gate G1 fully closes** on the binding-viability evidence. Sprint-3 stories that previously listed `Story 1.1 spike (PERF-X measured)` as a hard dependency (5.1, 5.3, 5.4, 5.5, 6.6) are unblocked.
+>
+> The "Deferred measurements (Story 1.1.1 inheritance)" and "G1 sign-off — partial" sections below are kept as historical record of what was originally planned. They are no longer load-bearing.
 
 **Branch:** `ar-spike-perf-floor`
 **Story spec:** `_bmad-output/implementation-artifacts/1-1-pre-prd-performance-spike-ar-spike.md`
@@ -146,7 +157,9 @@ Six substrate gaps were discovered during Session 2's measurement attempts. Each
 
 The story file's Dev Note "Substrate gap audit (2026-05-09) — six gaps blocking measurement" carries the same audit with discovery-evidence detail.
 
-## Ladder rung verdict — provisional
+## Ladder rung verdict — accepted as final
+
+> **Update 2026-05-09:** Per the decision banner at top of this report, the provisional rung-0 verdict is **accepted as the working V1 verdict** without a measurement run. The conditional-revision clauses below remain available as escape hatches if real V1 behaviour forces a rung change post-launch, but they are not gated on a measurement story.
 
 **Verdict (provisional, Story 1.1):** **`rung-0 plausible — binding viable; final rung TBD post-Story-1.1.1 measurement; cloud-fallback rung remains FORBIDDEN per AC11 regardless of any future measurement outcome.`**
 
@@ -221,8 +234,8 @@ Concrete handoffs from this spike to Sprint 3:
 7. **pHash/ahash method reconciliation (gap #5)** — bundle with #6 (do at the same time as new-HUD re-fingerprinting). Either swap on-device `phash` → `ahash` (re-test `mapIdentifier` jest fixtures) OR regenerate `map_config.json` with phash via `apps/tooling/tools/map_config_generator.py` (would need a `--method=phash` flag in the script).
 8. **Story 1.1.1 — AR-SPIKE measurement** — runs after #5, #6, #7 land. Inherits AC4, AC5, AC6, AC7, AC8, AC9, AC10-final, AC13 from Story 1.1.
 
-## G1 sign-off — partial
+## G1 sign-off — full (post Story 1.1.1 cancellation)
 
-> **Story 1.1 published the AR-SPIKE binding-viability evidence on 2026-05-09.** Sprint Plan §2 Gate G1 is **PARTIALLY CLEARED**: closes for binding viability + Sprint-3 stories without `Story 1.1 spike` dependency. **Full close (Stories 5.1, 5.3, 5.4, 5.5, 6.6 unblock) waits on Story 1.1.1's measurement.** Those stories may begin development with the **provisional rung-0 assumption** but should be ready to revise scope if Story 1.1.1's measurement comes back hostile. PRD update with PERF-010 binding follows in a separate commit per AC13 once Story 1.1.1 publishes the measured floor.
+> **Update 2026-05-09:** With Story 1.1.1 cancelled and the provisional rung-0 verdict accepted as final, **Sprint Plan §2 Gate G1 fully closes** on the binding-viability evidence. Stories 5.1 / 5.3 / 5.4 / 5.5 / 6.6 are unblocked. They may begin development with rung-0 as the working assumption; PERF-002/003/004/005 numeric budgets stand as soft UX targets verified by manual on-device testing during the build, not measurement gates. PERF-010 in the PRD is reframed as a soft reference target (see PRD update). AC16 closes fully. AC13 is dropped — there is no measurement to publish.
 
-This sign-off statement closes AC16 (partial). When Story 1.1.1 publishes its measurement, AC16 is amended in this same `_bmad-output/architecture-spike-perf-floor.md` file with a "G1 sign-off — full" subsection.
+> **Original partial sign-off (historical):** Story 1.1 published the AR-SPIKE binding-viability evidence on 2026-05-09. Sprint Plan §2 Gate G1 was originally **PARTIALLY CLEARED**: closes for binding viability + Sprint-3 stories without `Story 1.1 spike` dependency. Full close (Stories 5.1, 5.3, 5.4, 5.5, 6.6 unblock) was scheduled to wait on Story 1.1.1's measurement. Those stories were to begin development with the provisional rung-0 assumption and revise scope if Story 1.1.1's measurement came back hostile. PRD update with PERF-010 binding was to follow in a separate commit per AC13 once Story 1.1.1 published the measured floor. This plan was superseded by the 2026-05-09 decision update at top of this report.

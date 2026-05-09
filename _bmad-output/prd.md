@@ -1020,7 +1020,7 @@ This section specifies **how well** Warden V1 must perform. NFRs are testable qu
 - **PERF-007 (web):** Largest Contentful Paint ≤ 2.5s on 4G mobile; Cumulative Layout Shift ≤ 0.1; Time-to-Interactive on `/pricing` ≤ 3s. *(Section 7)*
 - **PERF-008 (web):** Webhook handler end-to-end latency (signature verification → Firestore write → 200 response) ≤ 1s p95 under nominal load. *(Section 5 Integration table — webhook delays >1h indicate fault)*
 - **PERF-009 (tooling):** BSD round-detection processing time scales linearly with source video duration; multi-hour videos process within 1× source duration on developer-class hardware. *(tooling distillate — round segmentation must not be pipeline bottleneck)*
-- **PERF-010 (mobile):** Reference-device performance floor — TBD per architecture pre-PRD spike (Risk #2 escalation). PRD inherits the architecture-published number; V1 launch is gated on the spike's completion. *(Section 2, Section 5)*
+- **PERF-010 (mobile):** Reference-device performance — **soft target, not a measured floor.** V1 targets the Poco X5 Pro 5G (SM7325 / Snapdragon 778G class) as the dev reference device but does **not** commit a numeric minimum-supported-device floor. The original plan to bind a measured number via the AR-SPIKE follow-up (Story 1.1.1) was cancelled on 2026-05-09 in favour of a build-and-observe approach (see `_bmad-output/architecture-spike-perf-floor.md` decision banner). V1 launch is **not gated** on a measurement; it ships against whatever device set the Play Store filter accepts and is revisited only if real-user feedback surfaces unacceptable performance. Cloud-fallback CV remains FORBIDDEN regardless (architecture AC11). *(Section 2, Section 5)*
 
 ### Security
 

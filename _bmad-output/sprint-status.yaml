@@ -22,6 +22,7 @@
 #   - in-progress: Developer actively working on implementation
 #   - review: Ready for code review (via Dev's code-review workflow)
 #   - done: Story completed
+#   - cancelled: Story explicitly de-scoped (decision recorded in last_updated comment)
 #
 # Retrospective Status:
 #   - optional: Can be completed but not required
@@ -35,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-05-09
-last_updated: 2026-05-09  # 1-1 review→done post-merge of PR #5 (merge commit a633c2e). G1 PARTIAL CLOSE — binding viability proven; final rung verdict TBD post-Story-1.1.1 measurement. Sprint-3 stories WITHOUT explicit `Story 1.1 spike` dep unblocked; stories carrying that dep (5.1, 5.3, 5.4, 5.5, 6.6) wait on 1-1-1 for full unblock. New entry `1-1-1-ar-spike-measurement` queued as `backlog` under Epic 1; runs once Stories 1-13/1-14/1-15/1-16 + new-HUD work + pHash/ahash reconciliation land. AC13 (PRD PERF-010 update) transferred to Story 1.1.1 per binding-only-cut carve-out.
+last_updated: 2026-05-09  # Decision reversal (Stephane): Story 1.1.1 CANCELLED. Drop deferred PERF measurements (AC4/AC5/AC6/AC7/AC8/AC9/AC10-final/AC13) — ship-and-observe instead. Rationale: feasibility already proven by Story 1.1's binding-viability evidence; numeric budgets become soft UX targets, not measurement gates; optimize only if V1 surfaces real perf complaints. G1 fully closes (binding-viability + provisional rung-0 accepted). Sprint-3 stories 5.1/5.3/5.4/5.5/6.6 unblocked — they no longer carry a `Story 1.1 spike (PERF-X measured)` hard dependency; PERF-003/004/005 budgets stay as soft targets verified by manual testing during feature build. PERF-010 (PRD/epics) softens from "measured floor" to "soft reference target — Poco X5 Pro 5G class; no committed minimum supported device." Cloud-fallback FORBIDDEN per AC11 stands regardless (architecture decision, not measurement outcome).
 project: Warden_monorepo
 project_key: NOKEY
 tracking_system: file-system
@@ -55,7 +56,7 @@ development_status:
   # ───────────────────────────────────────────────────────────────────
   epic-1: in-progress
   1-1-pre-prd-performance-spike-ar-spike: done
-  1-1-1-ar-spike-measurement: backlog  # binding-only-cut follow-up to 1.1; runs after Stories 1-13/1-14/1-15/1-16 + new-HUD work + pHash/ahash reconciliation; inherits AC4/AC5/AC6/AC7/AC8/AC9/AC10-final/AC13 from 1.1
+  1-1-1-ar-spike-measurement: cancelled  # CANCELLED 2026-05-09 (Stephane). Ship-and-observe replaces formal measurement. AC4/AC5/AC6/AC7/AC8/AC9/AC10-final/AC13 dropped as measurement obligations; numeric PERF-002/003/004/005 budgets become soft UX targets verified by manual testing during the build of Stories 5.4/5.5/6.6 + auto-slice on first real run. Rationale: don't optimize what may not need it; build first, observe in V1, optimize only on real complaints.
   1-2-foreground-service-android-config-plugin: backlog
   1-3-stripe-api-pin-bump: backlog
   1-4-firebase-v12-rn-auth-migration-add-deps-prebuild: backlog
