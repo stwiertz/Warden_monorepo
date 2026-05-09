@@ -632,6 +632,7 @@ This map traces every FR, NFR, architecture work item (AR), brownfield dispositi
 **User outcome:** Coach Thomas closes the app mid-clip during the J2 daughter-interrupts scenario and reopens 2 hours later — Cinema Mode resumes at the exact frame, half-recorded voice annotation preserved, clip region with bracket handles intact. He listens back to his half-thought, taps "during" again to overwrite, finishes the export. The interruption cost is the actual interruption time, not the work lost. Across crashes, force-closes, OS-killed states, and device restarts, no data is lost within the active editing session. Offline-mode (J9 train ride) works identically to online for review + export-with-share-queue.
 **FRs covered:** mobile-AUTOSAVE-001/002
 **NFRs covered:** REL-001 (data survives crash/force-close/OS-killed/restart), REL-002 (offline 30 days), A11Y-006 (state indicators non-color)
+**Dependencies (interleaved with Epic 6 — important for sprint sequencing):** Epic 7 is NOT a strict-after-Epic-6 cascade. Story 7.1 depends on Stories 6.1 + 6.3 (clip region + voice recorder exist before auto-save can persist them); Story 6.4 in Epic 6 then depends on Story 7.1 (the auto-save resume guarantee underpins re-record-mid-interruption). Effective story-level order: **6.1 → 6.3 → 7.1 → 6.4 → (rest of Epic 6) → 7.2 → 7.3**. Epic 7 also depends on Epic 1 Story 1.2 (Foreground Service plugin for JS-context survival). Sprint planning must sequence the interleave; do NOT plan Epic 6 fully before Epic 7.
 **Implementation notes:** `processingPipeline.ts` 4-stage MMKV-checkpointed orchestrator already exists (legacy Sprint 2.5). NEW work: clip-creation auto-save in `useClipExport.ts` (silent persistence per `mobile-AUTOSAVE-001` — no user-visible prompt at save time; resume is implicit on next launch). On launch, App.tsx reads `useSessionStore.currentSessionId` and restores Cinema Mode position via `useSessionStore.playbackPositionMs`. The interruption-handles-correctly story spans the Foreground Service plugin (Epic 1 BF-5) — the service hosts the main JS context for processing duration; clip-creation auto-save engages even when the service is not running (Cinema Mode + clip mode are foreground UI work, not pipeline work).
 
 ### Epic 8: Mobile — French i18n, Help & Manual Error Reporting
@@ -1301,7 +1302,7 @@ So that **PRD's J4 dual-T1 instrumentation distinguishes the active-player solo 
 - Test: T1-active-player does not emit if T1-coach previously fired.
 - Test: T1-active-player does not re-emit on subsequent toggles.
 
-**Dependencies:** Story 2.2 (wrapper); Story 2.3 (T0 + elapsed calculation); cross-epic depends on Epic 5 Story 5.5 (view-mode toggle UI exists; this story wires the telemetry hook into it).
+**Dependencies:** Story 2.2 (wrapper); Story 2.3 (T0 + elapsed calculation); cross-epic depends on **Epic 0 Story 0.2** (legacy view-mode toggle UI shipped via Sprint 2.5 Story 7.3 lands as complete-as-legacy — `ViewModeToggle.tsx` + `CinemaModeScreen.tsx` exist; this story wires the telemetry-emit hook into the existing first-toggle event). NOT dependent on Epic 5 Story 5.5 — that story enforces PERF-003 ≤100ms (no-player-swap pattern) on the existing toggle and is **orthogonal** to telemetry emission. Story 2.5 can land before OR after Story 5.5.
 
 **Sprint fit:** fits-in-one-sprint.
 
@@ -3012,7 +3013,7 @@ Multiple stories touch `apps/web/src/components/dashboard/SubscriptionCard.tsx` 
 - **Epic 4** depends on Epic 1 (Story 1.12 trialing handler for entitlement-read alignment); independent of mobile epics — can parallelize.
 - **Epic 5** depends on Epic 0 (legacy view-mode toggle UI from Sprint 2.5 Story 7.3); Epic 1 (spike outcome dictates Card View shape per ladder rung); Epic 2 (telemetry wrapper for T1-active-player path).
 - **Epic 6** depends on Epic 5 (Cinema Mode platform); Epic 1 (spike for FFmpeg encode budget); Epic 2 (telemetry wrapper for T1-coach path).
-- **Epic 7** depends on Epic 6 (clip-creation state to auto-save) + Epic 1 (Foreground Service plugin for JS-context survival).
+- **Epic 7** has a **partial interleave with Epic 6**, not a clean strict-after dependency: Story 7.1 (silent auto-save in clip mode) depends on Stories 6.1 + 6.3 (clip region + voice recorder must exist before they can be auto-saved); Story 6.4 (voice slot re-record) then depends on Story 7.1 (the resume-mid-rerecord guarantee). Effective story-level order: **6.1 → 6.3 → 7.1 → 6.4 → (rest of Epic 6) → 7.2 → 7.3**. Epic 7 also depends on Epic 1 Story 1.2 (Foreground Service plugin for JS-context survival). Sprint planning must sequence the interleave; do NOT plan Epic 6 fully before Epic 7.
 - **Epic 8** depends on Epic 2 (Reader-App gate scans the i18n bundle); independent otherwise.
 - **Epic 9** depends on Epic 1 (Story 1.13 hybrid map_config.json + schema_version regenerated).
 - **Epic 10** depends on all other epics (synthesis).
