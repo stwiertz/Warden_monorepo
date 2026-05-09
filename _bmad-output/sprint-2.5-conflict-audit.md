@@ -48,3 +48,5 @@ Rules walk in order **A → B → C**. The **first rule that fires** determines 
 ## Sprint 3 merge-block status
 
 Until Story 0.2 executes these dispositions and is marked `done`, no Sprint 3 story may merge to `main` per Sprint Plan §2 Gate G0.
+
+**Lifted on `2026-05-09`** — Story 0.2 (`_bmad-output/implementation-artifacts/0-2-execute-sprint-2-5-per-story-dispositions.md`) closed; all 10 legacy story files carry an explicit `complete-as-legacy` disposition block under their `Status:` line; G0 gate cleared per `_bmad-output/sprint-plan.md` §2; Sprint 3 stories may now merge to `main`.
