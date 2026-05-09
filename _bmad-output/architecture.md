@@ -1453,8 +1453,14 @@ Warden_monorepo/
 │   │       │   │   ├── googleSignInService.ts
 │   │       │   │   ├── subscriptionService.ts               isSubscriptionPaid + deriveEntitlementState [NEW]
 │   │       │   │   ├── useAuthStore.ts                      Zustand+MMKV partialized {user,isAuthenticated,cachedAt}
+│   │       │   │   ├── EntitlementBanner.tsx                [NEW per UX-DR1] payment-failed banner + Customer Portal deep-link (Story 3.2; mobile-AUTH-006)
+│   │       │   │   ├── SubscriptionRequiredScreen.tsx       [NEW per UX-DR2] full-screen lapsed-state with Customer Portal deep-link (Story 3.3; mobile-AUTH-003)
+│   │       │   │   ├── OfflineIndicator.tsx                 [NEW per UX-DR3] offline-grace ≤30d visual chip (Story 3.4; mobile-AUTH-004 visual)
 │   │       │   │   └── __tests__/
 │   │       │   │       ├── deriveEntitlementState.test.ts   [NEW] One test per state (paid/lapsed/offline-grace/payment-failed/multi-device/signed-out)
+│   │       │   │       ├── EntitlementBanner.test.tsx      [NEW per UX-DR1] Banner render + CTA + state-clear assertions
+│   │       │   │       ├── SubscriptionRequiredScreen.test.tsx [NEW per UX-DR2] Lapsed screen render + data-preservation contract
+│   │       │   │       ├── OfflineIndicator.test.tsx       [NEW per UX-DR3] Offline-grace visual + day-29 escalation
 │   │       │   │       └── subscriptionService.test.ts
 │   │       │   ├── audio-commentary/                        Voice annotation (Story 6 — Sprint 3)
 │   │       │   │   ├── AudioRecorder.tsx
@@ -1467,7 +1473,8 @@ Warden_monorepo/
 │   │       │   │   ├── ExportShareScreen.tsx
 │   │       │   │   ├── exportPipeline.ts                    Emits T1-coach telemetry on share-confirmed
 │   │       │   │   ├── exportRecipes.ts                     Per view-mode FFmpeg recipe (Full / Minimap / Minimap+HUD)
-│   │       │   │   ├── useClipExport.ts
+│   │       │   │   ├── useClipExport.ts                     Adds autoSaveClipState (Story 7.1; mobile-AUTOSAVE-001)
+│   │       │   │   ├── clipDeletion.ts                      [NEW per AR-12] Cascade delete: MP4 + .m4a + MMKV processing.* + SQLite via CASCADE (Story 6.9; PRIV-003)
 │   │       │   │   └── types.ts
 │   │       │   ├── session/                                 Session list + repository + Card View
 │   │       │   │   ├── SessionList.tsx
@@ -1509,6 +1516,7 @@ Warden_monorepo/
 │   │       │   ├── hooks/
 │   │       │   ├── services/                                Native bridges (sole entry points to native libs)
 │   │       │   │   ├── analytics.ts                         [NEW] Telemetry wrapper with payload allowlist (Decision #9 / Invariant 3)
+│   │       │   │   ├── errorReporting.ts                    [NEW per UX-DR5] mailto formatter → support@warden.team; manual fallback for OBS-003 (Story 8.2; FU-1)
 │   │       │   │   ├── database.ts                          expo-sqlite singleton
 │   │       │   │   ├── ffmpeg.ts                            FFmpeg-kit wrapper + assertSafeSessionId
 │   │       │   │   ├── opencv.ts                            JSI binding (post-spike: real binding; pre-spike: stub throws)
@@ -1548,9 +1556,13 @@ Warden_monorepo/
 │   │       │       └── webhooks/stripe/route.ts             POST — Stripe webhook ingress (incl. customer.subscription.updated per Decision #9)
 │   │       ├── components/
 │   │       │   ├── auth/                                    SignInForm, GoogleSignInButton, SignOutButton, RegistrationForm
+│   │       │   │   └── PasswordResetForm.tsx                [NEW per UX-DR11] Firebase sendPasswordResetEmail inline form (Story 4.4; FU-5; web-AUTH-001)
 │   │       │   ├── checkout/                                PlanCard, PlanCta, CouponInput, CheckoutContext
 │   │       │   ├── dashboard/                               SubscriptionCard
-│   │       │   ├── layout/                                  Header, HeaderAuthActions, Footer, CookieBanner
+│   │       │   │   ├── PaymentWarning.tsx                   [NEW per UX-DR8] past_due banner composition from Alert+Button (Story 3.5; web-DASHBOARD-002)
+│   │       │   │   ├── CancelDialog.tsx                     [NEW per UX-DR9] anti-dark-pattern cancellation dialog from Dialog+Button (Story 4.5; web-DASHBOARD-004)
+│   │       │   │   └── EmptySubscription.tsx                [NEW per UX-DR10] "No active subscription" empty state with /pricing link (Story 4.6; web-DASHBOARD-005)
+│   │       │   ├── layout/                                  Header, HeaderAuthActions, Footer (with mailto:support@warden.team per UX-DR15), CookieBanner
 │   │       │   └── ui/                                      shadcn/ui primitives (button, card, input, alert, dialog, badge, skeleton, cta-class)
 │   │       ├── contexts/AuthContext.tsx                     Firebase onAuthStateChanged → React context
 │   │       ├── hooks/{useAuth.ts, useSubscription.ts}
