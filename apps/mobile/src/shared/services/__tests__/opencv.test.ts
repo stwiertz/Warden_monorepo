@@ -6,7 +6,6 @@ import {
   grayscaleMean,
   hammingDistance,
   hsvWhitePixelRatio,
-  loadFrameFromPath,
   phash,
   resizeGrayscale,
   saturationMean,
@@ -234,10 +233,11 @@ describe("phash + hammingDistance", () => {
   });
 });
 
-describe("loadFrameFromPath", () => {
-  it("throws a descriptive error until the native binding is wired up", async () => {
-    await expect(loadFrameFromPath("ignored.jpg")).rejects.toThrow(
-      /react-native-fast-opencv/
-    );
-  });
-});
+// `loadFrameFromPath` is exercised only on-device (Story 1.1 AR-SPIKE measures
+// it directly on the Poco X5 reference device against the Python pHash
+// reference at apps/tooling/tools/hash_validator.py — see the spike report at
+// _bmad-output/architecture-spike-perf-floor.md). It is intentionally not
+// covered here: a jest test would either mock the JSI binding (proves nothing)
+// or hard-depend on the native module loading in jest (the binding throws at
+// require time outside the device runtime). Production callers continue to
+// use the FrameLoader injection point in `processingPipeline.ts`.

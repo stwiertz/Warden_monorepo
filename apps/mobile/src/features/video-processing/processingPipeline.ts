@@ -246,6 +246,24 @@ export async function runProcessingPipeline(
   sessionId: string,
   options: RunPipelineOptions = {}
 ): Promise<void> {
+  // Story 1.1 AR-SPIKE — PERF-002 wall-clock + per-stage timing.
+  // __DEV__-gated; no production overhead. Read live via:
+  //   adb logcat -s ReactNativeJS:V *:S | grep PERF-002
+  // Persisted to MMKV at processing.<sessionId>.perf002 for post-run inspection.
+  const __perfStart = __DEV__ ? performance.now() : 0;
+  const __perfStages: Record<string, number> = {};
+  const __perfMark = (label: string): void => {
+    if (!__DEV__) return;
+    const t = performance.now() - __perfStart;
+    __perfStages[label] = t;
+    console.log(
+      `[PERF-002] sessionId=${sessionId} mark=${label} t+${t.toFixed(0)}ms`
+    );
+  };
+  if (__DEV__) {
+    console.log(`[PERF-002] sessionId=${sessionId} start`);
+  }
+
   const session = await getSession(sessionId);
   if (!session) throw new Error(`Session ${sessionId} not found`);
 
@@ -290,6 +308,7 @@ export async function runProcessingPipeline(
       });
       saveCheckpoint(sessionId, "keyframes");
       reportProgress("keyframes", 100);
+      __perfMark(`keyframes_done_count=${keyframes.length}`);
     }
 
     if (!detectionDone) {
@@ -333,6 +352,19 @@ export async function runProcessingPipeline(
 
       saveCheckpoint(sessionId, "detection");
       reportProgress("detection", 100);
+      if (__DEV__) {
+        const startCount = events.filter((e) => e.type === "START").length;
+        const endCount = events.filter((e) => e.type === "END").length;
+        const scoreCount = events.filter(
+          (e) => e.type === "SCORE_SCREEN"
+        ).length;
+        console.log(
+          `[PERF-009] sessionId=${sessionId} events START=${startCount} END=${endCount} SCORE=${scoreCount} segments=${gameSegments.length} mapIDs=${mapIdentifications.length} gop_avg_s=${gop.averageGopSeconds.toFixed(2)} hasShortGop=${gop.hasShortGop}`
+        );
+      }
+      __perfMark(
+        `detection_done_segments=${gameSegments.length}_events=${events.length}`
+      );
     }
 
     if (!segmentationDone) {
@@ -360,6 +392,7 @@ export async function runProcessingPipeline(
 
       saveCheckpoint(sessionId, "segmentation");
       reportProgress("segmentation", 100);
+      __perfMark("segmentation_done");
     }
 
     if (!resultsDone) {
@@ -444,11 +477,44 @@ export async function runProcessingPipeline(
       }
 
       saveCheckpoint(sessionId, "results");
+      __perfMark("results_done");
     }
 
     await updateSessionStatus(sessionId, "ready");
+    if (__DEV__) {
+      const totalMs = performance.now() - __perfStart;
+      __perfStages.total = totalMs;
+      console.log(
+        `[PERF-002] sessionId=${sessionId} end totalMs=${totalMs.toFixed(0)}`
+      );
+      try {
+        storage.setObject(
+          checkpointKey(sessionId, "perf002"),
+          __perfStages
+        );
+      } catch (err) {
+        // Best-effort; perf data is also in logcat.
+        console.warn(`[PERF-002] mmkv persist failed:`, err);
+      }
+    }
     clearCheckpoint(sessionId);
   } catch (error) {
+    if (__DEV__) {
+      const totalMs = performance.now() - __perfStart;
+      __perfStages.total = totalMs;
+      __perfStages.errored = 1;
+      console.log(
+        `[PERF-002] sessionId=${sessionId} ERROR totalMs=${totalMs.toFixed(0)} err=${error instanceof Error ? error.message : String(error)}`
+      );
+      try {
+        storage.setObject(
+          checkpointKey(sessionId, "perf002"),
+          __perfStages
+        );
+      } catch (persistErr) {
+        console.warn(`[PERF-002] mmkv persist (error path) failed:`, persistErr);
+      }
+    }
     await updateSessionStatus(sessionId, "error");
     throw error;
   }
