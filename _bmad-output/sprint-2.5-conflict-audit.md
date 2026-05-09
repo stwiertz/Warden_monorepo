@@ -48,3 +48,7 @@ Rules walk in order **A → B → C**. The **first rule that fires** determines 
 ## Sprint 3 merge-block status
 
 Until Story 0.2 executes these dispositions and is marked `done`, no Sprint 3 story may merge to `main` per Sprint Plan §2 Gate G0.
+
+## G0 sign-off
+
+Story 0.2 executed all 10 dispositions on 2026-05-09 (date of merge — substitute actual merge date if different). Sprint Plan §2 Gate G0 is now CLEARED. Sprint 3 stories may merge to `main` per the audit's binding dispositions.

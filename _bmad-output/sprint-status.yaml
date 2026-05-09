@@ -1,5 +1,5 @@
 # generated: 2026-05-09
-# last_updated: 2026-05-09 (post code-review patch round)
+# last_updated: 2026-05-09 (Story 0.2 ready for code-review — dev agent flipped in-progress → review)
 # project: Warden_monorepo
 # project_key: NOKEY
 # tracking_system: file-system
@@ -47,7 +47,7 @@ development_status:
   # ───────────────────────────────────────────────────────────────────
   epic-0: in-progress
   0-1-conduct-per-story-conflict-audit-for-sprint-2-5-in-flight-mobile-work: done
-  0-2-execute-sprint-2-5-per-story-dispositions: backlog
+  0-2-execute-sprint-2-5-per-story-dispositions: review
   epic-0-retrospective: optional
 
   # ───────────────────────────────────────────────────────────────────
