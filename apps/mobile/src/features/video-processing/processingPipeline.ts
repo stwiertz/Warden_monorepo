@@ -359,7 +359,7 @@ export async function runProcessingPipeline(
           (e) => e.type === "SCORE_SCREEN"
         ).length;
         console.log(
-          `[PERF-009] sessionId=${sessionId} gop_avg_s=${gop.averageGopSeconds.toFixed(2)} hasShortGop=${gop.hasShortGop} events START=${startCount} END=${endCount} SCORE=${scoreCount} segments=${gameSegments.length} mapIDs=${mapIdentifications.length}`
+          `[PERF-009] sessionId=${sessionId} events START=${startCount} END=${endCount} SCORE=${scoreCount} segments=${gameSegments.length} mapIDs=${mapIdentifications.length} gop_avg_s=${gop.averageGopSeconds.toFixed(2)} hasShortGop=${gop.hasShortGop}`
         );
       }
       __perfMark(
@@ -501,9 +501,19 @@ export async function runProcessingPipeline(
   } catch (error) {
     if (__DEV__) {
       const totalMs = performance.now() - __perfStart;
+      __perfStages.total = totalMs;
+      __perfStages.errored = 1;
       console.log(
         `[PERF-002] sessionId=${sessionId} ERROR totalMs=${totalMs.toFixed(0)} err=${error instanceof Error ? error.message : String(error)}`
       );
+      try {
+        storage.setObject(
+          checkpointKey(sessionId, "perf002"),
+          __perfStages
+        );
+      } catch (persistErr) {
+        console.warn(`[PERF-002] mmkv persist (error path) failed:`, persistErr);
+      }
     }
     await updateSessionStatus(sessionId, "error");
     throw error;

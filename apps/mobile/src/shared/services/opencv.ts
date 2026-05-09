@@ -404,24 +404,28 @@ export function hammingDistance(a: string, b: string): number {
  * Pipeline: read the file as base64 → `OpenCV.base64ToMat` decodes it as a
  * BGR `Mat` (OpenCV's native colour order) → `cvtColor` converts BGR→RGB →
  * `matToBuffer` extracts the packed `Uint8Array` → wrap in `Uint8ClampedArray`
- * to match the existing `FrameBuffer` contract. The Mat handles are released
- * via `clearBuffers([])` so native heap doesn't grow across thousands of
- * keyframes during a long auto-slice run (PERF-002 budget is hardware-bound;
- * native-heap leak would OOM-kill the app mid-pipeline).
- *
- * The boundary is intentionally narrow: every detection algorithm above is
- * pure TS and works on any FrameBuffer source. Tests inject synthetic
- * FrameLoaders directly, so they don't depend on the native module loading.
+ * to match the existing `FrameBuffer` contract. All Mat handles are released
+ * via `clearBuffers([])` (the parameter is `idsToKeep`; `[]` keeps none →
+ * clears all) so native heap doesn't grow across thousands of keyframes
+ * during a long auto-slice run.
  */
 export async function loadFrameFromPath(path: string): Promise<FrameBuffer> {
   let fastOpencv: FastOpencvModule;
-  let legacyFs: LegacyFileSystemModule;
   try {
     fastOpencv = require("react-native-fast-opencv") as FastOpencvModule;
-    legacyFs = require("expo-file-system/legacy") as LegacyFileSystemModule;
-  } catch {
+  } catch (cause) {
     throw new Error(
-      "loadFrameFromPath: react-native-fast-opencv or expo-file-system not available. Run expo prebuild and build the dev client."
+      "loadFrameFromPath: react-native-fast-opencv not available. Run expo prebuild and build the dev client.",
+      { cause: cause as Error }
+    );
+  }
+  let legacyFs: LegacyFileSystemModule;
+  try {
+    legacyFs = require("expo-file-system/legacy") as LegacyFileSystemModule;
+  } catch (cause) {
+    throw new Error(
+      "loadFrameFromPath: expo-file-system/legacy not available. Run expo prebuild and build the dev client.",
+      { cause: cause as Error }
     );
   }
   const { OpenCV, ColorConversionCodes, DataTypes, ObjectType } = fastOpencv;
@@ -430,12 +434,17 @@ export async function loadFrameFromPath(path: string): Promise<FrameBuffer> {
     encoding: legacyFs.EncodingType.Base64,
   });
 
-  const bgrMat = OpenCV.base64ToMat(base64);
-  // 0×0 placeholder Mat with the destination element type — OpenCV's cvtColor
-  // resizes dst as it writes the converted output (the standard C++ behaviour
-  // is preserved through this JSI binding).
-  const rgbMat = OpenCV.createObject(ObjectType.Mat, 0, 0, DataTypes.CV_8UC3);
   try {
+    const bgrMat = OpenCV.base64ToMat(base64);
+    if (!bgrMat) {
+      throw new Error(
+        `loadFrameFromPath: base64ToMat returned null/undefined for ${path} — input may be a corrupt or empty image`
+      );
+    }
+    // 0×0 placeholder Mat with the destination element type — OpenCV's
+    // cvtColor resizes dst as it writes the converted output.
+    const rgbMat = OpenCV.createObject(ObjectType.Mat, 0, 0, DataTypes.CV_8UC3);
+
     OpenCV.invoke(
       "cvtColor",
       bgrMat,
@@ -447,6 +456,11 @@ export async function loadFrameFromPath(path: string): Promise<FrameBuffer> {
       "uint8"
     );
 
+    if (rows === 0 || cols === 0) {
+      throw new Error(
+        `loadFrameFromPath: matToBuffer returned 0×0 Mat for ${path}`
+      );
+    }
     if (channels !== 3) {
       throw new Error(
         `loadFrameFromPath: expected 3-channel RGB Mat, got ${channels} channels`
@@ -464,6 +478,15 @@ export async function loadFrameFromPath(path: string): Promise<FrameBuffer> {
       height: rows,
     };
   } finally {
-    OpenCV.clearBuffers([]);
+    // Wrap in inner try/catch so a release-side throw doesn't replace the
+    // underlying decode error. `clearBuffers([])` keeps no Mats → clears all.
+    try {
+      OpenCV.clearBuffers([]);
+    } catch (releaseErr) {
+      console.warn(
+        `loadFrameFromPath: clearBuffers threw (suppressed):`,
+        releaseErr
+      );
+    }
   }
 }

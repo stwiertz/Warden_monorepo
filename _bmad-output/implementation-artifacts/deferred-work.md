@@ -6,6 +6,15 @@ Each entry: bullet with the finding + brief reason.
 
 ---
 
+## Deferred from: code review of 1-1-pre-prd-performance-spike-ar-spike (2026-05-09)
+
+- **`clearCheckpoint` doesn't delete `events` / `gameSegments` / `mapIdentifications` / `perf002` MMKV keys** — pre-existing tech debt (`apps/mobile/src/features/video-processing/processingPipeline.ts:104-106`). Only the `stage` key is cleared on a successful run; the per-stage data keys leak across sessions. This story extends the pattern (adds `perf002`) but does not cause it. Defer to a dedicated MMKV-cleanup pass.
+- **Per-stage `__perfMark` labels embed unbounded counts** — `keyframes_done_count=${keyframes.length}` etc. produce a different MMKV key per run, defeating cross-run aggregation. Design choice for the spike scaffolding; Story 1.1.1 may want stable keys + sidecar count fields when running real measurement workloads.
+- **`[PERF-009]` log only emitted when detection runs this invocation** — `if (!detectionDone)` guard skips PERF-009 on resumed sessions. Story 1.1.1's measurement is cold-launch with cleared MMKV per spec, so this won't bite the actual measurement, but a researcher comparing partial-runs would notice a gap.
+- **Base64 round-trip + `Uint8ClampedArray(buffer)` copy = ~2-3× memory per frame in `loadFrameFromPath`** — `react-native-fast-opencv` only exposes `base64ToMat`, so the JPEG must be string-base64 in JS before the JSI bounce. Plus `Uint8ClampedArray(uint8array)` constructor copies. Story 1.1.1's measurement to assess whether the cost is V1-acceptable; if not, escalate to lib upstream or alternate decode path.
+
+---
+
 ## Deferred from: code review of 0-1-conduct-per-story-conflict-audit-for-sprint-2-5-in-flight-mobile-work (2026-05-09)
 
 - **AC 11 verbatim sentence not actually verbatim across all artifacts** — `_bmad-output/sprint-plan.md:1100` paraphrases the gate-block sentence (uses `Per Decision #ES-3, Stories 0.1 → 0.2 must close before any Sprint 3 story merges to main`) instead of the AC11-mandated verbatim text. AC 11 only binds the audit file (which does match exactly); sprint plan is reference text. Defer until next sprint-plan touch.
