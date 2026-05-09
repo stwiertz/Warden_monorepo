@@ -274,6 +274,12 @@ This PR is the **G0 gate evidence**: Story 0.2 will execute the dispositions; Sp
 
 After the PR is opened, mark this story's AC 12 + Task 5 final subtask `[x]` and add the PR URL alongside this note (commit message: `docs: 0.1 — record PR URL post-merge`).
 
+#### Branch + commit + push outcome
+
+- **Branch:** `sprint-2-5-conflict-audit` (pushed to `origin`).
+- **Commit:** `7f8d636` — subject `docs: add Sprint 2.5 per-story conflict audit (Story 0.1)`. The repo's commitlint rule (`subject-case` rejects sentence-case start) forced an `add` verb after `docs:`; this matches the recent main-branch commit pattern (`0ce3954 docs: add Sprint 3 plan + status tracker`, etc.). The **PR title** Stephane files MUST be the AC12-verbatim string — it is recorded above and is **not** the same as the commit subject. PR title is the AC12-binding artifact; commit subject is repo-pattern-compliant.
+- **PR-create URL** (what `git push` returned): <https://github.com/stwiertz/Warden_monorepo/pull/new/sprint-2-5-conflict-audit>. Open this URL, paste the PR title + body shown above, target `main`, click "Create pull request".
+
 ### File List
 
 - `_bmad-output/sprint-2.5-conflict-audit.md` — **CREATED** (the audit deliverable)
@@ -284,4 +290,4 @@ After the PR is opened, mark this story's AC 12 + Task 5 final subtask `[x]` and
 
 | Date       | Change                                                                                                | Author |
 |------------|-------------------------------------------------------------------------------------------------------|--------|
-| 2026-05-09 | Sprint 2.5 per-story conflict audit composed; 10 / 10 dispositions = `complete-as-legacy`; ACs 1-11 met; AC 12 (commit + PR) pending Stephane's authorization | Amelia |
+| 2026-05-09 | Sprint 2.5 per-story conflict audit composed; 10 / 10 dispositions = `complete-as-legacy`; ACs 1-11 met; branch `sprint-2-5-conflict-audit` pushed at commit `7f8d636`; AC 12 partial — Stephane to file PR via the `git push` URL | Amelia |
