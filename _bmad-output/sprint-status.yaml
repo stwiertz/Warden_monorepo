@@ -1,0 +1,185 @@
+# generated: 2026-05-09
+# last_updated: 2026-05-09
+# project: Warden_monorepo
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-05-09
+last_updated: 2026-05-09
+project: Warden_monorepo
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # ───────────────────────────────────────────────────────────────────
+  # EPIC 0 — Sprint 2.5 Closure & Conflict Audit (G0 GATE for Sprint 3 merges)
+  # ───────────────────────────────────────────────────────────────────
+  epic-0: backlog
+  0-1-conduct-per-story-conflict-audit-for-sprint-2-5-in-flight-mobile-work: backlog
+  0-2-execute-sprint-2-5-per-story-dispositions: backlog
+  epic-0-retrospective: optional
+
+  # ───────────────────────────────────────────────────────────────────
+  # EPIC 1 — Foundations: V1-Blocking Spike, Brownfield, Cross-Language Contracts
+  # ───────────────────────────────────────────────────────────────────
+  epic-1: backlog
+  1-1-pre-prd-performance-spike-ar-spike: backlog
+  1-2-foreground-service-android-config-plugin: backlog
+  1-3-stripe-api-pin-bump: backlog
+  1-4-firebase-v12-rn-auth-migration-add-deps-prebuild: backlog
+  1-5-firebase-v12-rn-auth-migration-migrate-firebase-config: backlog
+  1-6-firebase-v12-rn-auth-migration-migrate-auth-service: backlog
+  1-7-firebase-v12-rn-auth-migration-migrate-subscription-service: backlog
+  1-8-firebase-v12-rn-auth-migration-migrate-detection-config-service: backlog
+  1-9-firebase-v12-rn-auth-migration-end-to-end-manual-test: backlog
+  1-10-user-doc-schema-tighten-reconcile: backlog
+  1-11-wire-apps-web-to-contracts-user-doc: backlog
+  1-12-customer-subscription-updated-defensive-handler: backlog
+  1-13-hybrid-map-config-delivery-schema-version-1: backlog
+  1-14-firestore-rules-coverage-extended: backlog
+  1-15-firestore-rules-production-deploy: backlog
+  1-16-detection-config-latest-operator-documentation: backlog
+  1-17-webhook-idempotency-regression-coverage: backlog
+  1-18-vitest-serial-mode-v1-ci-workaround: backlog
+  epic-1-retrospective: optional
+
+  # ───────────────────────────────────────────────────────────────────
+  # EPIC 2 — Reader-App Build Gate & Activation Telemetry Contract
+  # ───────────────────────────────────────────────────────────────────
+  epic-2: backlog
+  2-1-reader-app-ci-gate-implementation: backlog
+  2-2-activation-telemetry-wrapper-payload-allowlist: backlog
+  2-3-t0-emission-in-auth-service-on-auth-state-change-paid: backlog
+  2-4-t1-coach-emission-in-export-pipeline-on-confirmed-dispatch: backlog
+  2-5-t1-active-player-emission-in-cinema-mode-screen-on-first-view-mode-toggle: backlog
+  2-6-expo-public-auth-bypass-deny-in-release-configs: backlog
+  epic-2-retrospective: optional
+
+  # ───────────────────────────────────────────────────────────────────
+  # EPIC 3 — Six-State Entitlement: State Machine, UI Banners & Lapsed Screen
+  # ───────────────────────────────────────────────────────────────────
+  epic-3: backlog
+  3-1-derive-entitlement-state-pure-function-six-state-regression-tests: backlog
+  3-2-entitlement-banner-for-payment-failed: backlog
+  3-3-subscription-required-screen-for-lapsed: backlog
+  3-4-offline-indicator-for-offline-grace: backlog
+  3-5-payment-warning-web-composition: backlog
+  3-6-canceling-status-badge-resubscribe-cta: backlog
+  3-7-mobile-login-entitlement-gate: backlog
+  3-8-mobile-foreground-re-fetch-after-stripe-customer-portal-round-trip: backlog
+  3-9-30-day-mmkv-cached-entitlement-day-31-expiry: backlog
+  3-10-session-data-preservation-across-lapse-resubscribe: backlog
+  epic-3-retrospective: optional
+
+  # ───────────────────────────────────────────────────────────────────
+  # EPIC 4 — Web Subscribe & Manage Funnel
+  # ───────────────────────────────────────────────────────────────────
+  epic-4: backlog
+  4-1-web-token-bump-accent-hover-a11y-001-contrast-re-verify: backlog
+  4-2-og-image-asset-layout-meta: backlog
+  4-3-footer-get-help-link-mailto-support: backlog
+  4-4-password-reset-form-sign-in-password-reset-query-handler: backlog
+  4-5-cancel-dialog-anti-dark-pattern: backlog
+  4-6-empty-subscription: backlog
+  4-7-web-english-copy-with-fr-verbatim-insertions: backlog
+  4-8-web-funnel-analytics-events: backlog
+  epic-4-retrospective: optional
+
+  # ───────────────────────────────────────────────────────────────────
+  # EPIC 5 — Mobile: Card View, Cinema Mode & Manual Clip from Timeline (G1-gated)
+  # ───────────────────────────────────────────────────────────────────
+  epic-5: backlog
+  5-1-card-view-screen-with-adaptive-grid-sort-persistence: backlog
+  5-2-card-to-cinema-mode-tap-navigation: backlog
+  5-3-cards-timeline-top-bar-toggle-manual-clip-from-timeline: backlog
+  5-4-cinema-mode-immersive-review-with-reveal-on-tap-controls: backlog
+  5-5-view-mode-toggle-full-minimap-minimap-hud-no-player-swap: backlog
+  5-6-default-full-view-for-unknown-map: backlog
+  5-7-view-mode-preference-persistence: backlog
+  5-8-next-previous-explicit-buttons-in-cinema-mode: backlog
+  epic-5-retrospective: optional
+
+  # ───────────────────────────────────────────────────────────────────
+  # EPIC 6 — Mobile: Clip Creation, Voice & Export-Share (G2 interleave with Epic 7)
+  # ───────────────────────────────────────────────────────────────────
+  epic-6: backlog
+  6-1-30-second-clip-region-with-bracket-handles-5-60s-bounds: backlog
+  6-2-manual-clip-from-any-timeline-point: backlog
+  6-3-3-slot-voice-annotation-before-during-after: backlog
+  6-4-voice-slot-re-record: backlog
+  6-5-clip-preview-with-assembled-voice: backlog
+  6-6-mobile-hd-encode-tier-selection: backlog
+  6-7-os-share-sheet-dispatch: backlog
+  6-8-discord-inline-playable-h264-aac-contract-verification: backlog
+  6-9-clip-deletion-cascade: backlog
+  epic-6-retrospective: optional
+
+  # ───────────────────────────────────────────────────────────────────
+  # EPIC 7 — Mobile: Auto-save & Crash Recovery (G2 interleave with Epic 6)
+  # ───────────────────────────────────────────────────────────────────
+  epic-7: backlog
+  7-1-silent-auto-save-in-clip-mode: backlog
+  7-2-resume-cinema-mode-at-exact-frame: backlog
+  7-3-verify-j2-interruption-resume-e2e: backlog
+  epic-7-retrospective: optional
+
+  # ───────────────────────────────────────────────────────────────────
+  # EPIC 8 — Mobile: French i18n, Help & Manual Error Reporting
+  # ───────────────────────────────────────────────────────────────────
+  epic-8: backlog
+  8-1-french-i18n-bundle: backlog
+  8-2-error-reporting-mailto-formatter: backlog
+  8-3-account-bottom-sheet-aide-section: backlog
+  epic-8-retrospective: optional
+
+  # ───────────────────────────────────────────────────────────────────
+  # EPIC 9 — Tooling: V1 Pipeline Hardening
+  # ───────────────────────────────────────────────────────────────────
+  epic-9: backlog
+  9-1-schema-version-1-add-to-map-config-writers: backlog
+  9-2-tool-5-warden-analyzer-real-footage-ac-validation: backlog
+  9-3-reference-hash-regression-for-4-awaiting-hash-maps: backlog
+  9-4-jsonschema-strict-validation-against-map-config-schema: backlog
+  epic-9-retrospective: optional
+
+  # ───────────────────────────────────────────────────────────────────
+  # EPIC 10 — V1 Launch Readiness (10.4 external-blocked; 10.5 parallel demand-evidence track)
+  # ───────────────────────────────────────────────────────────────────
+  epic-10: backlog
+  10-1-v1-launch-checklist-deliverable: backlog
+  10-2-tos-monitoring-tracker-for-eva-after-h: backlog
+  10-3-google-play-v1-review-readiness-checklist: backlog
+  10-4-stripe-production-activation: backlog
+  10-5-demand-evidence-capture-pre-v1: backlog
+  epic-10-retrospective: optional
