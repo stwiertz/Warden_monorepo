@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-05-09
-last_updated: 2026-05-09  # 0-2 review→done post-merge of PR #3 (merge commit e6ad6e0). G0 gate LIFTED — Sprint 3 stories cleared to merge to main per Sprint Plan §2 Gate G0. Audit-file footer "Lifted on 2026-05-09" matches actual merge date (no refresh needed). AR-SPIKE branch (ar-spike-perf-floor) to rebase against post-0.2 main next.
+last_updated: 2026-05-09  # 1-1 review→done post-merge of PR #5 (merge commit a633c2e). G1 PARTIAL CLOSE — binding viability proven; final rung verdict TBD post-Story-1.1.1 measurement. Sprint-3 stories WITHOUT explicit `Story 1.1 spike` dep unblocked; stories carrying that dep (5.1, 5.3, 5.4, 5.5, 6.6) wait on 1-1-1 for full unblock. New entry `1-1-1-ar-spike-measurement` queued as `backlog` under Epic 1; runs once Stories 1-13/1-14/1-15/1-16 + new-HUD work + pHash/ahash reconciliation land. AC13 (PRD PERF-010 update) transferred to Story 1.1.1 per binding-only-cut carve-out.
 project: Warden_monorepo
 project_key: NOKEY
 tracking_system: file-system
@@ -54,7 +54,8 @@ development_status:
   # EPIC 1 — Foundations: V1-Blocking Spike, Brownfield, Cross-Language Contracts
   # ───────────────────────────────────────────────────────────────────
   epic-1: in-progress
-  1-1-pre-prd-performance-spike-ar-spike: review
+  1-1-pre-prd-performance-spike-ar-spike: done
+  1-1-1-ar-spike-measurement: backlog  # binding-only-cut follow-up to 1.1; runs after Stories 1-13/1-14/1-15/1-16 + new-HUD work + pHash/ahash reconciliation; inherits AC4/AC5/AC6/AC7/AC8/AC9/AC10-final/AC13 from 1.1
   1-2-foreground-service-android-config-plugin: backlog
   1-3-stripe-api-pin-bump: backlog
   1-4-firebase-v12-rn-auth-migration-add-deps-prebuild: backlog
