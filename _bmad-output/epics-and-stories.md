@@ -720,7 +720,7 @@ So that **complete-as-legacy stories merge through their existing AC, re-scoped 
 
 **Acceptance Criteria (checklist):**
 
-- [ ] For each row in Story 0.1's audit table marked `complete-as-legacy`: legacy story file (under `apps/mobile/docs/stories/` or wherever it lives) is updated with a final completion note ("complete-as-legacy under unified Sprint 3 audit 2026-05-07; AC unchanged"); the story's PR merges through the existing AC.
+- [ ] For each row in Story 0.1's audit table marked `complete-as-legacy`: the legacy story file at `_bmad-output/legacy/mobile/stories/<n>.md` is updated with a final completion note ("complete-as-legacy under unified Sprint 3 audit 2026-05-07; AC unchanged"); the story's PR merges through the existing AC.
 - [ ] For each row marked `re-scope-into-Sprint-3-with-new-AC`: a new story is added to the target epic in this document (`_bmad-output/epics-and-stories.md`) with new AC reflecting the unified PRD constraint; the legacy story file is annotated as superseded with a pointer to the new story ID.
 - [ ] For each row marked `drop`: the legacy story file is annotated as dropped with rationale and a pointer to the rationale source (PRD section / architecture decision / etc.).
 - [ ] No legacy Sprint 2.5 story remains in `ready-for-dev` or `in-progress` state without a disposition tag after this story closes.
@@ -3015,7 +3015,7 @@ Multiple stories touch `apps/web/src/components/dashboard/SubscriptionCard.tsx` 
 - **Epic 6** depends on Epic 5 (Cinema Mode platform); Epic 1 (spike for FFmpeg encode budget); Epic 2 (telemetry wrapper for T1-coach path).
 - **Epic 7** has a **partial interleave with Epic 6**, not a clean strict-after dependency: Story 7.1 (silent auto-save in clip mode) depends on Stories 6.1 + 6.3 (clip region + voice recorder must exist before they can be auto-saved); Story 6.4 (voice slot re-record) then depends on Story 7.1 (the resume-mid-rerecord guarantee). Effective story-level order: **6.1 → 6.3 → 7.1 → 6.4 → (rest of Epic 6) → 7.2 → 7.3**. Epic 7 also depends on Epic 1 Story 1.2 (Foreground Service plugin for JS-context survival). Sprint planning must sequence the interleave; do NOT plan Epic 6 fully before Epic 7.
 - **Epic 8** depends on Epic 2 (Reader-App gate scans the i18n bundle); independent otherwise.
-- **Epic 9** depends on Epic 1 (Story 1.13 hybrid map_config.json + schema_version regenerated).
+- **Epic 9** has bidirectional dependencies with Epic 1: Stories **9.1, 9.2** ship first as 1.13's prerequisite (writers must emit `schema_version: 1` and the analyzer must produce real-footage AC validation before 1.13 can package the hybrid bundle); then **Story 1.13** consumes 9.1's writer output to produce the `map_config.json` runtime bundle; finally **Stories 9.3, 9.4** depend on 1.13 (regression hashes against the bundled config; strict jsonschema validation against the contracts schema).
 - **Epic 10** depends on all other epics (synthesis).
 
 **Each epic delivers complete functionality for its domain.** Epic 2 ships the Reader-App contract + telemetry wrapper independently of whether Epic 5 (Cinema Mode enhancements) lands — the wrapper + gate + T0 emit + share-callback T1-coach are all standalone deliverables. Epic 5 can ship without Epic 6 — Cinema Mode + Card View deliver review value even if clip-creation doesn't land yet (manual-clip-from-Timeline-toggle works as the rung-3 fallback). Epic 8 can ship without Epic 7 — French i18n is value-complete on its own.

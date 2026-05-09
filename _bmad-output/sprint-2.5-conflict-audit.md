@@ -12,11 +12,11 @@
 - **Rule A:** Free-tier or pre-no-free-tier flow → re-scope or drop. Anchors: PRD §2 "No-free-tier positioning" (line 164); PRD §5 Reader-App contract (lines 114, 202, 508–514).
 - **Rule B:** Contradicts a locked PRD constraint → re-scope or drop. Constraints:
   - **B.1** Reader-App contract — no monetization surface in mobile build artifacts (PRD §5).
-  - **B.2** On-device-only video / audio processing — no frames or voice cross any wire (PRD §5: lines 138, 202, 500, 533, 663, 1033).
+  - **B.2** On-device-only video / audio processing — no frames or voice cross any wire (PRD §5 on-device-only language; cross-referenced in `cross-MAP-CONFIG-DELIVERY-001` and the architecture's "On-device-only" structural commitment in `_bmad-output/architecture.md`).
   - **B.3** Six-state entitlement model: `paid` / `lapsed` / `offline-grace ≤30d` / `payment-failed` / `multi-device` / `signed-out` (PRD `cross-ENTITLEMENT-001`, line 980).
   - **B.4** 14-canonical-maps single-sourced from `tools/frame_labeler.py:19-34` `MAP_LABELS` (PRD `tooling-LABEL-002`, line 951).
   - **B.5** 3-value `view_mode` — Full / Minimap / Minimap+HUD; no 2-value `pov` literals (PRD `mobile-CINEMA-002` / `mobile-CINEMA-004`, lines 883, 885).
-  - **B.6** Dual-T1 activation telemetry — payload schema `{elapsed_seconds, t0_at, t1_at, t1_path: 'coach' | 'active_player'}`; no frame data, no raw audio (PRD `cross-ACTIVATION-001` / `cross-ACTIVATION-002`, lines 985–986).
+  - **B.6** Dual-T1 activation telemetry — payload schema `{elapsed_seconds, t0_at, t1_at, t1_path: 'coach' | 'active_player'}`; no frame data, no raw audio. PRD `cross-ACTIVATION-001` / `cross-ACTIVATION-002` (lines 985–986) define the events conceptually; the verbatim payload schema is defined in `_bmad-output/architecture.md` (lines 711–712, 1144) and `_bmad-output/epics-and-stories.md` (line 324).
 - **Rule C:** Wholly compatible with the unified PRD → `complete-as-legacy`. The story ships under its existing AC; no rewrite, no AC modification.
 
 Rules walk in order **A → B → C**. The **first rule that fires** determines the disposition.
@@ -43,7 +43,7 @@ Rules walk in order **A → B → C**. The **first rule that fires** determines 
 - `re-scope-into-Sprint-3-with-new-AC`: **0**
 - `drop`: **0**
 
-**Reviewer-skepticism counter-evidence:** All 10 stories pass Rule C. This outcome matches the Dev Notes "Realistic disposition expectations" prior — the 2026-05-05 sprint-change-proposal (commit `f5d9be1`) pre-aligned the Sprint 2.5 in-flight stories to the methodology pivot (3-value `view_mode`, KDA/HSV `gameDetector`, pHash `mapIdentifier`, DetectionConfig shim) **before** the unified PRD existed. The audit rules walk per-story confirms this alignment rather than discovering it. Per-row `legacy_AC_summary` columns above carry substantive AC summaries (not "no conflicts found") so a manual review pass can verify the auditor read each file. Stephane's manual sign-off against PRD §3 / §5 / §9 / §10 (epic 0.1 acceptance) is the verification step.
+**Reviewer-skepticism counter-evidence:** All 10 stories pass Rule C. This outcome matches the Dev Notes "Realistic disposition expectations" prior — the 2026-05-05 sprint-change-proposal (committed at `7b5ce30 Propagate Proposals 4+6 (KDA/HSV + pHash) through planning artifacts`, plus the proposal artifact at `_bmad-output/legacy/mobile/planning-artifacts/sprint-change-proposal-2026-05-05.md`) pre-aligned the Sprint 2.5 in-flight stories to the methodology pivot (3-value `view_mode`, KDA/HSV `gameDetector`, pHash `mapIdentifier`, DetectionConfig shim) **before** the unified PRD existed. The audit rules walk per-story confirms this alignment rather than discovering it. Per-row `legacy_AC_summary` columns above carry substantive AC summaries (not "no conflicts found") so a manual review pass can verify the auditor read each file. Stephane's manual sign-off against PRD §3 / §5 / §9 / §10 (epic 0.1 acceptance) is the verification step.
 
 ## Sprint 3 merge-block status
 

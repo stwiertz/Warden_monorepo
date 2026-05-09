@@ -198,7 +198,7 @@ Concerns to carry into coverage validation:
 - The **dual-T1 activation telemetry** (cross-ACTIVATION-001) is novel; architecture and stories must both implement the dual path or it lives only on paper.
 - **cross-MAP-CONFIG-DELIVERY-001, cross-SCHEMA-002** depend on architecture decisions before any story can be picked up.
 
-**FR count reconciliation:** my step-2 "32 mobile" was an off-by-one; the PRD has **6 AUTH + 6 IMPORT/SLICE + 5 CARD + 5 CINEMA + 5 CLIP + 4 EXPORT + 2 AUTOSAVE = 33 mobile FRs**. The epics doc's 33-mobile / 16-web / 12-tooling / 8-cross / **69 total** count is correct. NFR total of 41 stands.
+**FR count reconciliation:** the PRD has **6 AUTH + 6 IMPORT/SLICE + 5 CARD + 5 CINEMA + 5 CLIP + 4 EXPORT + 2 AUTOSAVE = 33 mobile FRs**. The epics doc's 33-mobile / 16-web / 12-tooling / 8-cross / **69 total** count is correct. NFR total of 41 stands.
 
 ## Epic Coverage Validation
 
@@ -466,7 +466,7 @@ Cumulative dependency check (each epic functions on top of prior epics):
 - **Epic 6** depends on Epic 5 (Cinema Mode platform) + Epic 1 (FFmpeg encode budget) + Epic 2 (T1-coach wrapper). ✓
 - **Epic 7** declared as depending on Epic 6 (clip-creation state to auto-save). **See Forward-Dependency Issue #1 below — actual coupling is interleaved, not strict-after.**
 - **Epic 8** depends on Epic 2 (Reader-App gate scans i18n bundle); independent otherwise. ✓
-- **Epic 9** depends on Epic 1 (Story 1.13 hybrid map_config + schema_version regenerated). ✓
+- **Epic 9** has bidirectional dependencies with Epic 1: Stories 9.1, 9.2 ship first as 1.13's prerequisite; Story 1.13 then consumes 9.1's writer output; Stories 9.3, 9.4 then depend on 1.13 (regression hashes + strict schema validation against the bundled config). ✓
 - **Epic 10** depends on all other epics (synthesis). ✓
 
 **Verdict:** Epic-level independence holds. No epic requires a *future* epic to deliver its named outcome. Two soft issues at story level (below) require attention but do not invalidate epic independence.
@@ -526,11 +526,11 @@ This was the user's explicit ask — "stories referencing components the archite
 
 🟡 **Internal architecture FR count inconsistency.** Architecture intro (line 98) says "**55 total**" FRs but enumerates 33 mobile + 13 web + 13 tooling + 6 cross-surface = **65** by its own count. PRD has 33 + 16 + 12 + 8 = 69. Architecture's intro section appears to have been written against an earlier PRD draft (web is undercounted by 3 FRs; cross-surface by 2; tooling overcounted by 1). The downstream epics-and-stories doc resolved this using the correct PRD count of 69. **No coverage gap** (architecture's FR-to-Structure mapping section actually covers all FRs by file path), but the intro arithmetic is a documentation artifact worth correcting before the doc is referenced as the binding count.
 
-🟠 **Architecture's directory tree omits 7 NEW components that UX and epics-and-stories specify.** The architecture doc's project tree (lines 1424–1657) marks only 6 files as `[NEW]`: `apps/mobile/RELEASE.md`, `apps/mobile/scripts/reader-app-gate.sh`, `apps/mobile/plugins/with-foreground-service.js`, `apps/mobile/assets/map_config.json`, `apps/mobile/src/shared/services/analytics.ts`, `apps/mobile/src/features/auth/__tests__/deriveEntitlementState.test.ts`. The following components are routed to specific stories but **not** in the architecture's directory tree:
+🟢 **Architecture's directory tree previously omitted 9 NEW components that UX and epics-and-stories specified — RESOLVED in commit `5968ef9` (this PR).** The architecture doc's project tree now annotates all 9 components as `[NEW per UX-DR<n>]`. The original gap analysis is preserved below for traceability:
 
-| Component | UX section | Story | Architecture mention |
+| Component | UX section | Story | Architecture mention (pre-amendment) |
 |---|---|---|---|
-| `apps/mobile/src/features/auth/EntitlementBanner.tsx` | UX §1.6 | 3.2 | ✓ Mentioned in FR-to-Structure (line 1672) but NOT in directory tree |
+| `apps/mobile/src/features/auth/EntitlementBanner.tsx` | UX §1.6 | 3.2 | ✓ Mentioned in FR-to-Structure (line 1684) but was NOT in directory tree (now added) |
 | `apps/mobile/src/features/auth/SubscriptionRequiredScreen.tsx` | UX §1.6 | 3.3 | ❌ Not in directory tree; not in FR-to-Structure |
 | `apps/mobile/src/features/auth/OfflineIndicator.tsx` | UX §1.6 | 3.4 | ❌ Not in directory tree; not in FR-to-Structure |
 | `apps/mobile/src/shared/services/errorReporting.ts` | UX §1.6 / §6.5 | 8.2 | ❌ Not in directory tree; not in FR-to-Structure |
@@ -540,15 +540,15 @@ This was the user's explicit ask — "stories referencing components the archite
 | `apps/mobile/src/features/clip-export/clipDeletion.ts` | (UX out of scope) | 6.9 | 🟡 Mentioned in Gap Analysis section as AR-12 / "Important Gap #2" but NOT in directory tree |
 | `apps/web/src/components/dashboard/CancelDialog.tsx` | UX §6.5 | 4.5 | ✓ Mentioned in FR-to-Structure (line 1731) but NOT in directory tree |
 
-**Severity:** medium. None of these are coverage gaps — every component is owned by a specific story with explicit AC and a file path. But the architecture document, which is supposed to be the binding "where do components live" reference, is mildly out-of-sync with the UX (Phase 6 step 4) and epics-and-stories (Phase 6 step 5) outputs. This is a documentation-currency issue, not a structural problem; it can be fixed by adding these files to architecture's tree as `[NEW per UX-DR<n>]` annotations.
+**Severity (pre-amendment):** medium. None of these were coverage gaps — every component is owned by a specific story with explicit AC and a file path. But the architecture document, which is supposed to be the binding "where do components live" reference, was mildly out-of-sync with the UX (Phase 6 step 4) and epics-and-stories (Phase 6 step 5) outputs.
 
-**Recommended remediation:** A short "architecture amendments" PR that updates `_bmad-output/architecture.md`'s directory tree to include the 9 components above. Cheap and load-bearing for architecture-as-binding-reference posture.
+**Status:** RESOLVED in commit `5968ef9` (shipped in PR #1). The architecture doc's directory tree now annotates all 9 components as `[NEW per UX-DR<n>]` — see `_bmad-output/architecture.md` lines 1456–1564. Architecture-as-binding-reference posture restored.
 
 ### Quality Review Summary
 
 - 🔴 **Critical violations:** none.
-- 🟠 **Major issues:** 2 forward-dependency declarations need clarification (Story 6.4 → Story 7.1 interleave; Story 2.5 mis-declared Epic 5 dep). Architecture directory tree out-of-sync with UX/epics for 9 NEW components.
-- 🟡 **Minor concerns:** 4 honest-but-non-user-value epics (0/1/2/10 — acceptable per skill convention with rationale documented); architecture FR count typo (55 vs 65 vs 69); UX implementation details dropped from story AC (catalogued in step 4).
+- 🟠 **Major issues:** 2 forward-dependency declarations need clarification (Story 6.4 → Story 7.1 interleave; Story 2.5 mis-declared Epic 5 dep). ~~Architecture directory tree out-of-sync with UX/epics for 9 NEW components.~~ — RESOLVED in commit `5968ef9` (this PR).
+- 🟡 **Minor concerns:** 4 honest-but-non-user-value epics (0/1/2/10 — acceptable per skill convention with rationale documented); ~~architecture FR count typo (55 vs 65 vs 69)~~ — RESOLVED in code-review patch round (now reads 69 in `_bmad-output/architecture.md` line 98); UX implementation details dropped from story AC (catalogued in step 4).
 
 **Best practices compliance for the project as a whole:**
 
@@ -582,10 +582,10 @@ None. The work is implementation-ready as a pre-condition for sprint planning.
 
 1. **🟠 Resolve Story 6.4 ↔ 7.1 ordering ambiguity.** Either move Story 7.1 (silent auto-save in clip mode) into Epic 6 *before* Story 6.4, OR rephrase Epic 7's dependency from "depends on Epic 6" to "Story 7.1 depends on 6.1 + 6.3; enables 6.4." Sprint planner needs a clean DAG.
 2. **🟠 Rephrase Story 2.5's dependency** from "cross-epic depends on Epic 5 Story 5.5" to "depends on Epic 0 Story 0.2 (legacy view-mode toggle UI)." Removes a soft circular reference between Epic 2 and Epic 5.
-3. **🟠 Update Architecture project-tree** to add the 9 missing NEW components as `[NEW per UX-DR<n>]` annotations. Cheap PR; restores architecture-as-binding-reference posture.
+3. ~~**🟠 Update Architecture project-tree** to add the 9 missing NEW components as `[NEW per UX-DR<n>]` annotations.~~ **DONE** — applied in commit `5968ef9`, shipped in PR #1.
 4. **🟡 Decide cookie-banner / privacy / terms scope.** PRD does not number these as FRs, UX presumes legacy ships them, no Sprint-3 story owns them. Add a row to Epic 10 launch checklist verifying their existence and post-token-bump rendering.
 5. **🟡 Reconcile demand-evidence non-blocking-vs-mandated tension.** PRD §2 says "captured before V1 launch" but Story 10.5 marks L21 as non-V1-blocking. Sprint planning must pick: gate launch on the metric, or ship V1 without the evidence and accept the PRD-flagged trade-off explicitly.
-6. **🟡 Correct Architecture's intro FR count typo** ("55 total" → 69 to match PRD). One-line edit.
+6. ~~**🟡 Correct Architecture's intro FR count typo** ("55 total" → 69 to match PRD).~~ **DONE** — applied in code-review patch round; `_bmad-output/architecture.md` line 98 now reads "69 total".
 7. **🟡 Confirm Sprint 2.5 audit dispositions before Sprint 3 commits.** Decision #ES-3 makes Story 0.1 a gating deliverable; the audit table itself doesn't yet exist. This is on-schedule per the epics doc but worth tracking.
 
 ### Latent Risks (informational; not actionable yet)
