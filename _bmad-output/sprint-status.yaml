@@ -1,5 +1,5 @@
 # generated: 2026-05-09
-# last_updated: 2026-05-09
+# last_updated: 2026-05-09 (post code-review patch round)
 # project: Warden_monorepo
 # project_key: NOKEY
 # tracking_system: file-system
@@ -46,7 +46,7 @@ development_status:
   # EPIC 0 — Sprint 2.5 Closure & Conflict Audit (G0 GATE for Sprint 3 merges)
   # ───────────────────────────────────────────────────────────────────
   epic-0: in-progress
-  0-1-conduct-per-story-conflict-audit-for-sprint-2-5-in-flight-mobile-work: review
+  0-1-conduct-per-story-conflict-audit-for-sprint-2-5-in-flight-mobile-work: done
   0-2-execute-sprint-2-5-per-story-dispositions: backlog
   epic-0-retrospective: optional
 

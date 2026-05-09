@@ -81,13 +81,13 @@ Solo-dev cascade — each wave gates the next on its critical-path story. Storie
 
 ### Wave 2 — Brownfield + Cross-Language Contracts + Tooling (parallelizable)
 
-Once 1.1 has a binding choice on whether real JSI binding ships, the Firebase v12 RN auth chain can begin. Independent foundation stories run in parallel.
+Track A (Firebase v12 RN auth chain), Track B (independent foundation), and Track C (tooling chain) all run in parallel from Wave 2 start. None of these tracks blocks on Story 1.1 (AR-SPIKE) — the spike's "binding choice" only conditions Epic 5/6 mobile-feature scope (gated by G1), not the Firebase OAuth/Firestore client surface.
 
 **Track A — Firebase v12 RN auth chain (sequential):**
 
 | Order | Story | Title | Deps |
 |---|---|---|---|
-| 4 | 1.4 | Firebase v12 RN Auth Migration — Add Deps + Prebuild | 1.1 (binding choice) |
+| 4 | 1.4 | Firebase v12 RN Auth Migration — Add Deps + Prebuild | — |
 | 5 | 1.5 | Firebase v12 RN Auth Migration — Migrate firebaseConfig.ts | 1.4 |
 | 6 | 1.6 | Firebase v12 RN Auth Migration — Migrate authService.ts | 1.5 |
 | 7 | 1.7 | Firebase v12 RN Auth Migration — Migrate subscriptionService.ts | 1.6 |
@@ -151,7 +151,6 @@ Mostly independent of mobile cascade. Slot during natural mobile-blocked moments
 | 4.4 | PasswordResetForm.tsx + sign-in ?passwordReset=1 Query Handler | — |
 | 4.5 | CancelDialog.tsx — Anti-Dark-Pattern | — |
 | 4.6 | EmptySubscription.tsx | — |
-| 8.2 | errorReporting.ts mailto Formatter | — |
 | 4.2 | OG Image Asset + Layout Meta | 4.1 |
 | 4.7 | Web English Copy with FR-Verbatim Insertions Embedded Inline | 4.1 |
 | 4.8 | Web Funnel Analytics Events | 1.12 |
@@ -169,7 +168,7 @@ Mostly independent of mobile cascade. Slot during natural mobile-blocked moments
 | — | 3.3 | SubscriptionRequiredScreen.tsx for Lapsed | 3.1 |
 | — | 3.4 | OfflineIndicator for Offline-Grace | 3.1 |
 | — | 3.9 | 30-Day MMKV-Cached Entitlement + Day-31 Expiry | 3.1 |
-| — | 3.7 | Mobile Login (mobile-AUTH-001) Entitlement Gate | 1.5/1.6, 3.3 |
+| — | 3.7 | Mobile Login (mobile-AUTH-001) Entitlement Gate | 1.5, 1.6, 3.3 |
 | — | 3.8 | Mobile Foreground Re-Fetch After Stripe Customer Portal Round-Trip | 1.7, 3.1 |
 | — | 3.10 | Session-Data Preservation Across Lapse → Resubscribe | 3.1, 3.3 |
 
@@ -183,7 +182,7 @@ Mostly independent of mobile cascade. Slot during natural mobile-blocked moments
 |---|---|---|---|---|
 | — | 5.1 | CardViewScreen with Adaptive Grid + Sort Persistence | 0.2, 1.1 | AC narrows to manual-clip-only |
 | — | 5.4 | Cinema Mode Immersive Review with Reveal-on-Tap Controls | 0.2, 1.1 | unchanged |
-| — | 5.5 | View-Mode Toggle (Full / Minimap / Minimap+HUD) ≤100 ms | 5.4, 2.5, 1.1, 0.2 | unchanged |
+| — | 5.5 | View-Mode Toggle (Full / Minimap / Minimap+HUD) ≤100 ms | 5.4, 1.1, 0.2 | unchanged (per Gate G3, 2.5 is orthogonal — not a 5.5 dep) |
 | — | 5.2 | Card → Cinema Mode Tap Navigation | 5.1, 5.4 | gated by 5.1 narrowing |
 | — | 5.3 | Cards/Timeline Top-Bar Toggle + Manual Clip from Timeline | 5.1, 5.4, 1.1 | becomes primary entry path |
 | — | 5.6 | Default Full View for Unknown Map | 5.5 | — |
@@ -215,10 +214,11 @@ Stories 6.2, 6.5 may shift forward (between 6.4 and 6.6) if 7.1 reveals auto-sav
 
 ---
 
-### Wave 8 — Help / Account Bottom Sheet
+### Wave 8 — Mobile Help / Account / Error Reporting
 
 | Story | Title | Deps |
 |---|---|---|
+| 8.2 | errorReporting.ts mailto Formatter (`apps/mobile/src/shared/services/errorReporting.ts`) | — |
 | 8.3 | Account Bottom-Sheet Aide Section | 8.1 |
 
 ---
@@ -248,21 +248,26 @@ Per PRD §2 + Decision #ES-9 carve-out:
 
 ## 4. Critical path
 
-The longest dependency chain — anything off this path is parallelizable.
+The longest dependency chain — anything off this path is parallelizable. Two independent chains land at 10.1 (V1 Launch Checklist):
+
+**Chain 1 — Foundation + entitlement → launch:**
 
 ```
-0.1 → 0.2 → 1.1 → 1.4 → 1.5 → 1.6 → 1.7 → 1.8 → 1.9
-                                         → 3.1 → 3.3 → 3.7
-                                         → ...
-                                                     → 10.3 → 10.1
+0.1 → 0.2 → 1.4 → 1.5 → 1.6 → 1.7 ┬→ 1.8 → 1.9 → 10.3 → 10.1
+                                  └→ 3.1 → 3.3 → 3.7
 ```
 
-Practical critical path through clip/auto-save/launch:
+(Tracks A/B/C of Wave 2 run in parallel from Wave 2 start; only Track A is on this critical-path chain. Story 3.1 deps on 1.7 only — it does NOT transit 1.8/1.9.)
+
+**Chain 2 — Spike + mobile clip features → launch:**
+
 ```
-1.1 → 1.4 → 1.5 → 1.6 → 1.7 → 3.1 → ... → 5.4 → 5.5 → 6.1 → 6.3 → 7.1 → 6.6 → 6.7 → 6.8 → 7.2 → 7.3 → 10.1
+0.2 → 1.1 → 5.4 → 5.5 → 6.1 → 6.3 → 7.1 → 6.6 → 6.7 → 6.8 → 7.2 → 7.3 → 10.1
 ```
 
-Any slip on Story **1.1 (AR-SPIKE)**, **1.7 (subscriptionService migration)**, or **5.4/5.5 (Cinema Mode)** moves the whole sprint end-date.
+(Story 6.7 also deps on 2.4 → 2.3 → 2.2 → 2.1 → 1.4; Story 6.8 also deps on 1.9. Both join Chain 1 transitively but the longest path is Chain 1's auth migration.)
+
+Any slip on Story **1.1 (AR-SPIKE)**, **1.7 (subscriptionService migration)**, **5.4/5.5 (Cinema Mode)**, or **7.1 (silent auto-save)** moves the whole sprint end-date.
 
 ---
 
@@ -289,7 +294,7 @@ Solo-dev guidance: do not let maintenance creep above 20% for more than one week
 
 ## 7. Definition of done for Sprint 3
 
-- All 75 V1-committed stories merged to `main` with their AC checklists fully ticked.
+- All 75 V1-committed stories merged to `main` with their AC checklists fully ticked. (Reconciles with §1's "Stories committed: 76" — the 76th is Story 1.1 AR-SPIKE, covered by the next bullet.)
 - Story 1.1 spike report committed under `_bmad-output/` with binding rung verdict.
 - Story 10.1 V1 Launch Checklist exists and lists Story 10.4 as external-blocked-or-done.
 - Story 10.5 demand-evidence corpus captured (non-V1-blocking — does not gate Sprint 3 close, but PRD §2 obligation tracked).

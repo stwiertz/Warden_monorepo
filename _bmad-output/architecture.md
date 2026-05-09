@@ -95,7 +95,7 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 
 ### Requirements Overview
 
-**Functional Requirements (55 total, surface-prefixed).** Mobile owns 33 FRs across 8 clusters (auth & entitlement, session import & auto-slicing, card view & triage, cinema mode, clip creation & voice annotation, export & share, auto-save & crash recovery). Web owns 13 FRs across 5 clusters (landing & pricing, authentication & checkout, dashboard, webhook processing, analytics). Tooling owns 13 FRs across 6 clusters (round detection & frame extraction, frame labeling, hash generation & map config, hash validation, end-to-end pipeline, TUI launcher, schema validation). The cross-surface category contributes 6 FRs across 5 clusters (entitlement state machine, activation event chain telemetry, schema contract conformance, reader-app build gate, map_config.json runtime delivery).
+**Functional Requirements (69 total, surface-prefixed).** Mobile owns 33 FRs across 8 clusters (auth & entitlement, session import & auto-slicing, card view & triage, cinema mode, clip creation & voice annotation, export & share, auto-save & crash recovery). Web owns 16 FRs across 5 clusters (landing & pricing, authentication & checkout, dashboard, webhook processing, analytics). Tooling owns 12 FRs across 6 clusters (round detection & frame extraction, frame labeling, hash generation & map config, hash validation, end-to-end pipeline, TUI launcher, schema validation). The cross-surface category contributes 8 FRs across 5 clusters (entitlement state machine, activation event chain telemetry, schema contract conformance, reader-app build gate, map_config.json runtime delivery).
 
 The FRs that drive the most architectural surface area:
 
