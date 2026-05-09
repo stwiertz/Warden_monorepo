@@ -99,6 +99,10 @@ def get_video_duration(video_path):
 def get_keyframe_timestamps(video_path, scan_duration=30):
     """Get I-frame timestamps from the first N seconds of a video.
 
+    Uses packet-level inspection (no decode) — orders of magnitude faster than
+    frame-level scanning on long captures. The packet ``flags`` field contains
+    ``K`` for keyframe packets.
+
     Args:
         video_path: Path to the input video file.
         scan_duration: How many seconds to scan from the start (default 30).
@@ -107,7 +111,7 @@ def get_keyframe_timestamps(video_path, scan_duration=30):
         list[float]: Sorted list of keyframe PTS timestamps in seconds.
 
     Raises:
-        RuntimeError: If ffprobe returns no frame data.
+        RuntimeError: If ffprobe returns no packet data.
     """
     check_ffmpeg()
     cmd = [
@@ -115,24 +119,30 @@ def get_keyframe_timestamps(video_path, scan_duration=30):
         "-v", "error",
         "-select_streams", "v:0",
         "-read_intervals", f"%+{scan_duration}",
-        "-show_frames",
-        "-show_entries", "frame=pts_time,key_frame",
-        "-of", "json",
+        "-show_packets",
+        "-show_entries", "packet=pts_time,flags",
+        "-of", "csv=p=0",
         str(video_path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    data = json.loads(result.stdout)
-    frames = data.get("frames", [])
-    if not frames:
+    timestamps = []
+    saw_any_packet = False
+    for line in result.stdout.splitlines():
+        if not line:
+            continue
+        saw_any_packet = True
+        parts = line.split(",")
+        if len(parts) >= 2 and "K" in parts[1]:
+            try:
+                timestamps.append(float(parts[0]))
+            except ValueError:
+                pass
+    if not saw_any_packet:
         raise RuntimeError(
-            f"No frame data returned by ffprobe for '{video_path}'. "
+            f"No packet data returned by ffprobe for '{video_path}'. "
             "Ensure the file is a valid video."
         )
-    return sorted(
-        float(f["pts_time"])
-        for f in frames
-        if f.get("key_frame") == 1
-    )
+    return sorted(timestamps)
 
 
 def get_gop_interval(video_path, scan_duration=30):
