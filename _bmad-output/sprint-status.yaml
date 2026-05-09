@@ -1,5 +1,5 @@
 # generated: 2026-05-09
-# last_updated: 2026-05-09 (Story 1.1 AR-SPIKE in-progress on branch ar-spike-perf-floor cut from main; epic-1 backlog → in-progress and 1-1 backlog → in-progress; Tasks 1-2 code-side work executed by dev agent, Tasks 3-9 paused pending Stephane-driven device measurements on Poco X5. Story 0.2 docs branch in parallel review will merge first per G0; this branch will rebase against main after that.)
+# last_updated: 2026-05-09 (Story 1.1 AR-SPIKE flipped in-progress → review on branch ar-spike-perf-floor; binding-only cut: AC1/AC2/AC3/AC11/AC12/AC15/AC16-partial closed; AC4/AC5/AC6/AC7/AC8/AC9/AC10-final/AC13 deferred to a new follow-up Story 1.1.1 — AR-SPIKE measurement that runs after Stories 1-13/1-14/1-15/1-16 + new-HUD work + pHash/ahash method reconciliation land. Provisional rung verdict: rung-0 plausible — binding viable; final TBD post-Story-1.1.1; cloud-fallback FORBIDDEN per AC11. Six substrate gaps audited in `_bmad-output/architecture-spike-perf-floor.md`. Reference device re-anchored Poco X5 → Poco X5 Pro 5G (SM7325/A14); cross-cutting cascade through architecture/prd/epics/ux is AC13-extended post-merge admin. Story 1.1.1 entry to be added to sprint-status post-merge. Story 0.2 docs branch in parallel review will merge first per G0; this branch will rebase against main after that.)
 # project: Warden_monorepo
 # project_key: NOKEY
 # tracking_system: file-system
@@ -54,7 +54,7 @@ development_status:
   # EPIC 1 — Foundations: V1-Blocking Spike, Brownfield, Cross-Language Contracts
   # ───────────────────────────────────────────────────────────────────
   epic-1: in-progress
-  1-1-pre-prd-performance-spike-ar-spike: in-progress
+  1-1-pre-prd-performance-spike-ar-spike: review
   1-2-foreground-service-android-config-plugin: backlog
   1-3-stripe-api-pin-bump: backlog
   1-4-firebase-v12-rn-auth-migration-add-deps-prebuild: backlog
