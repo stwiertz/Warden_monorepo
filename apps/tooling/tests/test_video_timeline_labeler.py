@@ -197,6 +197,16 @@ def test_backfill_returns_empty_when_no_previous_label():
     assert _backfill_between(None, None, "horizon", 240.0, KFS) == []
 
 
+def test_backfill_returns_empty_when_only_last_pts_is_none():
+    # Asymmetric: class is set but pts is not — must still short-circuit.
+    assert _backfill_between("horizon", None, "horizon", 240.0, KFS) == []
+
+
+def test_backfill_returns_empty_when_only_last_class_is_none():
+    # Asymmetric: pts is set but class is not — must still short-circuit.
+    assert _backfill_between(None, 60.0, "horizon", 240.0, KFS) == []
+
+
 def test_backfill_skips_transition_class():
     # Transitions are short; never assume they extend.
     assert _backfill_between("transition", 60.0, "transition", 240.0, KFS) == []

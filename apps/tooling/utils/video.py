@@ -5,6 +5,7 @@ It does NOT import OpenCV — only FFmpeg, subprocess, and numpy.
 """
 
 import json
+import os
 import queue
 import re
 import shutil
@@ -124,7 +125,12 @@ def get_keyframe_timestamps(video_path, scan_duration=30):
         "-of", "csv=p=0",
         str(video_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    # Force the C locale so ffprobe always emits '.'-decimal floats and a
+    # predictable CSV alphabet regardless of the host's LC_ALL setting.
+    env = {**os.environ, "LC_ALL": "C", "LANG": "C"}
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, check=True, env=env
+    )
     timestamps = []
     saw_any_packet = False
     for line in result.stdout.splitlines():
@@ -132,11 +138,21 @@ def get_keyframe_timestamps(video_path, scan_duration=30):
             continue
         saw_any_packet = True
         parts = line.split(",")
-        if len(parts) >= 2 and "K" in parts[1]:
-            try:
-                timestamps.append(float(parts[0]))
-            except ValueError:
-                pass
+        if len(parts) < 2:
+            continue
+        # ffprobe's flags column emits 'K' as the first character for
+        # keyframe packets (e.g. 'K_', 'K__', 'K_D'); non-keyframes lead
+        # with '_'. Use startswith('K') instead of `"K" in parts[1]` so a
+        # future flag letter that happens to contain K can't false-positive.
+        if not parts[1].startswith("K"):
+            continue
+        pts_str = parts[0]
+        if not pts_str or pts_str == "N/A":
+            continue
+        try:
+            timestamps.append(float(pts_str))
+        except ValueError:
+            pass
     if not saw_any_packet:
         raise RuntimeError(
             f"No packet data returned by ffprobe for '{video_path}'. "

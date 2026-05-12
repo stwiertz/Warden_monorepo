@@ -346,11 +346,15 @@ def flow_tool5() -> tuple[list[str], str | None]:
 def flow_tool6() -> tuple[list[str], str | None]:
     """Collect arguments for video_timeline_labeler.py.
 
-    Returns (args_list, video_path).
+    Returns (args_list, video_path). Returns ([], None) if the user cancels
+    any prompt (Ctrl-C from questionary returns None; cancel from
+    browse_video_file returns None).
     """
     video_path = browse_video_file(
         "Select video file for Tool 6 — Label Frames from Video Timeline:"
     )
+    if not video_path:
+        return [], None
     args = ["tools/video_timeline_labeler.py", video_path]
 
     output_dir = questionary.text("Output directory (-o)  [blank = default]:").ask()
@@ -361,7 +365,11 @@ def flow_tool6() -> tuple[list[str], str | None]:
         "Snap policy (--snap):",
         choices=["nearest", "prior", "after"],
     ).ask()
-    if snap_policy and snap_policy != "nearest":
+    # questionary returns None on Ctrl-C — treat as cancel so the user
+    # doesn't silently proceed with the default policy.
+    if snap_policy is None:
+        return [], None
+    if snap_policy != "nearest":
         args += ["--snap", snap_policy]
 
     return args, video_path
@@ -499,6 +507,10 @@ def _reprompt_source(
         return new_args, new_video
     elif tool_key == "video_timeline_labeler":
         new_video = browse_video_file("Select new video file:")
+        if not new_video:
+            # User cancelled the picker — bail to the main menu instead of
+            # injecting the literal "None" into the args list.
+            return [], None
         # last_args layout: ["tools/video_timeline_labeler.py", <video>, ...]
         new_args = [last_args[0], new_video] + last_args[2:]
         return new_args, new_video

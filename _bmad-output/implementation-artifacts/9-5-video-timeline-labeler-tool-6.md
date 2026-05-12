@@ -1,6 +1,6 @@
 # Story 9.5: Video Timeline Labeler (Tool 6)
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -66,7 +66,7 @@ so that **I can rapidly produce the labeled dataset that Tool 7 (Story 9.6) will
 - [x] **Task 1: Module skeleton + imports + CLI parsing (AC: 1, 4)**
   - [x] Create `apps/tooling/tools/video_timeline_labeler.py` with the module docstring (mirror the `frame_labeler.py:1-10` style — short one-liner + 2-3 sentence elaboration + `Usage:` block).
   - [x] `sys.path.insert(0, ...)` to lift `utils/` onto the import path (same pattern as `game_detector.py:21-22`).
-  - [x] Imports: `argparse`, `os`, `glob`, `re`, `sys`, `tkinter as tk`, `from tkinter import filedialog`, `cv2`, `from PIL import Image, ImageTk`, `from utils.video import check_ffmpeg, get_video_info, get_video_duration, get_keyframe_timestamps, extract_frame_at_timestamp`. _`utils.format.format_timestamp` is incompatible (returns `MMmSSs`, no hour component) — inlined `_format_hhmmss(pts)` helper instead per AC6 carve-out._
+  - [x] Imports: `argparse`, `glob`, `math`, `os`, `re`, `sys`, `tkinter as tk`, `from tkinter import filedialog, messagebox, simpledialog`, `cv2`, `from PIL import Image, ImageTk`, `from utils.video import check_ffmpeg, extract_frame_at_timestamp, extract_frame_at_timestamp_scaled, get_keyframe_timestamps, get_video_duration, get_video_info`. _`utils.format.format_timestamp` is incompatible (returns `MMmSSs`, no hour component) — inlined `_format_hhmmss(pts)` helper instead per AC6 carve-out._ _`extract_frame_at_timestamp_scaled` added for the HUD-prompt thumbnail (Change Log 2026-05-09); `math` added for the post-review `isfinite` guard in `_format_hhmmss` (Review Findings 2026-05-10)._
   - [x] Reuse `MAP_LABELS` and `LABEL_DISPLAY` constants by importing from `frame_labeler.py` (`from tools.frame_labeler import MAP_LABELS, LABEL_DISPLAY`) — single source of truth per `tooling-LABEL-002`.
   - [x] `argparse` flags: positional `video` (optional — fallback to `filedialog.askopenfilename` if omitted), `-o/--output` (default `<project_root>/output/labeled`), `--snap` choice of `nearest|prior|after` (default `nearest`).
 
@@ -114,14 +114,62 @@ so that **I can rapidly produce the labeled dataset that Tool 7 (Story 9.6) will
   - [x] Added `elif choice == "Tool 6 — …":` branch in the `menu_main` while-loop following the Tool 5 branch shape.
   - [x] Updated `_reprompt_source` with a `tool_key == "video_timeline_labeler"` branch (re-prompt video path only; preserve `-o` and `--snap` from saved args) — same pattern as the `game_detector` branch.
 
-- [ ] **Task 9: Manual smoke test (AC: 1-7)**
-  - [ ] Run `python apps/tooling/wardentooling.py` → select Tool 6 → pick a real EVA MP4 (1080p, 30fps; one of the 3 reference videos Stephane has staged). HUD prompt fires. Player renders. Scrub. Try every hotkey. Confirm output files appear at `<output>/v2.0/<class>/001_<HHmMSs>.png`. Confirm `Backspace` removes the latest. Confirm `--snap prior` and `--snap after` produce different sequencing on a deliberately-between-keyframes cursor.
+- [x] **Task 9: Manual smoke test (AC: 1-7)** — passed 2026-05-12 (post-review-patch build).
+  - [x] Ran `python apps/tooling/wardentooling.py` → Tool 6 → real EVA MP4 (`videos/2026-04-28 19-23-04.mp4`, 127.7 min, 1840 keyframes, packet-level scan <5s). HUD prompt fired (visible/centered/topmost with first-frame thumbnail — after the P6 revert). Player rendered. Scrub, all hotkeys, backfill, Backspace (with cursor rollback), `--snap prior`/`after` differential sequencing all verified. Output PNGs landed at `output/labeled/v2.0/<class>/<seq:03d>_<HHmMSs>.png`. _One regression caught and fixed during this run: the post-review P6 "single boot Tk root" refactor made the HUD prompt invisible on Windows (Toplevel-of-withdrawn-root + `transient`); reverted to the deliberate multi-root design — see Change Log 2026-05-12 and `deferred-work.md`._
 
 - [ ] **Task 10: PR + sprint-status flip (AC: 10, 11)**
   - [ ] Branch `tool-6-video-timeline-labeler`. Single PR with title `feat: Tool 6 — video timeline labeler (Story 9.5)`.
-  - [ ] In the same commit set: flip sprint-status `9-5-video-timeline-labeler-tool-6: backlog → review`.
+  - [x] Flip sprint-status `9-5-video-timeline-labeler-tool-6: in-progress → review` (done 2026-05-12 after smoke-test gate cleared — per code-review Decision #1, this flip was held until Task 9 passed rather than committed at PR-open time).
   - [ ] Open PR, link this story file + Epic 9 charter + Track C section.
   - [ ] Post-merge: tiny follow-up commit/PR flips `review → done` and bumps `last_updated` (Two-PR pattern per `feedback_two_pr_docs_execution.md`).
+
+### Review Findings
+
+_Code review on 2026-05-10 against branch `tool-6-video-timeline-labeler` (commit `f83bccd`). Layers: Blind Hunter (15) + Edge Case Hunter (24) + Acceptance Auditor (7). After dedup + triage: 3 decision-needed (now resolved → 1 confirmed carve-out + 2 patches), 27 patch, 5 deferred, 5 dismissed._
+
+**Decision-needed (resolved 2026-05-10 by Stephane)**
+
+- [x] [Review][Decision][Resolved] Sprint-status flip in this PR vs. gated on smoke test — **Decision: keep `in-progress` until smoke test runs.** AC10 carve-out re-scoped: the `backlog → review` flip is now gated on Stephane completing Task 9, not on PR open. Documented here; no code change in this PR.
+- [x] [Review][Decision][Resolved → Patch] Backspace cursor rollback policy — **Decision: Backspace also rolls cursor back to last labeled pts** (one-click re-label restored). Promoted to patch list (P26 below).
+- [x] [Review][Decision][Resolved → Patch] Slider-debounce vs. step-frame fidelity — **Decision: bypass debounce in step methods.** `_step_frames` / `_step_seconds` to call `_seek_and_render` directly so each press renders. Promoted to patch list (P27 below).
+
+**Patch**
+
+- [x] [Review][Patch] `_render_current_frame` consumes a frame on canvas-too-small early return [video_timeline_labeler.py:451-474]
+- [x] [Review][Patch] `_next_seq` race in backfill loop — same-batch path collision possible [video_timeline_labeler.py:615-648]
+- [x] [Review][Patch] `cv2.imwrite` silently fails on Windows non-ASCII paths — use `cv2.imencode` + `Path.write_bytes` [video_timeline_labeler.py:635-638]
+- [x] [Review][Patch] Duplicate decode/render code in `_render_current_frame` and `_tick` (~20 lines) [video_timeline_labeler.py:451-474, 498-526]
+- [x] [Review][Patch] ffprobe CSV parsing brittle: `"K" in parts[1]` substring; locale-dependent decimal; `float("N/A")` silently swallowed [utils/video.py:117-145]
+- [x] [Review][Patch → REVERTED → Defer] Two `tk.Tk()` roots created (`_prompt_hud_version` then `VideoTimelineLabelerApp`) — attempted single-boot-root refactor (Toplevel of withdrawn root + `transient`) but that combination renders the HUD prompt invisible/behind on Windows (2026-05-12 smoke regression — same failure mode the dev agent fixed on 2026-05-09). Reverted to the deliberate multi-root design (sequential picker → prompt → player roots, each destroyed before the next). Logged in `deferred-work.md`: the theoretical multi-root concern is outweighed by the empirical Windows-visibility constraint. [video_timeline_labeler.py:187-318, ~720-790]
+- [x] [Review][Patch] HUD-prompt thumbnail decode swallows all exceptions; user can proceed with broken video [video_timeline_labeler.py:217-233]
+- [x] [Review][Patch] `scan_duration=int(duration)+1` truncates fractional tail; no bail when `duration<=0` [video_timeline_labeler.py:776-784]
+- [x] [Review][Patch] `destroy()` swallows all exceptions on `cap.release()` — log to stderr instead [video_timeline_labeler.py:704-710]
+- [x] [Review][Patch] Test gap: `_backfill_between` not covered for `last_class!=None, last_pts==None` asymmetry [tests/test_video_timeline_labeler.py]
+- [x] [Review][Patch] Map hotkeys only register lowercase; lobby/transition/score register both — inconsistent under CapsLock [video_timeline_labeler.py:434-444]
+- [x] [Review][Patch] Zero/undefined FPS: clamp `_fps` to 30 with warning; guard `_step_frames` against zero [video_timeline_labeler.py:296-297, 528-531]
+- [x] [Review][Patch] FRAME_COUNT zero/negative — slider becomes unusable; bail with clear message [video_timeline_labeler.py:297-298]
+- [x] [Review][Patch] `get_video_info` raises late after `VideoCapture` opens — wrap, surface friendly error, release cap [video_timeline_labeler.py:299]
+- [x] [Review][Patch] Window destroyed while `_tick`'s `after()` callback is pending — guard with `winfo_exists()` [video_timeline_labeler.py:498-526]
+- [x] [Review][Patch] `_label_current` with empty `_keyframe_pts` falls through to a generic bell — show specific message [video_timeline_labeler.py:542-555]
+- [x] [Review][Patch] `os.makedirs` failure unhandled in `_write_label_png` — wrap with status-bar message [video_timeline_labeler.py:619-622]
+- [x] [Review][Patch] `_undo`'s `os.remove` uncaught on Windows file-lock / permission denied [video_timeline_labeler.py:116-121]
+- [x] [Review][Patch] HUD version with leading `.` or `-` passes regex but creates hidden/CLI-confusable dir [video_timeline_labeler.py:124-128]
+- [x] [Review][Patch] `_format_hhmmss` with NaN / +inf raises ValueError on `int()` cast [video_timeline_labeler.py:81-87]
+- [x] [Review][Patch] `browse_video_file` returning None in `_reprompt_source` produces literal `"None"` in args [wardentooling.py:500-504]
+- [x] [Review][Patch] `questionary.select` for `--snap` returning None on Ctrl-C silently proceeds with default [wardentooling.py:357-364]
+- [x] [Review][Patch] `.gitignore` change not declared in spec File List — add the entry [9-5-video-timeline-labeler-tool-6.md File List]
+- [x] [Review][Patch] Change Log claims "all callers" but `black_screen_detector.py` (transitive via `get_gop_interval`) omitted from the enumeration [9-5-video-timeline-labeler-tool-6.md Change Log]
+- [x] [Review][Patch] `extract_frame_at_timestamp_scaled` missing from spec's Task-1 import list — added in `_prompt_hud_version` thumbnail [9-5-video-timeline-labeler-tool-6.md Tasks/Subtasks]
+- [x] [Review][Patch] (P26 from Decision #2) Backspace rolls cursor back to `_last_label_pts` before clearing it — restores one-click re-label after misclick [video_timeline_labeler.py:644-663]
+- [x] [Review][Patch] (P27 from Decision #3) `_step_frames` / `_step_seconds` bypass slider debounce — call `_seek_and_render` directly so each press renders [video_timeline_labeler.py:522-530]
+
+**Deferred** (logged in `_bmad-output/implementation-artifacts/deferred-work.md`)
+
+- [x] [Review][Defer] `_default_output_dir` resolves four levels above `tools/` — works as-designed; install-target concern is hypothetical [video_timeline_labeler.py:718-723]
+- [x] [Review][Defer] `_session_counts` rollback corruption on partial-undo failure — very edge-case (AV/OneDrive racing FS) [video_timeline_labeler.py:656-664]
+- [x] [Review][Defer] `glob.glob` UnicodeDecodeError on non-UTF8 filenames — Windows default codepage not affected on Stephane's setup [video_timeline_labeler.py:107-113]
+- [x] [Review][Defer] `_prompt_hud_version` raises TclError in headless env — Tk GUI tool; out of scope [video_timeline_labeler.py:790-793]
+- [x] [Review][Defer] Pillow declared transitive only via `imagehash` (`v12.2.0`) — works today; declaring directly would be belt-and-suspenders [pyproject.toml]
 
 ## Dev Notes
 
@@ -252,7 +300,8 @@ output/labeled/
 - **Added** `apps/tooling/tests/test_video_timeline_labeler.py`
 - **Added** `apps/tooling/tests/conftest.py`
 - **Modified** `apps/tooling/wardentooling.py` (Tool 6 flow + `_TOOL_MAP` + `_reprompt_source` + `choices_main` + `menu_main` branch)
-- **Modified** `apps/tooling/utils/video.py` (`get_keyframe_timestamps` switched to packet-level `-show_packets` strategy — orders-of-magnitude speedup on long captures; signature, return value, and `scan_duration` semantics preserved. Benefits all callers: `get_gop_interval`, `bsd_roi_debugger.py`, Tool 6.)
+- **Modified** `apps/tooling/utils/video.py` (`get_keyframe_timestamps` switched to packet-level `-show_packets` strategy — orders-of-magnitude speedup on long captures; signature, return value, and `scan_duration` semantics preserved. Benefits all callers: `get_gop_interval` (utils/video.py), `bsd_roi_debugger.py`, `black_screen_detector.py` (transitive via `get_gop_interval`), Tool 6.)
+- **Modified** `.gitignore` (added `videos/` — local capture staging dir, not committed)
 - **Modified** `_bmad-output/sprint-status.yaml` (`9-5-video-timeline-labeler-tool-6: ready-for-dev → in-progress`; `last_updated` to be flipped at Step-9 close)
 - **Modified** `_bmad-output/implementation-artifacts/9-5-video-timeline-labeler-tool-6.md` (this file: status, ACs, tasks, Dev Agent Record, File List, Change Log)
 
@@ -266,4 +315,5 @@ output/labeled/
 | 2026-05-09 | dev-agent (Opus 4.7 1M) | Auto-advance after label (Stephane request): on every successful label write — button or hotkey — the cursor now jumps to the next keyframe in `self._keyframe_pts`. **Deviates from the original Dev Notes anti-pattern "DO NOT auto-advance"**: the rationale there was "Stephane stays in control of the cursor", but in practice during the smoke run it created friction (cursor frozen after labeling looked like nothing happened). Backspace undo intentionally does NOT advance — leaves the cursor on the just-undone position so a re-label is one-click. Also added `self.focus_set()` at the start of `_label_current` and `_on_backspace` so hotkeys keep firing after a button click. No new tests (UI-only behavior; pure helpers untouched). 26/26 still green. |
 | 2026-05-10 | dev-agent (Opus 4.7 1M) | Minute-sample workflow + same-class auto-backfill (Stephane request — "save me a lot of time"): cursor advance step changed from "next keyframe" to **+60s snapped to nearest keyframe**, configurable via `self._advance_step_s` (default 60.0). Added auto-backfill: if `self._last_label_class == class_name` and `class_name != "transition"` and `self._last_label_pts < snapped`, the tool writes a labeled PNG for every keyframe strictly between the two label positions — same class, individual seq numbers, full per-frame ffmpeg decode. Two consecutive `Horizon` labels at min 5 and min 6 ≈ 15 backfilled PNGs. Refactored `self._last_written: str | None` → `self._last_written_batch: list[str]`; Backspace now undoes the entire last batch (single label OR full backfill). Status bar gained a top-right "Advance: +60s + same-class backfill (skip transition)" indicator. Added defensive routing assertion in `_label_current` to surface any future class/path mismatch loudly. Print statements gained `flush=True` so terminal log is reliable for diagnosing the still-open "artefact-folder pollution" report. UI-only changes; 26/26 tests still green. |
 | 2026-05-10 | dev-agent (Opus 4.7 1M) | Backfill not firing — diagnostic refactor: extracted the backfill decision into a pure helper `_backfill_between(last_class, last_pts, current_class, current_pts, keyframes, skip_classes)` and added 7 unit tests covering same-class consecutive, mismatched class, no-previous-label, transition skip, equal/backwards PTS (no-op), exclusive endpoints, and custom skip-class set. All 33/33 tests pass — the logic is verified. Added a one-line diagnostic print before each backfill check (`[backfill-check] last_class=... current_class=... last_pts=... snapped=... -> N keyframe(s)`) so the next run's terminal log will show exactly why backfill skipped: most likely a non-consecutive same-class call (intervening label) or `Backspace` between the two labels (which intentionally resets `_last_label_class` to None). |
+| 2026-05-10 | review-agent (Opus 4.7 1M) | **Code review patch pass — 27/27 patches applied (3 decisions resolved + 24 review findings).** Touches: `video_timeline_labeler.py` (P1 seek-before-render to stop frame-consumption drift; P2 pre-computed batch seq; P3 cv2.imencode+open for Windows non-ASCII path safety; P4 extracted `_paint_frame` helper; ~~P6 single boot Tk root~~ (attempted then **reverted 2026-05-12** — Toplevel-of-withdrawn-root + `transient` makes the HUD prompt invisible on Windows; multi-root design retained, finding moved to `deferred-work.md`); P7 thumbnail decode failure now logged to stderr; P8 `math.ceil(duration)+1` + `duration<=0` bail; P9 destroy() logs cap.release failures; P11 map-hotkey uppercase variants bound; P12/13/14 FPS clamp + frame-count guard + get_video_info wrap with cap.release; P15 `winfo_exists` guard in `_tick`; P16 specific message for empty keyframes; P17 `os.makedirs` try/except; P18 `_undo` catches OSError; P19 reject leading `.`/`-` HUD versions; P20 `_format_hhmmss` NaN/inf guard; **P26 Backspace rolls cursor back** to last-labeled pts; **P27 `_step_frames`/`_step_seconds` bypass slider debounce**), `utils/video.py` (P5 LC_ALL=C env, `startswith('K')` flag check, `N/A` pts_time skip), `wardentooling.py` (P21 `_reprompt_source` cancel returns `[], None`; P22 `flow_tool6` cancel on Ctrl-C), `tests/test_video_timeline_labeler.py` (P10 added two `_backfill_between` asymmetric-None tests; 35/35 green). 5 findings deferred to `deferred-work.md`; 5 dismissed (slider-pre-build impossible, advance-past-last-keyframe handled, defensive class-name guard not needed, story-doc semantic, AC2 superset documented). Decision #1 (sprint-status `in-progress→review` flip) deferred to smoke-test gate per Stephane. |
 | 2026-05-10 | dev-agent (Opus 4.7 1M) | **ROOT CAUSE — artefact pollution + non-firing backfill: Tk binding ambiguity.** Stephane's terminal log proved every intended label was paired with an artefact write at the same PTS. `self.bind("<1>", …)` does NOT bind to the digit "1" key — Tk treats bare `<1>`..`<5>` as `<Button-1>`..`<Button-5>` (mouse buttons). Every left-click anywhere in the player (including clicks on the map buttons) fired the `<1>` handler routed to `MAP_LABELS[0] = "artefact"`. That spurious artefact write also broke the same-class-backfill check: between two intended `lobby` clicks, an artefact sneak-in flipped `_last_label_class` to "artefact", so the second lobby never matched. Backfill correctly fired for **artefact** (consecutive artefact writes) — the only class that could ever satisfy the check under the bug. **Fix:** every key binding now uses the explicit `<KeyPress-X>` form (digits, letters, special keys, modifier combos). Tk no longer ambiguates the digit keys with mouse buttons. Cleanup advice for Stephane's existing `output/labeled/v2.0/artefact/` folder: nuke it entirely and re-label only the actual artefact map sessions (false positives outnumber genuine artefact frames). 33/33 tests still green; UI-only fix, no test changes needed (Tk-binding semantics aren't worth a headless-Tk test rig per the original story Dev Notes). |
