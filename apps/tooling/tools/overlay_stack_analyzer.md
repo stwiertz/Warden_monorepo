@@ -18,8 +18,8 @@ Defaults:
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--input` | `<repo>/output/labeled` (= Tool 6's default output) | Labeled dataset root: `v<ver>/<class>/*.png`. |
-| `--output` | `<repo>/output/overlay_stacks` | Where the stacked images + summary land. |
+| `--input` | `apps/tooling/output/labeled` (= Tool 6's default output) | Labeled dataset root: `v<ver>/<class>/*.png`. |
+| `--output` | `apps/tooling/output/overlay_stacks` | Where the stacked images + summary land. |
 | `--min-frames` | `2` | Cells with fewer readable frames are recorded as `skipped` (`too_few_frames`) — no images. |
 | `--ref-height` | unset | If set, every cell is resized to this pixel height (width keeps the modal aspect ratio). Unset → per-cell modal shape, no resize. |
 | `--heatmap` | off | Also emit `variance_heatmap.png` (HSV-volatility, false-coloured). Adds a second streaming pass; skipped entirely when off. |
