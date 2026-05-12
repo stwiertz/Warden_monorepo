@@ -14,7 +14,7 @@ uv run python wardentooling.py
 uv run python tools/video_timeline_labeler.py <video.mp4> [-o OUTPUT_DIR] [--snap nearest|prior|after]
 ```
 
-Defaults: `OUTPUT_DIR = <repo>/output/labeled`, `--snap = nearest`.
+Defaults: `OUTPUT_DIR = apps/tooling/output/labeled`, `--snap = nearest`.
 
 On launch:
 1. ffprobe scans the full keyframe list via packet-level inspection (printed: `Found N keyframes spanning Ts`; ~2 s on a 73-min capture).

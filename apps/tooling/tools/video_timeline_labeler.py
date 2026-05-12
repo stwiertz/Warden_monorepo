@@ -847,8 +847,11 @@ class VideoTimelineLabelerApp(tk.Tk):
 
 
 def _default_output_dir() -> str:
+    # `apps/tooling/output/labeled` — one level up from `tools/`, i.e. the tooling
+    # app root, which is already gitignored (`apps/tooling/output/`). Tool 7's
+    # `_default_input_dir` mirrors this exactly so the two stay in lockstep.
     return os.path.join(
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
         "output",
         "labeled",
     )
@@ -868,7 +871,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "-o",
         "--output",
         default=None,
-        help="Output root directory (default: <project_root>/output/labeled).",
+        help="Output root directory (default: apps/tooling/output/labeled).",
     )
     parser.add_argument(
         "--snap",

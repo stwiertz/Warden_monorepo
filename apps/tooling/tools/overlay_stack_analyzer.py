@@ -38,20 +38,22 @@ import numpy as np  # noqa: E402
 
 
 def _default_input_dir() -> str:
-    """``<repo_root>/output/labeled`` — intentionally identical to
+    """``apps/tooling/output/labeled`` — intentionally identical to
     ``video_timeline_labeler._default_output_dir()`` so Tool 7's default input
-    always equals Tool 6's default output regardless of checkout location."""
+    always equals Tool 6's default output. One level up from ``tools/`` (the
+    tooling app root); ``apps/tooling/output/`` is already gitignored."""
     return os.path.join(
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
         "output",
         "labeled",
     )
 
 
 def _default_output_dir() -> str:
-    """``<repo_root>/output/overlay_stacks`` — same ``__file__``-relative math."""
+    """``apps/tooling/output/overlay_stacks`` — same ``__file__``-relative math
+    as ``_default_input_dir`` (a sibling of Tool 6's ``output/labeled``)."""
     return os.path.join(
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
         "output",
         "overlay_stacks",
     )
@@ -359,12 +361,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--input",
         default=None,
-        help="Labeled dataset root (default: <repo_root>/output/labeled — Tool 6's default output).",
+        help="Labeled dataset root (default: apps/tooling/output/labeled — Tool 6's default output).",
     )
     parser.add_argument(
         "--output",
         default=None,
-        help="Output root for stacked images (default: <repo_root>/output/overlay_stacks).",
+        help="Output root for stacked images (default: apps/tooling/output/overlay_stacks).",
     )
     parser.add_argument(
         "--min-frames",
