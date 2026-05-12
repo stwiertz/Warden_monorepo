@@ -339,6 +339,43 @@ def flow_tool5() -> tuple[list[str], str | None]:
 
 
 # ---------------------------------------------------------------------------
+# Tool 6 — video_timeline_labeler
+# ---------------------------------------------------------------------------
+
+
+def flow_tool6() -> tuple[list[str], str | None]:
+    """Collect arguments for video_timeline_labeler.py.
+
+    Returns (args_list, video_path). Returns ([], None) if the user cancels
+    any prompt (Ctrl-C from questionary returns None; cancel from
+    browse_video_file returns None).
+    """
+    video_path = browse_video_file(
+        "Select video file for Tool 6 — Label Frames from Video Timeline:"
+    )
+    if not video_path:
+        return [], None
+    args = ["tools/video_timeline_labeler.py", video_path]
+
+    output_dir = questionary.text("Output directory (-o)  [blank = default]:").ask()
+    if output_dir:
+        args += ["-o", output_dir]
+
+    snap_policy = questionary.select(
+        "Snap policy (--snap):",
+        choices=["nearest", "prior", "after"],
+    ).ask()
+    # questionary returns None on Ctrl-C — treat as cancel so the user
+    # doesn't silently proceed with the default policy.
+    if snap_policy is None:
+        return [], None
+    if snap_policy != "nearest":
+        args += ["--snap", snap_policy]
+
+    return args, video_path
+
+
+# ---------------------------------------------------------------------------
 # Dev tool flows
 # ---------------------------------------------------------------------------
 
@@ -434,11 +471,12 @@ def menu_dev() -> None:
 # ---------------------------------------------------------------------------
 
 _TOOL_MAP = {
-    "game_detector":        ("Tool 1 — Extract Rounds",          flow_tool1),
-    "frame_labeler":        ("Tool 2 — Label Frames",             flow_tool2),
-    "map_config_generator": ("Tool 3 — Generate Map Config",      flow_tool3),
-    "hash_validator":       ("Tool 4 — Validate Hash Accuracy",   flow_tool4),
-    "warden_analyzer":      ("Tool 5 — Analyze Rounds",           flow_tool5),
+    "game_detector":          ("Tool 1 — Extract Rounds",                       flow_tool1),
+    "frame_labeler":          ("Tool 2 — Label Frames",                         flow_tool2),
+    "map_config_generator":   ("Tool 3 — Generate Map Config",                  flow_tool3),
+    "hash_validator":         ("Tool 4 — Validate Hash Accuracy",               flow_tool4),
+    "warden_analyzer":        ("Tool 5 — Analyze Rounds",                       flow_tool5),
+    "video_timeline_labeler": ("Tool 6 — Label Frames from Video Timeline",     flow_tool6),
 }
 
 
@@ -465,6 +503,15 @@ def _reprompt_source(
     elif tool_key == "warden_analyzer":
         new_video = browse_video_file("Select new video file:")
         # last_args layout: ["tools/warden_analyzer.py", <video>, ...]
+        new_args = [last_args[0], new_video] + last_args[2:]
+        return new_args, new_video
+    elif tool_key == "video_timeline_labeler":
+        new_video = browse_video_file("Select new video file:")
+        if not new_video:
+            # User cancelled the picker — bail to the main menu instead of
+            # injecting the literal "None" into the args list.
+            return [], None
+        # last_args layout: ["tools/video_timeline_labeler.py", <video>, ...]
         new_args = [last_args[0], new_video] + last_args[2:]
         return new_args, new_video
     else:
@@ -525,6 +572,7 @@ def menu_main() -> None:
         "Tool 3 — Generate Map Config",
         "Tool 4 — Validate Hash Accuracy",
         "Tool 5 — Analyze Rounds",
+        "Tool 6 — Label Frames from Video Timeline",
         "Dev Tools",
         "Quit",
     ]
@@ -604,6 +652,23 @@ def menu_main() -> None:
                 returncode = run_tool(args)
                 if returncode == 0:
                     save_last_run("warden_analyzer", "Tool 5 — Analyze Rounds", args, video_path)
+
+        elif choice == "Tool 6 — Label Frames from Video Timeline":
+            args, video_path = flow_tool6()
+            if not args:
+                continue
+            confirmed = questionary.confirm(
+                f"Run: {exe_name} {' '.join(args)}?", default=True
+            ).ask()
+            if confirmed:
+                returncode = run_tool(args)
+                if returncode == 0:
+                    save_last_run(
+                        "video_timeline_labeler",
+                        "Tool 6 — Label Frames from Video Timeline",
+                        args,
+                        video_path,
+                    )
 
         elif choice == "Dev Tools":
             menu_dev()

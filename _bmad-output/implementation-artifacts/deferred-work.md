@@ -6,6 +6,17 @@ Each entry: bullet with the finding + brief reason.
 
 ---
 
+## Deferred from: code review of 9-5-video-timeline-labeler-tool-6 (2026-05-10)
+
+- **Multiple `tk.Tk()` roots per process (picker → HUD prompt → player)** (`apps/tooling/tools/video_timeline_labeler.py`) — Blind Hunter flagged this as undefined-behavior risk (fonts, `_default_root`, image refs). A single-boot-root refactor was attempted on 2026-05-10 (Toplevel of a withdrawn root + `transient()`) but **reverted on 2026-05-12**: that exact combination renders the HUD-version prompt invisible/behind on Windows — the same regression the dev agent already hit and fixed on 2026-05-09. The roots are created and destroyed strictly sequentially (never overlapping), which is fine in practice. Revisit only if a concrete cross-root bug surfaces; the empirical Windows-visibility constraint trumps the theoretical concern.
+- **`_default_output_dir` resolves four levels above `tools/`** (`apps/tooling/tools/video_timeline_labeler.py:718-723`) — `os.path.join(__file__, "..", "..", "..")` writes to `<repo>/output/labeled/`. Works as-designed for git-checkout layout; concern about wheel/site-packages installs is hypothetical for a tooling-only CLI used by one developer. Revisit if Tool 6 ever ships outside the monorepo checkout.
+- **`_session_counts` rollback corruption on partial-undo failure** (`apps/tooling/tools/video_timeline_labeler.py:656-664`) — if AV/OneDrive races `_undo`'s `os.remove`, returning False, the per-class count stays high and overstates the dataset. Edge-case dataset-accounting drift; not user-visible in the typical session.
+- **`glob.glob` UnicodeDecodeError on non-UTF8 filenames** (`apps/tooling/tools/video_timeline_labeler.py:107-113`) — Windows default codepage on Stephane's machine doesn't trigger this; only relevant if the output dir grows pre-existing non-UTF8 PNG names.
+- **`_prompt_hud_version` raises TclError in headless environment** (`apps/tooling/tools/video_timeline_labeler.py:790-793`) — Tk-based GUI tool; SSH/headless use is out of scope per Dev Notes ("No GUI testing").
+- **Pillow declared as transitive dep only (via `imagehash` → `pillow v12.2.0`)** — works today; declaring `pillow>=10` directly in `pyproject.toml` would be belt-and-suspenders insurance against `imagehash` ever dropping the dep. Revisit on the next dependency audit.
+
+---
+
 ## Deferred from: code review of 1-1-pre-prd-performance-spike-ar-spike (2026-05-09)
 
 - **`clearCheckpoint` doesn't delete `events` / `gameSegments` / `mapIdentifications` / `perf002` MMKV keys** — pre-existing tech debt (`apps/mobile/src/features/video-processing/processingPipeline.ts:104-106`). Only the `stage` key is cleared on a successful run; the per-stage data keys leak across sessions. This story extends the pattern (adds `perf002`) but does not cause it. Defer to a dedicated MMKV-cleanup pass.
