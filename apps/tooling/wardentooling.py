@@ -376,6 +376,80 @@ def flow_tool6() -> tuple[list[str], str | None]:
 
 
 # ---------------------------------------------------------------------------
+# Tool 7 — overlay_stack_analyzer
+# ---------------------------------------------------------------------------
+
+
+def flow_tool7() -> tuple[list[str], str | None]:
+    """Collect arguments for overlay_stack_analyzer.py.
+
+    Returns (args_list, None) — no video_path for this directory-driven tool
+    (like Tool 4). Returns ([], None) if the user Ctrl-C's any prompt
+    (questionary returns None on interrupt).
+    """
+    args = ["tools/overlay_stack_analyzer.py"]
+
+    def _is_pos_int(text: str) -> bool:
+        # `.isdigit()` alone is True for non-ASCII digits (e.g. superscripts) that
+        # `int()` then refuses — require ASCII first so the parse can't crash.
+        return text.isascii() and text.isdigit() and int(text) > 0
+
+    input_dir = questionary.text(
+        "Labeled dataset directory (--input)  [blank = output/labeled]:"
+    ).ask()
+    if input_dir is None:
+        return [], None
+    input_dir = input_dir.strip()
+    if input_dir:
+        args += ["--input", input_dir]
+
+    output_dir = questionary.text(
+        "Output directory (--output)  [blank = output/overlay_stacks]:"
+    ).ask()
+    if output_dir is None:
+        return [], None
+    output_dir = output_dir.strip()
+    if output_dir:
+        args += ["--output", output_dir]
+
+    while True:
+        min_frames = questionary.text(
+            "Minimum frames per cell (--min-frames)  [blank = 2]:"
+        ).ask()
+        if min_frames is None:
+            return [], None
+        min_frames = min_frames.strip()
+        if not min_frames:
+            break
+        if _is_pos_int(min_frames):
+            args += ["--min-frames", min_frames]
+            break
+        print("  Invalid — enter a positive integer (or blank for the default of 2).")
+
+    ref_height = questionary.text(
+        "Resize every cell to this height (--ref-height)  [blank = per-cell modal shape]:"
+    ).ask()
+    if ref_height is None:
+        return [], None
+    ref_height = ref_height.strip()
+    if ref_height:
+        if _is_pos_int(ref_height):
+            args += ["--ref-height", ref_height]
+        else:
+            print("  Ignoring --ref-height: not a positive integer.")
+
+    heatmap = questionary.confirm(
+        "Produce HSV variance heatmaps too (--heatmap)?", default=False
+    ).ask()
+    if heatmap is None:
+        return [], None
+    if heatmap:
+        args.append("--heatmap")
+
+    return args, None
+
+
+# ---------------------------------------------------------------------------
 # Dev tool flows
 # ---------------------------------------------------------------------------
 
@@ -477,6 +551,7 @@ _TOOL_MAP = {
     "hash_validator":         ("Tool 4 — Validate Hash Accuracy",               flow_tool4),
     "warden_analyzer":        ("Tool 5 — Analyze Rounds",                       flow_tool5),
     "video_timeline_labeler": ("Tool 6 — Label Frames from Video Timeline",     flow_tool6),
+    "overlay_stack_analyzer": ("Tool 7 — Analyze Overlay Stacks",               flow_tool7),
 }
 
 
@@ -514,6 +589,10 @@ def _reprompt_source(
         # last_args layout: ["tools/video_timeline_labeler.py", <video>, ...]
         new_args = [last_args[0], new_video] + last_args[2:]
         return new_args, new_video
+    elif tool_key == "overlay_stack_analyzer":
+        # Directory-driven (like hash_validator) — no single "source path" to
+        # swap; just re-run the full flow.
+        return flow_tool7()
     else:
         # map_config_generator: arg structure varies too much; run full flow
         return flow_tool3()
@@ -573,6 +652,7 @@ def menu_main() -> None:
         "Tool 4 — Validate Hash Accuracy",
         "Tool 5 — Analyze Rounds",
         "Tool 6 — Label Frames from Video Timeline",
+        "Tool 7 — Analyze Overlay Stacks",
         "Dev Tools",
         "Quit",
     ]
@@ -666,6 +746,23 @@ def menu_main() -> None:
                     save_last_run(
                         "video_timeline_labeler",
                         "Tool 6 — Label Frames from Video Timeline",
+                        args,
+                        video_path,
+                    )
+
+        elif choice == "Tool 7 — Analyze Overlay Stacks":
+            args, video_path = flow_tool7()
+            if not args:
+                continue
+            confirmed = questionary.confirm(
+                f"Run: {exe_name} {' '.join(args)}?", default=True
+            ).ask()
+            if confirmed:
+                returncode = run_tool(args)
+                if returncode == 0:
+                    save_last_run(
+                        "overlay_stack_analyzer",
+                        "Tool 7 — Analyze Overlay Stacks",
                         args,
                         video_path,
                     )
