@@ -9,6 +9,14 @@ stability-ranked ``overlay_stacks_summary.json`` lists every cell. Headless batc
 tool — no GUI. Memory-bounded via Welford's online algorithm (frames are never
 all stacked in one array).
 
+Alongside the eyeball PNGs each ``"ok"`` cell also gets a machine-readable
+``stats.npz`` side-car (``mean_bgr``/``std_bgr``/``mean_hsv``/``std_hsv`` float32
+arrays + ``frame_count``/``frame_shape``) — the HSV-space pass is always-on, with
+a *circular* mean/stddev for the Hue channel (OpenCV H ∈ 0..179, each unit = 2°).
+Tool 8 (``auto_roi_discoverer``) consumes these ``.npz`` files. Each summary
+``cells[]`` ``"ok"`` entry also carries ``most_stable_hsv`` (HSV at the cell's
+single most-stable pixel — the band-center seed) and ``stability_percentiles``.
+
 Usage:
     python tools/overlay_stack_analyzer.py [--input INPUT_DIR] [--output OUTPUT_DIR]
         [--min-frames N] [--ref-height H] [--heatmap]
@@ -17,6 +25,7 @@ Usage:
 import argparse
 import datetime
 import glob
+import io
 import json
 import os
 import sys
@@ -155,6 +164,129 @@ def _welford_finalize(
     return mean, np.sqrt(var)
 
 
+# Circular streaming accumulator for the OpenCV Hue channel (0..179, each unit = 2°).
+# A naive Welford on H is meaningless near the 0/179 wrap; this keeps running sums of
+# sin/cos of the per-pixel hue *angle* and finalizes to a circular mean (back in
+# 0..179) and a circular stddev (in H units). Same math as
+# ``minimap_zone_selector/app.py:_compute_zone_hsv``.
+
+_HUE_CV_TO_RAD = 2.0 * np.pi / 180.0  # one OpenCV H unit → radians
+
+
+def _circ_hue_init(shape) -> tuple[int, np.ndarray, np.ndarray]:
+    """``(count, sin_sum, cos_sum)`` zero-state on ``float64`` arrays of ``shape``
+    (the 2-D ``h × w`` of a cell — the Hue channel is single-channel)."""
+    return (0, np.zeros(shape, dtype=np.float64), np.zeros(shape, dtype=np.float64))
+
+
+def _circ_hue_update(
+    state: tuple[int, np.ndarray, np.ndarray], hue_cv: np.ndarray
+) -> tuple[int, np.ndarray, np.ndarray]:
+    """Fold one frame's OpenCV Hue channel (uint8 0..179) into the circular state."""
+    n, sin_sum, cos_sum = state
+    angles = np.asarray(hue_cv, dtype=np.float64) * _HUE_CV_TO_RAD
+    return (n + 1, sin_sum + np.sin(angles), cos_sum + np.cos(angles))
+
+
+def _circ_hue_finalize(
+    state: tuple[int, np.ndarray, np.ndarray]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return ``(circular_mean_hue, circular_stddev_hue)`` — both in OpenCV H units
+    (0..179 / 0..90 respectively). ``count == 0`` → ``ValueError``; a constant hue
+    (and the single-sample case) → stddev ``≈ 0``.
+
+    ``R = √(mean_sin² + mean_cos²)``; mean angle = ``atan2(mean_sin, mean_cos)`` →
+    ``% 360°`` → ``/ 2`` to OpenCV units; ``std_rad ≈ √(−2·ln max(R, 1e-9))``
+    (0 when ``R ≥ 1``), degrees ``/ 2`` to OpenCV units, clamped to ``[0, 90]``
+    (the largest possible circular separation is 180° = 90 H units).
+    """
+    n, sin_sum, cos_sum = state
+    if n == 0:
+        raise ValueError("cannot finalize a circular-Hue state with count 0")
+    mean_sin = sin_sum / n
+    mean_cos = cos_sum / n
+    R = np.sqrt(mean_sin ** 2 + mean_cos ** 2)
+    mean_deg = np.degrees(np.arctan2(mean_sin, mean_cos)) % 360.0
+    mean_cv = (mean_deg / 2.0) % 180.0
+    # Snap R values within float-noise of 1.0 to exactly 1.0 so a constant or
+    # single-sample hue produces exactly std=0 (otherwise float roundoff in sin²+cos²
+    # can yield R≈0.9999999 → std≈0.013° instead of 0).
+    R_clipped = np.where(R >= 1.0 - 1e-9, 1.0, np.maximum(R, 1e-9))
+    inner = np.maximum(-2.0 * np.log(R_clipped), 0.0)  # ≥0; exactly 0 when R≈1
+    std_cv = np.clip(np.degrees(np.sqrt(inner)) / 2.0, 0.0, 90.0)
+    return mean_cv, std_cv
+
+
+# ---------------------------------------------------------------------------
+# Per-cell stats.npz side-car — the machine-readable companion to the PNGs
+# ---------------------------------------------------------------------------
+
+
+def _stats_npz_bytes(
+    mean_bgr: np.ndarray,
+    std_bgr: np.ndarray,
+    mean_hsv: np.ndarray,
+    std_hsv: np.ndarray,
+    frame_count: int,
+    frame_shape,
+) -> bytes:
+    """Serialize a cell's per-pixel stat arrays to compressed ``.npz`` bytes.
+
+    Image arrays are stored ``float32`` (ample precision; half the disk of float64,
+    and ``savez_compressed`` shrinks the smooth mean/std fields further). ``mean_hsv``
+    channel 0 is the *circular* mean Hue (OpenCV 0..179); ``std_hsv`` channel 0 is the
+    *circular* stddev Hue (OpenCV H units); channels 1/2 of each are ordinary S/V.
+    """
+    buf = io.BytesIO()
+    np.savez_compressed(
+        buf,
+        mean_bgr=np.asarray(mean_bgr, dtype=np.float32),
+        std_bgr=np.asarray(std_bgr, dtype=np.float32),
+        mean_hsv=np.asarray(mean_hsv, dtype=np.float32),
+        std_hsv=np.asarray(std_hsv, dtype=np.float32),
+        frame_count=np.int64(int(frame_count)),
+        frame_shape=np.asarray([int(d) for d in frame_shape], dtype=np.int64),
+    )
+    return buf.getvalue()
+
+
+def load_stats_npz(src) -> dict:
+    """Load a ``stats.npz`` written by :func:`_stats_npz_bytes` / :func:`_write_stats_npz`.
+
+    ``src`` may be a filesystem path (``str``/``Path`` — read via ``Path.read_bytes``
+    so Windows non-ASCII paths are safe) or raw ``bytes``. Returns a plain dict:
+    ``mean_bgr``/``std_bgr``/``mean_hsv``/``std_hsv`` (float32 arrays),
+    ``frame_count`` (int), ``frame_shape`` (tuple of ints).
+    """
+    raw = bytes(src) if isinstance(src, (bytes, bytearray)) else Path(src).read_bytes()
+    with np.load(io.BytesIO(raw)) as data:
+        return {
+            "mean_bgr": np.asarray(data["mean_bgr"]),
+            "std_bgr": np.asarray(data["std_bgr"]),
+            "mean_hsv": np.asarray(data["mean_hsv"]),
+            "std_hsv": np.asarray(data["std_hsv"]),
+            "frame_count": int(data["frame_count"]),
+            "frame_shape": tuple(int(d) for d in data["frame_shape"]),
+        }
+
+
+def _write_stats_npz(
+    dest: str,
+    mean_bgr: np.ndarray,
+    std_bgr: np.ndarray,
+    mean_hsv: np.ndarray,
+    std_hsv: np.ndarray,
+    frame_count: int,
+    frame_shape,
+) -> None:
+    """Write the ``stats.npz`` side-car to ``dest`` (creating parent dirs first),
+    Windows non-ASCII-path-safe — serialize to bytes, then ``Path.write_bytes``."""
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    Path(dest).write_bytes(
+        _stats_npz_bytes(mean_bgr, std_bgr, mean_hsv, std_hsv, frame_count, frame_shape)
+    )
+
+
 def _normalize_uint8(arr: np.ndarray) -> np.ndarray:
     """Min-max normalize a (float or int) array to ``0..255`` ``uint8``. A
     constant array → all-zero (no division by zero)."""
@@ -175,11 +307,14 @@ def _stability_score(stddev_bgr: np.ndarray) -> float:
 def _cell_output_paths(
     output_root: str, version_dir: str, class_dir: str, heatmap: bool
 ) -> dict[str, str]:
-    """``{"mean": ..., "stddev": ...[, "heatmap": ...]}`` absolute paths for a cell."""
+    """``{"mean": ..., "stddev": ..., "stats": ...[, "heatmap": ...]}`` absolute paths
+    for a cell. ``stats.npz`` (the machine-readable side-car) is always present;
+    ``variance_heatmap.png`` only when ``--heatmap`` is on."""
     cell_dir = os.path.join(output_root, version_dir, class_dir)
     paths = {
         "mean": os.path.join(cell_dir, "mean.png"),
         "stddev": os.path.join(cell_dir, "stddev.png"),
+        "stats": os.path.join(cell_dir, "stats.npz"),
     }
     if heatmap:
         paths["heatmap"] = os.path.join(cell_dir, "variance_heatmap.png")
@@ -283,9 +418,13 @@ def _process_cell(
     target_shape = _target_shape(_modal_shape(shapes), ref_height)
     target_h, target_w = target_shape[0], target_shape[1]
 
-    # Pass 2 — re-read, resize off-shape frames, fold into Welford accumulators.
+    # Pass 2 — re-read, resize off-shape frames, fold into the streaming accumulators:
+    # BGR mean/stddev (always) plus HSV-space stats (now always-on — Tool 8 reads them).
+    # The S/V channels use ordinary Welford; the Hue channel uses the circular
+    # accumulator and overwrites the (meaningless) ordinary H mean/std at finalize.
     bgr_state = _welford_init(target_shape)
-    hsv_state = _welford_init(target_shape) if want_heatmap else None
+    hsv_state = _welford_init(target_shape)
+    hue_state = _circ_hue_init((target_shape[0], target_shape[1]))
     resized_count = 0
     for path in paths:
         frame = _read_bgr(path)
@@ -297,9 +436,9 @@ def _process_cell(
             frame = cv2.resize(frame, (target_w, target_h), interpolation=interp)
             resized_count += 1
         bgr_state = _welford_update(bgr_state, frame.astype(np.float64))
-        if want_heatmap:
-            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            hsv_state = _welford_update(hsv_state, hsv.astype(np.float64))
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        hsv_state = _welford_update(hsv_state, hsv.astype(np.float64))
+        hue_state = _circ_hue_update(hue_state, hsv[:, :, 0])
 
     n = bgr_state[0]
     if n == 0:
@@ -310,19 +449,40 @@ def _process_cell(
             frame_count=n, frame_shape=list(target_shape), resized_count=resized_count,
         )
 
-    mean, stddev = _welford_finalize(bgr_state)
-    mean_u8 = np.clip(np.round(mean), 0, 255).astype(np.uint8)
-    std_u8 = np.clip(stddev, 0, 255).astype(np.uint8)
+    mean_bgr, stddev_bgr = _welford_finalize(bgr_state)
+    mean_hsv_lin, std_hsv_lin = _welford_finalize(hsv_state)
+    hue_mean_cv, hue_std_cv = _circ_hue_finalize(hue_state)
+    mean_hsv = mean_hsv_lin.copy()
+    std_hsv = std_hsv_lin.copy()
+    mean_hsv[:, :, 0] = hue_mean_cv  # circular H mean (OpenCV 0..179)
+    std_hsv[:, :, 0] = hue_std_cv    # circular H stddev (OpenCV H units)
+
+    # Per-pixel instability = mean of the BGR stddev channels (the same metric Tool 8's
+    # discoverer uses). The single most-stable pixel seeds Tool 8's HSV band centers.
+    instability = stddev_bgr.mean(axis=2)
+    sy, sx = np.unravel_index(int(np.argmin(instability)), instability.shape)
+    most_stable_hsv = [
+        float(mean_hsv[sy, sx, 0]),
+        float(mean_hsv[sy, sx, 1]),
+        float(mean_hsv[sy, sx, 2]),
+    ]
+    p10, p50, p90 = (float(v) for v in np.percentile(instability, [10.0, 50.0, 90.0]))
+    stability_percentiles = {"p10": p10, "p50": p50, "p90": p90}
+
+    mean_u8 = np.clip(np.round(mean_bgr), 0, 255).astype(np.uint8)
+    std_u8 = np.clip(stddev_bgr, 0, 255).astype(np.uint8)
     out_paths = _cell_output_paths(output_root, version_dir, class_dir, want_heatmap)
     try:
         _write_png(out_paths["mean"], mean_u8)
         _write_png(out_paths["stddev"], std_u8)
+        _write_stats_npz(
+            out_paths["stats"], mean_bgr, stddev_bgr, mean_hsv, std_hsv, n, target_shape
+        )
         if want_heatmap:
-            _, hsv_std = _welford_finalize(hsv_state)
             # Mean of the Saturation + Value stddev maps only — Hue (channel 0) is
-            # circular in OpenCV's 0..179 range, so a naive per-pixel stddev there
-            # is meaningless (179 vs 0 looks like huge variance for adjacent reds).
-            scalar = hsv_std[..., 1:].mean(axis=2)
+            # circular, so a naive per-pixel stddev there is meaningless (179 vs 0 looks
+            # like huge variance for adjacent reds). The real H stat lives in std_hsv.
+            scalar = std_hsv_lin[..., 1:].mean(axis=2)
             heat = cv2.applyColorMap(_normalize_uint8(scalar), cv2.COLORMAP_JET)
             _write_png(out_paths["heatmap"], heat)
     except (OSError, RuntimeError, cv2.error) as exc:
@@ -343,7 +503,9 @@ def _process_cell(
         "frame_count": n,
         "frame_shape": [int(target_shape[0]), int(target_shape[1]), int(target_shape[2])],
         "resized_count": resized_count,
-        "stability_score": _stability_score(stddev),
+        "stability_score": _stability_score(stddev_bgr),
+        "most_stable_hsv": most_stable_hsv,
+        "stability_percentiles": stability_percentiles,
         "outputs": _rel_outputs(out_paths, output_root),
     }
 
