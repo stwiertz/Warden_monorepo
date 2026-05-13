@@ -6,6 +6,12 @@ Each entry: bullet with the finding + brief reason.
 
 ---
 
+## Deferred from: code review of 9-7-auto-roi-discoverer-tool-8 + 9-8-roi-detection-tester-tool-9 (2026-05-14)
+
+- **HSV bands fire on grayscale/white pixels** (`apps/tooling/tools/auto_roi_discoverer/validator.py:82` — `band_inrange_ratio`; also exercised via `apps/tooling/tools/roi_detection_tester.py:289+` zone-fire path). Saturation=0 makes hue mathematically undefined but OpenCV returns hue=0, so any band centred near hue=0 with a wide `s_tol` (`s_tol ≥ s_center` pushes lower bound ≤ 0) matches pure white/gray pixels. Concept-level limitation of HSV-band detection, not specific to this work; would need either a saturation floor in the band (`s_lo = max(s_lo, MIN_S)`) or a separate gray-pixel exclusion in the discoverer to address. Defer to a future tuning pass once the user accumulates real "false-fire on gray HUD elements" examples from Tool 9 reports.
+
+---
+
 ## Deferred from: code review of 9-5-video-timeline-labeler-tool-6 (2026-05-10)
 
 - **Multiple `tk.Tk()` roots per process (picker → HUD prompt → player)** (`apps/tooling/tools/video_timeline_labeler.py`) — Blind Hunter flagged this as undefined-behavior risk (fonts, `_default_root`, image refs). A single-boot-root refactor was attempted on 2026-05-10 (Toplevel of a withdrawn root + `transient()`) but **reverted on 2026-05-12**: that exact combination renders the HUD-version prompt invisible/behind on Windows — the same regression the dev agent already hit and fixed on 2026-05-09. The roots are created and destroyed strictly sequentially (never overlapping), which is fine in practice. Revisit only if a concrete cross-root bug surfaces; the empirical Windows-visibility constraint trumps the theoretical concern.
