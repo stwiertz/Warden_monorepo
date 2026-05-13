@@ -450,6 +450,117 @@ def flow_tool7() -> tuple[list[str], str | None]:
 
 
 # ---------------------------------------------------------------------------
+# Tool 8 — auto_roi_discoverer (package; invoked as a module)
+# ---------------------------------------------------------------------------
+
+
+def flow_tool8() -> tuple[list[str], str | None]:
+    """Collect arguments for auto_roi_discoverer (module invocation, like Image Inspector).
+
+    Directory-driven (like Tools 4 and 7) — returns ([], None) if the user Ctrl-C's any
+    prompt (questionary returns None on interrupt).
+    """
+    args = ["-m", "tools.auto_roi_discoverer"]
+
+    input_dir = questionary.text(
+        "Tool 7 output directory (--input)  [blank = output/overlay_stacks]:"
+    ).ask()
+    if input_dir is None:
+        return [], None
+    input_dir = input_dir.strip()
+    if input_dir:
+        args += ["--input", input_dir]
+
+    config_path = questionary.text(
+        "config.yaml path for the legacy-ROI overlay (--config)  [blank = config/config.yaml]:"
+    ).ask()
+    if config_path is None:
+        return [], None
+    config_path = config_path.strip()
+    if config_path:
+        args += ["--config", config_path]
+
+    exclusions_path = questionary.text(
+        "exclusions.yaml path (--exclusions)  [blank = output/auto_rois/exclusions.yaml if present]:"
+    ).ask()
+    if exclusions_path is None:
+        return [], None
+    exclusions_path = exclusions_path.strip()
+    if exclusions_path:
+        args += ["--exclusions", exclusions_path]
+
+    return args, None
+
+
+# ---------------------------------------------------------------------------
+# Tool 9 — roi_detection_tester (single file; invoked directly like Tool 7)
+# ---------------------------------------------------------------------------
+
+
+def flow_tool9() -> tuple[list[str], str | None]:
+    """Collect arguments for roi_detection_tester.py.
+
+    Directory-driven (like Tools 4/7/8) — returns ([], None) if the user Ctrl-C's any
+    prompt (questionary returns None on interrupt).
+    """
+    args = ["tools/roi_detection_tester.py"]
+
+    def _is_pos_int(text: str) -> bool:
+        return text.isascii() and text.isdigit() and int(text) > 0
+
+    zones_path = questionary.text(
+        "Tool 8 zones fragment (--zones)  [blank = newest output/auto_rois/v*/discovered_zones.yaml]:"
+    ).ask()
+    if zones_path is None:
+        return [], None
+    zones_path = zones_path.strip()
+    if zones_path:
+        args += ["--zones", zones_path]
+
+    labeled_dir = questionary.text(
+        "Labeled dataset directory (--labeled)  [blank = output/labeled]:"
+    ).ask()
+    if labeled_dir is None:
+        return [], None
+    labeled_dir = labeled_dir.strip()
+    if labeled_dir:
+        args += ["--labeled", labeled_dir]
+
+    output_dir = questionary.text(
+        "Report output directory (--output)  [blank = output/roi_detection_tests]:"
+    ).ask()
+    if output_dir is None:
+        return [], None
+    output_dir = output_dir.strip()
+    if output_dir:
+        args += ["--output", output_dir]
+
+    while True:
+        limit = questionary.text(
+            "Cap frames per class (--limit)  [blank = no cap]:"
+        ).ask()
+        if limit is None:
+            return [], None
+        limit = limit.strip()
+        if not limit:
+            break
+        if _is_pos_int(limit):
+            args += ["--limit", limit]
+            break
+        print("  Invalid — enter a positive integer (or blank for no cap).")
+
+    save_csv = questionary.confirm(
+        "Save per-frame predictions CSV too (--save-frame-predictions)?", default=False
+    ).ask()
+    if save_csv is None:
+        return [], None
+    if save_csv:
+        args.append("--save-frame-predictions")
+
+    return args, None
+
+
+# ---------------------------------------------------------------------------
 # Dev tool flows
 # ---------------------------------------------------------------------------
 
@@ -552,6 +663,8 @@ _TOOL_MAP = {
     "warden_analyzer":        ("Tool 5 — Analyze Rounds",                       flow_tool5),
     "video_timeline_labeler": ("Tool 6 — Label Frames from Video Timeline",     flow_tool6),
     "overlay_stack_analyzer": ("Tool 7 — Analyze Overlay Stacks",               flow_tool7),
+    "auto_roi_discoverer":    ("Tool 8 — Discover Game-State ROIs",             flow_tool8),
+    "roi_detection_tester":   ("Tool 9 — Test ROI Detection on Labeled Frames", flow_tool9),
 }
 
 
@@ -593,6 +706,13 @@ def _reprompt_source(
         # Directory-driven (like hash_validator) — no single "source path" to
         # swap; just re-run the full flow.
         return flow_tool7()
+    elif tool_key == "auto_roi_discoverer":
+        # Directory-driven (consumes Tool 7's output) — re-run the full flow.
+        return flow_tool8()
+    elif tool_key == "roi_detection_tester":
+        # Directory-driven (consumes Tool 8's output + Tool 6's labeled dataset) —
+        # re-run the full flow.
+        return flow_tool9()
     else:
         # map_config_generator: arg structure varies too much; run full flow
         return flow_tool3()
@@ -653,6 +773,8 @@ def menu_main() -> None:
         "Tool 5 — Analyze Rounds",
         "Tool 6 — Label Frames from Video Timeline",
         "Tool 7 — Analyze Overlay Stacks",
+        "Tool 8 — Discover Game-State ROIs",
+        "Tool 9 — Test ROI Detection on Labeled Frames",
         "Dev Tools",
         "Quit",
     ]
@@ -763,6 +885,40 @@ def menu_main() -> None:
                     save_last_run(
                         "overlay_stack_analyzer",
                         "Tool 7 — Analyze Overlay Stacks",
+                        args,
+                        video_path,
+                    )
+
+        elif choice == "Tool 8 — Discover Game-State ROIs":
+            args, video_path = flow_tool8()
+            if not args:
+                continue
+            confirmed = questionary.confirm(
+                f"Run: {exe_name} {' '.join(args)}?", default=True
+            ).ask()
+            if confirmed:
+                returncode = run_tool(args)
+                if returncode == 0:
+                    save_last_run(
+                        "auto_roi_discoverer",
+                        "Tool 8 — Discover Game-State ROIs",
+                        args,
+                        video_path,
+                    )
+
+        elif choice == "Tool 9 — Test ROI Detection on Labeled Frames":
+            args, video_path = flow_tool9()
+            if not args:
+                continue
+            confirmed = questionary.confirm(
+                f"Run: {exe_name} {' '.join(args)}?", default=True
+            ).ask()
+            if confirmed:
+                returncode = run_tool(args)
+                if returncode == 0:
+                    save_last_run(
+                        "roi_detection_tester",
+                        "Tool 9 — Test ROI Detection on Labeled Frames",
                         args,
                         video_path,
                     )
