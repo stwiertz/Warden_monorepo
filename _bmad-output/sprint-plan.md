@@ -4,7 +4,7 @@
 **Sprint:** Sprint 3 (post-consolidation V1 push)
 **Project:** Warden_monorepo
 **Owner:** Stephane (solo dev)
-**Inputs:** `epics-and-stories.md` (76 stories, 11 epics) + `implementation-readiness-report-2026-05-09.md` (READY WITH MINOR AMENDMENTS — 3 🟠 amendments applied at commit 5968ef9)
+**Inputs:** `epics-and-stories.md` (76 stories at planning time → effectively 75 V1 + 5 post-planning tooling additions = 80 after the 2026-05-14 correct-course; 11 epics) + `implementation-readiness-report-2026-05-09.md` (READY WITH MINOR AMENDMENTS — 3 🟠 amendments applied at commit 5968ef9) + [`sprint-change-proposal-2026-05-14.md`](sprint-change-proposal-2026-05-14.md) (Stories 9.2/9.3 cancelled, 9.9 added, 9.5–9.8 formally rolled into Epic 9 charter).
 
 ---
 
@@ -112,14 +112,30 @@ Track A (Firebase v12 RN auth chain), Track B (independent foundation), and Trac
 
 | Story | Title | Deps |
 |---|---|---|
-| 9.1 | schema_version: 1 Add to map_config.json Writers (BF-6) | — |
-| 9.2 | Tool 5 warden_analyzer Real-Footage AC Validation | 9.1 |
+| 9.1 | schema_version: 1 Add to map_config.json Writers (BF-6) — v1 baseline for the v2 ROI/HSV-band partition (Story 9.9, post-V1) | — |
 | 1.13 | Hybrid map_config.json Delivery + schema_version: 1 (AR-4 + BF-6) | 1.10, 9.1 |
 | 1.16 | detection_config/latest Operator Documentation + Shared Firebase Project Documentation | 1.13 |
-| 9.3 | Reference Hash Regression for 4 Awaiting-Hash Maps | 9.1, 1.13 |
 | 9.4 | jsonschema Strict Validation Against contracts/map-config.schema.json | 9.1, 1.13 |
 
 **Wave 2 exit criteria:** Track A through 1.9; Track B through 1.17; Track C through 9.4. Foundation contracts + brownfield reconciliation done.
+
+**Track C cancellations + additions (2026-05-14 correct-course):**
+
+- ❌ **Story 9.2 — CANCELLED.** Validates legacy `warden_analyzer` against real footage at ≥95% map-ID; real footage is HUD 2.0 where legacy ROIs no longer fire. Story 9.8 / Tool 9 (DONE — see Track C-prime below) is the new-HUD analogue.
+- ❌ **Story 9.3 — CANCELLED.** Hash-based map identification is being replaced by ROI+HSV-band detection (Tool 8 fragment → `config/config.yaml` hand-merge → `map_config.json` v2). Reference-hash regen for 4 awaiting-hash maps is structurally moot; work folds into Story 9.9.
+- ➕ **Story 9.9 — Re-fingerprint Config for HUD 2.0** added to backlog (out of V1 scope). Hand-merges Tool 8's `discovered_zones` fragment into `config/config.yaml` + regenerates `map_config.json` with `schema_version: 2` (ROI/HSV-band schema). Deps: 9.1, 9.7 (done), 9.8 (done). Larger than one sprint — will need splitting at create-story time.
+- See [`sprint-change-proposal-2026-05-14.md`](sprint-change-proposal-2026-05-14.md) for full rationale.
+
+**Track C-prime — New-HUD detection chain (added post-planning 2026-05-09 → 2026-05-13; not in original Epic 9 charter — charter amended in `epics-and-stories.md` §Epic 9 by the same correct-course):**
+
+| Story | Title | Status |
+|---|---|---|
+| 9.5 | Tool 6 — Video Timeline Labeler | done (PR #7 merged; sprint-status `review→done` follow-up pending) |
+| 9.6 | Tool 7 — Overlay Stack Analyzer | done |
+| 9.7 | Tool 8 — Auto ROI/HSV Discoverer | done |
+| 9.8 | Tool 9 — Per-frame ROI Detection Tester | done |
+
+These four shipped in series during Sprint 3 to backfill the "new-HUD work" prerequisite called out in cancelled Story 1.1.1; produce the input artifacts (`apps/tooling/output/labeled/`, `overlay_stacks/`, `auto_rois/`) that Story 9.9 will consume post-V1.
 
 ---
 

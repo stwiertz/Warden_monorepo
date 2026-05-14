@@ -2611,15 +2611,17 @@ So that **the support + community paths are discoverable from anywhere in the ap
 
 ---
 
-## Epic 9: Tooling — V1 Pipeline Hardening
+## Epic 9: Tooling — V1 Pipeline Hardening + New-HUD Detection Chain
 
-**Goal:** J10 (developer regenerates `map_config.json`) verified end-to-end with `schema_version: 1`, jsonschema strict validation, accuracy regression for the 4 awaiting-hash maps, and Tool 5 real-footage AC validation.
+**Goal:** J10 (developer regenerates `map_config.json`) verified end-to-end with `schema_version: 1` + jsonschema strict validation; HUD 2.0 detection chain (label → stack → discover → test) shipped to enable a future ROI/HSV-band-keyed `map_config.json` v2.
+
+**Charter amendment 2026-05-14 (correct-course):** Original charter enumerated 9.1–9.4 only. EVA's HUD 2.0 redesign invalidated the legacy detection stack (`gameDetector` + `mapIdentifier` keyed off legacy ROIs in `config/config.yaml` no longer fire). Stories 9.5–9.8 (Tools 6/7/8/9 — Video Timeline Labeler → Overlay Stack Analyzer → Auto ROI Discoverer → ROI Detection Tester) were added post-planning to build the new-HUD detection path. Story 9.2 (legacy `warden_analyzer` real-footage validation) and Story 9.3 (reference-hash regression for 4 awaiting-hash maps) are CANCELLED — superseded by the ROI+HSV approach. Story 9.9 added as a backlog stub for the future hand-merge + `map_config.json` v2 regen (out of V1 scope). Stories 9.1 and 9.4 remain valid (detection-method-agnostic). Full rationale: [`sprint-change-proposal-2026-05-14.md`](sprint-change-proposal-2026-05-14.md).
 
 ### Story 9.1: schema_version: 1 Add to map_config.json Writers (BF-6, tooling-HASH-002)
 
 As **Stephane**,
 I want **`apps/tooling/tools/map_config_generator.py` and `apps/tooling/tools/hash_comparator.py` to emit `schema_version: 1` as a top-level field in every regenerated `map_config.json`**,
-So that **the cross-language schema evolution mechanism has a backward-compat anchor (BF-6 cheap and load-bearing).**
+So that **the cross-language schema evolution mechanism has a backward-compat anchor (BF-6 cheap and load-bearing) AND v1 is the explicit baseline for the v2 ROI/HSV-band partition that Story 9.9 will produce post-Tool-8 hand-merge.**
 
 **Acceptance Criteria (checklist):**
 
@@ -2635,6 +2637,8 @@ So that **the cross-language schema evolution mechanism has a backward-compat an
 **Sprint fit:** fits-in-one-sprint.
 
 ### Story 9.2: Tool 5 warden_analyzer Real-Footage AC Validation (tooling-WARDEN-001)
+
+> **STATUS: CANCELLED 2026-05-14** (Stephane, correct-course). Validates the legacy `warden_analyzer.py` (gameDetector + mapIdentifier keyed off legacy HUD 1.0 ROIs) against real footage at ≥95% map-ID accuracy. Real footage is now HUD 2.0 — legacy ROIs no longer fire. Story 9.8 / Tool 9 (ROI Detection Tester) is the new-HUD analogue and is DONE. PRD requirement `tooling-WARDEN-001` remains (the tool exists and emits `rounds.json`); only the V1 real-footage validation gate is dropped. Story 10.1 V1 launch checklist will not carry a "9.2 sign-off" row. Future revival possible post-V1 if `warden_analyzer` is re-pointed at the regenerated v2 config from Story 9.9. Original ACs preserved below for traceability — do not implement. Full rationale: [`sprint-change-proposal-2026-05-14.md`](sprint-change-proposal-2026-05-14.md).
 
 As **Stephane**,
 I want **Tool 5 (`warden_analyzer.py`) validated against a real-footage test set — the legacy distillate flagged "Implementation Complete (AC unchecked — validation pending real-footage testing)"**,
@@ -2657,6 +2661,8 @@ So that **the J10 end-to-end pipeline confidence is bound; Tool 5 produces corre
 **Sprint fit:** fits-in-one-sprint.
 
 ### Story 9.3: Reference Hash Regression for 4 Awaiting-Hash Maps
+
+> **STATUS: CANCELLED 2026-05-14** (Stephane, correct-course). Story regenerated reference pHashes for bastion / coliseum / lunar_outpost / the_rock via `hash_comparator.py` + `frame_labeler.py` — both legacy-ROI-bound. The deeper reason for cancellation (beyond ROI block): hash-based map identification (`mapIdentifier.ts` pHash matcher → `map_config.json reference_hash` field) is being REPLACED by ROI+HSV-band detection (Tool 8 `discovered_zones` → hand-merge into `config/config.yaml` → `map_config.json` v2). Reference-hash regeneration is structurally moot, not deferred. Work absorbed into Story 9.9 (re-fingerprint config for HUD 2.0). Architecture line 1505 ("`mapIdentifier.ts` — pHash matcher against map_config") + PRD `tooling-HASH-001/002` framing need a downstream editorial pass (out of this correct-course's scope; flagged in [follow-ups](#follow-ups-flagged-by-2026-05-14-correct-course)). Original ACs preserved below for traceability — do not implement. Full rationale: [`sprint-change-proposal-2026-05-14.md`](sprint-change-proposal-2026-05-14.md).
 
 As **Stephane**,
 I want **the 4 maps awaiting reference hashes (bastion, coliseum, lunar_outpost, the_rock per legacy distillate technical-debt inventory) to have hashes generated and validated**,
@@ -2694,6 +2700,59 @@ So that **drift between the JSON Schema master and the tooling output is mechani
 **Dependencies:** Stories 9.1, 1.13.
 
 **Sprint fit:** fits-in-one-sprint.
+
+### Story 9.5: Video Timeline Labeler — Tool 6
+
+**Status:** done (PR #7 merged; sprint-status `review→done` follow-up pending — see [`sprint-status.yaml`](sprint-status.yaml)).
+**Spec:** authoritative story file at [`_bmad-output/implementation-artifacts/9-5-video-timeline-labeler-tool-6.md`](implementation-artifacts/9-5-video-timeline-labeler-tool-6.md).
+**Summary:** Tkinter+OpenCV video labeler producing `apps/tooling/output/labeled/v<hud_version>/<class>/*.png`. Added 2026-05-09 post-planning via the new-HUD initiative — backfills the previously-unscheduled "new-HUD work" prerequisite called out in cancelled Story 1.1.1.
+
+### Story 9.6: Overlay Stack Analyzer — Tool 7
+
+**Status:** done.
+**Spec:** [`_bmad-output/implementation-artifacts/9-6-overlay-stack-analyzer-tool-7.md`](implementation-artifacts/9-6-overlay-stack-analyzer-tool-7.md).
+**Summary:** Headless batch — streaming Welford mean/stddev per `(version, class)` cell + per-cell `stats.npz` HSV side-car (added Story 9.7 Task 1) + summary JSON. Consumes Tool 6 output; feeds Tool 8.
+
+### Story 9.7: Auto ROI/HSV Discoverer — Tool 8
+
+**Status:** done.
+**Spec:** [`_bmad-output/implementation-artifacts/9-7-auto-roi-discoverer-tool-8.md`](implementation-artifacts/9-7-auto-roi-discoverer-tool-8.md).
+**Summary:** Interactive Tk tool — consumes Tool 7's `stats.npz` + summary; suggests/scores/validates ROI candidates over game-state classes (`lobby` / `in_match` / `score` / `transition`) **and** per-map classes (containment-aware comparison); exports a hand-merge config fragment to `apps/tooling/output/auto_rois/v<ver>/discovered_zones.{json,yaml}`. NEVER auto-edits `config/config.yaml`.
+
+### Story 9.8: Per-frame ROI Detection Tester — Tool 9
+
+**Status:** done.
+**Spec:** [`_bmad-output/implementation-artifacts/9-8-roi-detection-tester-tool-9.md`](implementation-artifacts/9-8-roi-detection-tester-tool-9.md).
+**Summary:** Headless validator — replays Tool 6's labeled dataset through Tool 8's discovered zones; emits per-zone TP/FP/FN/TN + per-class confusion matrices for both the 4-way game-state classifier and the N-way map-ID classifier. Closes Tool 8's per-frame validation gap. NEVER writes `config/config.yaml`.
+
+### Story 9.9: Re-fingerprint Config for HUD 2.0 (re-fingerprinting story)
+
+**Status:** backlog (out-of-V1-scope stub).
+**Added:** 2026-05-14 via correct-course alongside cancellation of 9.2/9.3.
+
+As **Stephane**,
+I want **Tool 8's `discovered_zones.{json,yaml}` fragment hand-merged into `config/config.yaml` and a v2 `map_config.json` regenerated against the resulting config**,
+So that **the on-device detection pipeline (`gameDetector.ts` / `mapIdentifier.ts` consumers) can run against HUD 2.0 footage; the legacy hash-based map-ID approach is fully replaced by ROI+HSV-band detection.**
+
+**Acceptance criteria (skeletal — to be tightened at create-story time):**
+
+- [ ] Hand-merge of latest Tool 8 fragment(s) under `apps/tooling/output/auto_rois/v<ver>/` into `config/config.yaml` — game-state cascade zones (lobby/in_match/score/transition) + per-map zones for the maps Stephane has labeled to date.
+- [ ] `apps/mobile/assets/map_config.json` regenerated with `schema_version: 2`; ROI/HSV-band schema additions land in `contracts/map-config.schema.json`; `pnpm --filter @warden/contracts build` regenerates Zod cleanly.
+- [ ] Tool 9 re-run against the regenerated config — per-class accuracy floors documented in story closure.
+- [ ] PRD `tooling-HASH-001/002` framing + architecture's `mapIdentifier.ts` "pHash matcher" line ([architecture.md:1505](architecture.md#L1505)) edited to reflect the ROI+HSV pivot (this is the downstream editorial pass flagged at correct-course time — folds into 9.9 unless extracted into 9.10).
+- [ ] V1 launch readiness implication assessed: does V1 ship with v1 `map_config.json` (legacy detection still in place but bypassed) or v2 (this story is V1-blocking)? Decision recorded in 9.9 closure; sprint-status updated accordingly.
+
+**Dependencies:** 9.1 (v1 baseline), 9.7 (done — Tool 8 fragment), 9.8 (done — Tool 9 validator). Out of V1 scope unless re-pulled in.
+
+**Sprint fit:** larger than one sprint (charter says fits-in-one-sprint stories only — 9.9 will need splitting at create-story time).
+
+---
+
+#### Follow-ups flagged by 2026-05-14 correct-course
+
+- PRD `tooling-HASH-001/002` ([prd.md:955-956](prd.md#L955-L956)) wording references hash-based map ID — needs editorial update once 9.9 ships (or as a small standalone story) to reflect ROI+HSV-band pivot.
+- Architecture `mapIdentifier.ts — pHash matcher against map_config` ([architecture.md:1505](architecture.md#L1505)) + the corresponding `mobile-AUTO-SLICE-002/003` traceability ([architecture.md:1691](architecture.md#L1691)) — same.
+- Story 10.1 V1 launch checklist row referencing Story 9.2 sign-off — drop when 10.1 is created (not in repo yet).
 
 ---
 
