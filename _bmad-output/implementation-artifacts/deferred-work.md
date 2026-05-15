@@ -6,6 +6,14 @@ Each entry: bullet with the finding + brief reason.
 
 ---
 
+## Deferred from: code review of 9-9c-schema-unification (2026-05-15)
+
+- **`emit()` write is not crash-atomic — partial file possible on mid-`json.dump` kill** (`apps/tooling/tools/map_config_emitter.py:132-135`) — AC2's "atomic refusal" guarantees validation-before-write only, not crash-resistance. The pattern is inherited verbatim from 9.9a. Standard fix: write to a sibling `.tmp` file then `os.replace()`. Defer until either (a) a real crash-during-emit incident surfaces, or (b) the 9.9b iteration loop accumulates enough re-emits that mid-write crashes become statistically likely.
+- **Existing `map_config.<hud>.json` silently overwritten on re-emit** (`apps/tooling/tools/map_config_emitter.py:133-135`) — No `--force` / `--backup` / `--no-overwrite` flag. Story 9.9b's iteration loop (zone_picker → emitter → video_test → adjust → repeat) actually wants overwrite-by-default, so this isn't a bug today — but a `--backup` opt-in would let an operator preserve a known-good baseline before testing a new zone set. Revisit at 9.9b create-story time.
+- **Filename-from-`hud_version` tight coupling to enum-extensibility** (`apps/tooling/tools/map_config_emitter.py:133`) — Today's enum (`v1`, `v2`) has no path-traversal characters. A future enum extension to `"v2.1"` or `"v2/beta"` would create subdirectories in `--output-dir`. Flag at the schema-evolution checkpoint (whenever `hud_version` enum is next extended) or pre-emptively extend `hud_version`'s schema with a `pattern: "^v[0-9]+$"` constraint.
+
+---
+
 ## Deferred from: code review of 9-7-auto-roi-discoverer-tool-8 + 9-8-roi-detection-tester-tool-9 (2026-05-14)
 
 - **HSV bands fire on grayscale/white pixels** (`apps/tooling/tools/auto_roi_discoverer/validator.py:82` — `band_inrange_ratio`; also exercised via `apps/tooling/tools/roi_detection_tester.py:289+` zone-fire path). Saturation=0 makes hue mathematically undefined but OpenCV returns hue=0, so any band centred near hue=0 with a wide `s_tol` (`s_tol ≥ s_center` pushes lower bound ≤ 0) matches pure white/gray pixels. Concept-level limitation of HSV-band detection, not specific to this work; would need either a saturation floor in the band (`s_lo = max(s_lo, MIN_S)`) or a separate gray-pixel exclusion in the discoverer to address. Defer to a future tuning pass once the user accumulates real "false-fire on gray HUD elements" examples from Tool 9 reports.
