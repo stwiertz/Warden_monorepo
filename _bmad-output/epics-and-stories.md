@@ -2725,26 +2725,55 @@ So that **drift between the JSON Schema master and the tooling output is mechani
 **Spec:** [`_bmad-output/implementation-artifacts/9-8-roi-detection-tester-tool-9.md`](implementation-artifacts/9-8-roi-detection-tester-tool-9.md).
 **Summary:** Headless validator — replays Tool 6's labeled dataset through Tool 8's discovered zones; emits per-zone TP/FP/FN/TN + per-class confusion matrices for both the 4-way game-state classifier and the N-way map-ID classifier. Closes Tool 8's per-frame validation gap. NEVER writes `config/config.yaml`.
 
-### Story 9.9: Re-fingerprint Config for HUD 2.0 (re-fingerprinting story)
+### Story 9.9: Re-fingerprint Config for HUD 2.0 (SPLIT 2026-05-15 → 9.9a + 9.9b + 9.10)
 
-**Status:** backlog (out-of-V1-scope stub).
-**Added:** 2026-05-14 via correct-course alongside cancellation of 9.2/9.3.
+**Status:** cancelled (split via `/bmad-create-story` 2026-05-15; original spec preserved below for traceability).
+
+**Split rationale.** Original 9.9 stub (added 2026-05-14 via correct-course alongside cancellation of 9.2/9.3) was flagged "larger than one sprint — needs splitting at create-story time" because the hand-merge cycle is iterative manual work (Tool 8 discover → Tool 9 measure → hand-merge → re-test, repeating across many sprints). The create-story run on `9-9-re-fingerprint-config-for-hud-2-0` produced the split: **9.9a** (schema+code, one-sprint, `ready-for-dev`) up front so the v2 emit pipeline exists; **9.9b** (iterative hand-merge, multi-sprint, `backlog`) consuming that pipeline; **9.10** (small docs editorial, `backlog`) anchored to 9.9b's outcome.
+
+**V1 posture decision (formerly the stub's AC5):** **post-V1** — V1 ships with the legacy v1 `map_config.json` in place but bypassed by the new-HUD detection chain (mobile consumers `gameDetector.ts` / `mapIdentifier.ts` continue reading v1 pHash data, which won't fire on HUD 2.0 footage; auto-slice produces `unknown` map labels on HUD 2.0 sessions until the consumer rewrite ships post-V1). 9.9a is the schema-evolution prerequisite; 9.9b + 9.10 + the mobile TS consumer rewrite are all post-V1. Cross-epic implication: Story 10.1's V1 launch checklist does NOT carry a row for any 9.9-variant sign-off (extends the same "no 9.2 row" carve-out flagged in the 2026-05-14 correct-course follow-ups).
+
+**Mobile consumer rewrite (out of all three sub-stories' scope):** `gameDetector.ts` ([architecture.md:1504](architecture.md#L1504)) and `mapIdentifier.ts` ([architecture.md:1505](architecture.md#L1505)) currently consume v1 pHash-keyed `map_config.json` — see `Object.entries(config.maps)` at [`apps/mobile/src/features/video-processing/mapIdentifier.ts:48`](apps/mobile/src/features/video-processing/mapIdentifier.ts#L48), which expects hex string values. The TS rewrite to read v2 ROI/HSV-band data is a separate post-V1 story (TBD; not yet enumerated in any epic). 9.9a is engineered to NOT break these consumers: the bundled `apps/mobile/assets/map_config.json` ships with v1 emit (`schema_version: 1` + same pHash data as today), and v2 emit is opt-in via input config shape.
+
+**Story 9.1 absorption:** 9.9a naturally covers Story 9.1's ACs (write `schema_version: 1` in `map_config_generator.py` + `hash_comparator.py` + the bundled `map_config.json` + pytest assert) because the `oneOf` discriminator design in v2 schema requires `schema_version` to exist in v1 emit path. 9.1 stays `backlog` for traceability; flip to `cancelled` (with "absorbed by 9-9a" rationale) when 9.9a lands.
+
+---
+
+### Story 9.9a: Schema v2 Evolution + map_config_generator v2 Emit
+
+**Status:** ready-for-dev (split 2026-05-15 from cancelled 9.9 stub).
+**Spec:** authoritative story file at [`_bmad-output/implementation-artifacts/9-9a-schema-v2-and-map-config-generator.md`](implementation-artifacts/9-9a-schema-v2-and-map-config-generator.md).
+**Summary:** Code path for HUD 2.0 re-fingerprinting. Updates `contracts/map-config.schema.json` to support v2 (top-level `schema_version` integer field + ROI/HSV-band-keyed `maps` shape via `oneOf` discriminator on `schema_version`, preserving the v1 pHash path side-by-side; new `game_state_zones: Record<state_name, ZoneSpec[]>` field for v2; `additionalProperties: false`). Updates `apps/tooling/tools/map_config_generator.py` + `apps/tooling/tools/hash_comparator.py` to emit v2 when input `apps/tooling/config/config.yaml` carries ROI/HSV-band content (detected via presence of `game_state_zones` block OR ROI/HSV data in `minimap_identification`), falling back to v1 pHash emit otherwise. Adds jsonschema strict validation at emit time (folds Story 9.4's AC). Regenerates Zod via `pnpm --filter @warden/contracts build`. Naturally absorbs Story 9.1's ACs. **NOT a breaking change for mobile consumers** — v1 emit path keeps working. Downstream of 9.7 (done — Tool 8 fragment shape at [`apps/tooling/tools/auto_roi_discoverer/export.py:72-91`](apps/tooling/tools/auto_roi_discoverer/export.py#L72) is the v2 zone-dict reference) + 9.8 (done — Tool 9 validator). Upstream of 9.9b.
+
+### Story 9.9b: Tool 8 Fragment Hand-Merge + Config Regeneration
+
+**Status:** backlog (split 2026-05-15 from cancelled 9.9 stub).
+**Summary:** Iterative manual hand-merge cycle: Tool 8 discover → Tool 9 measure → hand-merge the `discovered_zones.yaml` fragment under `apps/tooling/output/auto_rois/v<ver>/` into `apps/tooling/config/config.yaml` (replacing legacy `minimap_identification` per-map pHash zone block at lines 87–907 + adding game-state cascade zones for `lobby` / `in_match` / `score` / `transition` — the live v2.0 fragment ships game-state classes as empty lists per [`apps/tooling/output/auto_rois/v2.0/discovered_zones.yaml`](apps/tooling/output/auto_rois/v2.0/discovered_zones.yaml), so the user must Tool 8-iterate to populate them before merging) → regenerate `apps/mobile/assets/map_config.json` v2 via 9.9a's updated generator → re-run Tool 9 against the regenerated config → document per-class accuracy floors in story closure. Multi-sprint manual work. Out-of-V1-scope. Downstream of 9.9a; upstream of 9.10.
+
+### Story 9.10: PRD/Architecture Editorial Pass for ROI+HSV Pivot
+
+**Status:** backlog (extracted 2026-05-15 from cancelled 9.9 stub's AC4).
+**Summary:** Pure docs editorial — PRD `tooling-HASH-001/002` ([prd.md:955-956](prd.md#L955-L956)) + architecture `mapIdentifier.ts` "pHash matcher against map_config" line ([architecture.md:1505](architecture.md#L1505)) + `mobile-AUTO-SLICE-002/003` traceability ([architecture.md:1691](architecture.md#L1691)) wording updated to reflect the ROI+HSV pivot. Anchored to 9.9b's actual regenerated config + measured accuracy floors (the editorial pass references the empirical numbers Tool 9 produces). Small standalone story. Out-of-V1-scope.
+
+---
+
+#### Original 9.9 stub (preserved for traceability; do not implement)
 
 As **Stephane**,
 I want **Tool 8's `discovered_zones.{json,yaml}` fragment hand-merged into `config/config.yaml` and a v2 `map_config.json` regenerated against the resulting config**,
 So that **the on-device detection pipeline (`gameDetector.ts` / `mapIdentifier.ts` consumers) can run against HUD 2.0 footage; the legacy hash-based map-ID approach is fully replaced by ROI+HSV-band detection.**
 
-**Acceptance criteria (skeletal — to be tightened at create-story time):**
+**Original skeletal ACs (now distributed across 9.9a / 9.9b / 9.10):**
 
-- [ ] Hand-merge of latest Tool 8 fragment(s) under `apps/tooling/output/auto_rois/v<ver>/` into `config/config.yaml` — game-state cascade zones (lobby/in_match/score/transition) + per-map zones for the maps Stephane has labeled to date.
-- [ ] `apps/mobile/assets/map_config.json` regenerated with `schema_version: 2`; ROI/HSV-band schema additions land in `contracts/map-config.schema.json`; `pnpm --filter @warden/contracts build` regenerates Zod cleanly.
-- [ ] Tool 9 re-run against the regenerated config — per-class accuracy floors documented in story closure.
-- [ ] PRD `tooling-HASH-001/002` framing + architecture's `mapIdentifier.ts` "pHash matcher" line ([architecture.md:1505](architecture.md#L1505)) edited to reflect the ROI+HSV pivot (this is the downstream editorial pass flagged at correct-course time — folds into 9.9 unless extracted into 9.10).
-- [ ] V1 launch readiness implication assessed: does V1 ship with v1 `map_config.json` (legacy detection still in place but bypassed) or v2 (this story is V1-blocking)? Decision recorded in 9.9 closure; sprint-status updated accordingly.
+- [ ] Hand-merge of latest Tool 8 fragment(s) under `apps/tooling/output/auto_rois/v<ver>/` into `config/config.yaml` — game-state cascade zones (lobby/in_match/score/transition) + per-map zones for the maps Stephane has labeled to date. _(→ 9.9b)_
+- [ ] `apps/mobile/assets/map_config.json` regenerated with `schema_version: 2`; ROI/HSV-band schema additions land in `contracts/map-config.schema.json`; `pnpm --filter @warden/contracts build` regenerates Zod cleanly. _(schema additions → 9.9a; actual v2 regen of the bundled file → 9.9b)_
+- [ ] Tool 9 re-run against the regenerated config — per-class accuracy floors documented in story closure. _(→ 9.9b)_
+- [ ] PRD `tooling-HASH-001/002` framing + architecture's `mapIdentifier.ts` "pHash matcher" line ([architecture.md:1505](architecture.md#L1505)) edited to reflect the ROI+HSV pivot. _(→ 9.10)_
+- [ ] V1 launch readiness implication assessed: does V1 ship with v1 `map_config.json` (legacy detection still in place but bypassed) or v2 (this story is V1-blocking)? _(decided at split time: **post-V1** — V1 ships with v1 untouched; see V1 posture above.)_
 
-**Dependencies:** 9.1 (v1 baseline), 9.7 (done — Tool 8 fragment), 9.8 (done — Tool 9 validator). Out of V1 scope unless re-pulled in.
+**Dependencies:** 9.1 (absorbed by 9.9a), 9.7 (done — Tool 8 fragment), 9.8 (done — Tool 9 validator). Out of V1 scope unless re-pulled in.
 
-**Sprint fit:** larger than one sprint (charter says fits-in-one-sprint stories only — 9.9 will need splitting at create-story time).
+**Sprint fit:** larger than one sprint — split addressed it.
 
 ---
 

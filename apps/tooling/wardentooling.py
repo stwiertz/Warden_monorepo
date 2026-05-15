@@ -208,108 +208,40 @@ def flow_tool2() -> tuple[list[str], str | None]:
 
 
 # ---------------------------------------------------------------------------
-# Tool 3 — map_config_generator
+# Tool 3 — map_config_emitter
 # ---------------------------------------------------------------------------
 
 
 def flow_tool3() -> tuple[list[str], str | None]:
-    """Collect arguments for map_config_generator.py.
+    """Collect arguments for map_config_emitter.py.
 
-    Returns (args_list, video_path_or_None).
-    Returns ([], None) if user cancels at the mode selection prompt.
-    """
-    mode = questionary.select(
-        "Tool 3 — input mode:",
-        choices=[
-            "From image directory (--images)",
-            "From video files (--video)",
-        ],
-    ).ask()
-
-    if mode is None:
-        return [], None  # user cancelled at mode prompt
-
-    args = ["tools/map_config_generator.py"]
-    video_path = None
-
-    if mode == "From image directory (--images)":
-        images_dir = browse_directory("Select image directory:")
-        args += ["--images", images_dir]
-    else:
-        # --video MAP PATH [--video MAP2 PATH2 ...]
-        first = True
-        while True:
-            prompt = "Map name for first video:" if first else "Map name for next video:"
-            first = False
-            map_name = questionary.text(prompt).ask()
-            if not map_name:
-                # Blank/cancelled map name — require at least one entry
-                if video_path is None:
-                    print("  At least one map is required.")
-                    continue
-                break
-            vid = browse_video_file(f"Video file for map '{map_name}':")
-            args += ["--video", map_name, vid]
-            if video_path is None:
-                video_path = vid
-            add_more = questionary.confirm("Add another map?", default=False).ask()
-            if not add_more:
-                break
-
-    use_preview = questionary.confirm(
-        "Enable --preview (show image previews)?", default=False
-    ).ask()
-    if use_preview:
-        args.append("--preview")
-
-    output_dir = questionary.text("Output directory (-o)  [blank = default]:").ask()
-    if output_dir:
-        args += ["-o", output_dir]
-
-    return args, video_path
-
-
-# ---------------------------------------------------------------------------
-# Tool 4 — hash_validator
-# ---------------------------------------------------------------------------
-
-
-def flow_tool4() -> tuple[list[str], str | None]:
-    """Collect arguments for hash_validator.py.
+    Reads config.yaml and emits map_config.json (v1 or v2 depending on the
+    input shape). Pure config-driven — no frame input needed.
 
     Returns (args_list, None) — no video_path for this tool.
     """
-    args = ["tools/hash_validator.py"]
+    args = ["tools/map_config_emitter.py"]
 
-    images_dir = questionary.text(
-        "Labeled images directory (--images)  [blank = output/labeled]:"
+    config_path = questionary.text(
+        "Config path (-c)  [blank = config/config.yaml]:"
     ).ask()
-    if images_dir:
-        args += ["--images", images_dir]
+    if config_path:
+        args += ["-c", config_path.strip()]
 
-    map_config = questionary.text(
-        "Map config path (--map-config)  [blank = output/map_config.json]:"
+    output_dir = questionary.text(
+        "Output directory (-o)  [blank = config.output.default_dir]:"
     ).ask()
-    if map_config:
-        args += ["--map-config", map_config]
-
-    shift_tolerance = questionary.text(
-        "Shift tolerance (--shift-tolerance)  [blank = 2]:"
-    ).ask()
-    if shift_tolerance:
-        args += ["--shift-tolerance", shift_tolerance]
-
-    resolution = questionary.text(
-        "Processing resolution height (--resolution)  [blank = 720]:"
-    ).ask()
-    if resolution:
-        args += ["--resolution", resolution]
-
-    output_dir = questionary.text("Output directory (-o)  [blank = output]:").ask()
     if output_dir:
-        args += ["-o", output_dir]
+        args += ["-o", output_dir.strip()]
 
     return args, None
+
+
+# ---------------------------------------------------------------------------
+# Tool 4 — REMOVED (was: hash_validator; deleted along with pHash codepath
+# per Story 9.9a Scope Adjustment #2, 2026-05-15 — ROI+HSV is the sole
+# detection method, pHash never shipped).
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -383,8 +315,8 @@ def flow_tool6() -> tuple[list[str], str | None]:
 def flow_tool7() -> tuple[list[str], str | None]:
     """Collect arguments for overlay_stack_analyzer.py.
 
-    Returns (args_list, None) — no video_path for this directory-driven tool
-    (like Tool 4). Returns ([], None) if the user Ctrl-C's any prompt
+    Returns (args_list, None) — no video_path for this directory-driven tool.
+    Returns ([], None) if the user Ctrl-C's any prompt
     (questionary returns None on interrupt).
     """
     args = ["tools/overlay_stack_analyzer.py"]
@@ -658,8 +590,8 @@ def menu_dev() -> None:
 _TOOL_MAP = {
     "game_detector":          ("Tool 1 — Extract Rounds",                       flow_tool1),
     "frame_labeler":          ("Tool 2 — Label Frames",                         flow_tool2),
-    "map_config_generator":   ("Tool 3 — Generate Map Config",                  flow_tool3),
-    "hash_validator":         ("Tool 4 — Validate Hash Accuracy",               flow_tool4),
+    "map_config_emitter":     ("Tool 3 — Emit Map Config",                      flow_tool3),
+    # Tool 4 (hash_validator) removed per Story 9.9a Scope Adjustment #2.
     "warden_analyzer":        ("Tool 5 — Analyze Rounds",                       flow_tool5),
     "video_timeline_labeler": ("Tool 6 — Label Frames from Video Timeline",     flow_tool6),
     "overlay_stack_analyzer": ("Tool 7 — Analyze Overlay Stacks",               flow_tool7),
@@ -686,8 +618,6 @@ def _reprompt_source(
         # last_args layout: ["tools/frame_labeler.py", <source_dir>, ...]
         new_args = [last_args[0], new_source] + last_args[2:]
         return new_args, None
-    elif tool_key == "hash_validator":
-        return flow_tool4()
     elif tool_key == "warden_analyzer":
         new_video = browse_video_file("Select new video file:")
         # last_args layout: ["tools/warden_analyzer.py", <video>, ...]
@@ -703,8 +633,8 @@ def _reprompt_source(
         new_args = [last_args[0], new_video] + last_args[2:]
         return new_args, new_video
     elif tool_key == "overlay_stack_analyzer":
-        # Directory-driven (like hash_validator) — no single "source path" to
-        # swap; just re-run the full flow.
+        # Directory-driven — no single "source path" to swap; just re-run the
+        # full flow.
         return flow_tool7()
     elif tool_key == "auto_roi_discoverer":
         # Directory-driven (consumes Tool 7's output) — re-run the full flow.
@@ -714,7 +644,7 @@ def _reprompt_source(
         # re-run the full flow.
         return flow_tool9()
     else:
-        # map_config_generator: arg structure varies too much; run full flow
+        # map_config_emitter: directory-driven re-run of the full flow.
         return flow_tool3()
 
 
@@ -768,8 +698,7 @@ def menu_main() -> None:
     choices_main = [
         "Tool 1 — Extract Rounds",
         "Tool 2 — Label Frames",
-        "Tool 3 — Generate Map Config",
-        "Tool 4 — Validate Hash Accuracy",
+        "Tool 3 — Emit Map Config",
         "Tool 5 — Analyze Rounds",
         "Tool 6 — Label Frames from Video Timeline",
         "Tool 7 — Analyze Overlay Stacks",
@@ -809,7 +738,7 @@ def menu_main() -> None:
                 if returncode == 0:
                     save_last_run("frame_labeler", "Tool 2 — Label Frames", args, video_path)
 
-        elif choice == "Tool 3 — Generate Map Config":
+        elif choice == "Tool 3 — Emit Map Config":
             args, video_path = flow_tool3()
             if not args:
                 continue
@@ -820,25 +749,8 @@ def menu_main() -> None:
                 returncode = run_tool(args)
                 if returncode == 0:
                     save_last_run(
-                        "map_config_generator",
-                        "Tool 3 — Generate Map Config",
-                        args,
-                        video_path,
-                    )
-
-        elif choice == "Tool 4 — Validate Hash Accuracy":
-            args, video_path = flow_tool4()
-            if not args:
-                continue
-            confirmed = questionary.confirm(
-                f"Run: {exe_name} {' '.join(args)}?", default=True
-            ).ask()
-            if confirmed:
-                returncode = run_tool(args)
-                if returncode == 0:
-                    save_last_run(
-                        "hash_validator",
-                        "Tool 4 — Validate Hash Accuracy",
+                        "map_config_emitter",
+                        "Tool 3 — Emit Map Config",
                         args,
                         video_path,
                     )

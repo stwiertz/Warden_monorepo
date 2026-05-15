@@ -2,61 +2,186 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://warden.team/schemas/map-config.json",
   "title": "MapConfig",
-  "description": "Map identification configuration emitted by apps/tooling and consumed by apps/mobile. Each map name is associated with a perceptual hash computed over a fixed ROI of the minimap region in I-frames. Mobile uses these hashes to identify which EVA map a clip is showing without running OpenCV on device.",
+  "description": "Map identification configuration emitted by apps/tooling and consumed by apps/mobile. Detection is ROI+HSV-band-based across all versions; the schema_version discriminates between config shapes that evolved with successive HUD generations. v1 (HUD V1 era) carries the legacy `minimap_identification` block (single config, per-map weighted zones). v2 (HUD V2 era, post-9.9b hand-merge) carries a top-level game_state_zones cascade + flat per-map ZoneSpec lists. Both branches use the same ROI+HSV detection algorithm at runtime.",
   "type": "object",
-  "required": ["reference_resolution", "roi", "canvas_size", "hash_size", "hash_method", "maps"],
-  "additionalProperties": false,
+  "required": ["schema_version"],
   "properties": {
-    "reference_resolution": {
+    "schema_version": {
+      "type": "integer",
+      "enum": [1, 2],
+      "description": "Discriminator. 1 = legacy HUD V1 shape (minimap_identification block, weighted zones). 2 = HUD V2 shape (game_state_zones cascade + flat per-map ZoneSpec lists)."
+    }
+  },
+  "oneOf": [
+    {
+      "title": "MapConfigV1",
+      "description": "HUD V1 shape — minimap_identification block with a single config object holding identification_threshold + minimap ROI + per-map zone lists. Each zone carries a weight/weight_override pair used by the runtime detector. Mirrors apps/tooling/config/config.yaml's minimap_identification.configs[0] shape, with the configs[] array wrapper flattened (only ever one entry in practice).",
       "type": "object",
-      "description": "Source video resolution the ROI coordinates are calibrated against. ROI is rescaled proportionally for other resolutions.",
-      "required": ["width", "height"],
+      "required": ["schema_version", "reference_resolution", "minimap_identification"],
       "additionalProperties": false,
       "properties": {
-        "width": { "type": "integer", "minimum": 1 },
-        "height": { "type": "integer", "minimum": 1 }
+        "schema_version": { "const": 1 },
+        "reference_resolution": {
+          "type": "object",
+          "description": "Source video resolution the zone coordinates are calibrated against.",
+          "required": ["width", "height"],
+          "additionalProperties": false,
+          "properties": {
+            "width": { "type": "integer", "minimum": 1 },
+            "height": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "minimap_identification": {
+          "type": "object",
+          "required": ["id", "identification_threshold", "roi", "maps"],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Identifier of the calibration profile this config carries. Today only 'test' exists; left configurable for future per-profile A/B variations."
+            },
+            "identification_threshold": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Minimum aggregate match score (sum of per-zone fires x weight) above which a map is considered identified."
+            },
+            "roi": {
+              "type": "object",
+              "description": "The minimap ROI inside the frame - zone coordinates are expressed relative to this rectangle's top-left.",
+              "required": ["name", "x", "y", "width", "height"],
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string", "minLength": 1 },
+                "x": { "type": "integer", "minimum": 0 },
+                "y": { "type": "integer", "minimum": 0 },
+                "width": { "type": "integer", "minimum": 1 },
+                "height": { "type": "integer", "minimum": 1 }
+              }
+            },
+            "maps": {
+              "type": "object",
+              "description": "Map slug -> per-map detector entry. Slugs are lowercased ASCII (e.g. 'the_cliff').",
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[a-z][a-z0-9_]*$": { "$ref": "#/$defs/V1MapEntry" }
+              }
+            }
+          }
+        }
       }
     },
-    "roi": {
+    {
+      "title": "MapConfigV2",
+      "description": "HUD V2 shape - emitted from Tool 8's discovered_zones.yaml fragment after hand-merge into config.yaml. Each map gets a flat list of ZoneSpec entries; the game_state_zones block carries the 4-way lobby/in_match/score/transition cascade. No weight/weight_override on zones (re-introduction is a future-config-version decision).",
       "type": "object",
-      "description": "Region of interest within a frame, expressed at reference_resolution. The map name banner sits inside this rectangle.",
-      "required": ["x", "y", "width", "height"],
+      "required": ["schema_version", "reference_resolution", "game_state_zones", "maps"],
       "additionalProperties": false,
       "properties": {
+        "schema_version": { "const": 2 },
+        "reference_resolution": {
+          "type": "object",
+          "required": ["width", "height"],
+          "additionalProperties": false,
+          "properties": {
+            "width": { "type": "integer", "minimum": 1 },
+            "height": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "game_state_zones": {
+          "type": "object",
+          "description": "4-way game-state cascade. All four keys are required; each holds a (possibly empty) list of ZoneSpec entries.",
+          "required": ["lobby", "in_match", "score", "transition"],
+          "additionalProperties": false,
+          "properties": {
+            "lobby": { "$ref": "#/$defs/V2ZoneSpecList" },
+            "in_match": { "$ref": "#/$defs/V2ZoneSpecList" },
+            "score": { "$ref": "#/$defs/V2ZoneSpecList" },
+            "transition": { "$ref": "#/$defs/V2ZoneSpecList" }
+          }
+        },
+        "maps": {
+          "type": "object",
+          "description": "Map slug -> list of ZoneSpec entries that fingerprint the map. Empty zone lists are allowed for maps that haven't been fingerprinted yet.",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": { "$ref": "#/$defs/V2ZoneSpecList" }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "Hsv": {
+      "type": "object",
+      "description": "User-space HSV band center + per-channel tolerance. H in [0,360]; H tolerance in [0,180] (half-circle max); S/V in [0,100].",
+      "required": ["h_center", "h_tol", "s_center", "s_tol", "v_center", "v_tol"],
+      "additionalProperties": false,
+      "properties": {
+        "h_center": { "type": "integer", "minimum": 0, "maximum": 360 },
+        "h_tol": { "type": "integer", "minimum": 0, "maximum": 180 },
+        "s_center": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "s_tol": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "v_center": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "v_tol": { "type": "integer", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "V1MapEntry": {
+      "type": "object",
+      "required": ["zones"],
+      "additionalProperties": false,
+      "properties": {
+        "zones": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/V1ZoneSpec" }
+        }
+      }
+    },
+    "V1ZoneSpec": {
+      "type": "object",
+      "description": "Per-zone detector cell for HUD V1. Carries `weight` (contribution to the aggregate identification score) and `weight_override` (per-zone weight bypass flag).",
+      "required": [
+        "id",
+        "x",
+        "y",
+        "width",
+        "height",
+        "hsv",
+        "min_ratio",
+        "weight",
+        "weight_override"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
         "x": { "type": "integer", "minimum": 0 },
         "y": { "type": "integer", "minimum": 0 },
         "width": { "type": "integer", "minimum": 1 },
-        "height": { "type": "integer", "minimum": 1 }
+        "height": { "type": "integer", "minimum": 1 },
+        "hsv": { "$ref": "#/$defs/Hsv" },
+        "min_ratio": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "weight": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "weight_override": { "type": "boolean" }
       }
     },
-    "canvas_size": {
-      "type": "integer",
-      "minimum": 1,
-      "description": "Square canvas size the ROI is normalized into before hashing."
+    "V2ZoneSpecList": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/V2ZoneSpec" }
     },
-    "hash_size": {
-      "type": "integer",
-      "minimum": 1,
-      "description": "Hash dimension. hash_size=16 yields 256-bit hashes encoded as 64 hex chars."
-    },
-    "hash_method": {
-      "type": "string",
-      "enum": ["ahash", "phash", "dhash", "whash"],
-      "description": "Perceptual hash algorithm used to compute the per-map fingerprint."
-    },
-    "text_anchor_width": {
-      "type": "integer",
-      "minimum": 0,
-      "description": "Optional. Width in pixels of the anchor text region inside the ROI used for sub-cropping. Omit if the full ROI is hashed."
-    },
-    "maps": {
+    "V2ZoneSpec": {
       "type": "object",
-      "description": "Map name → hex-encoded perceptual hash string. Map names are lowercased ASCII slugs (e.g. \"the_cliff\").",
-      "minProperties": 1,
-      "additionalProperties": {
-        "type": "string",
-        "pattern": "^[0-9a-f]+$",
-        "description": "Hex-encoded perceptual hash. Length depends on hash_size (e.g. hash_size=16 → 64 hex chars)."
+      "description": "Per-zone detector cell for HUD V2. Coordinates are at reference_resolution. Mirrors Tool 8's fragment shape at auto_roi_discoverer/export.py:72-91. No weight/weight_override - every zone contributes equally.",
+      "required": ["name", "x", "y", "width", "height", "hsv", "min_ratio"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "x": { "type": "integer", "minimum": 0 },
+        "y": { "type": "integer", "minimum": 0 },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "hsv": { "$ref": "#/$defs/Hsv" },
+        "min_ratio": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
       }
     }
   }
