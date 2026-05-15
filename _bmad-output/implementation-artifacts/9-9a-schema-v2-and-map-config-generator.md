@@ -4,6 +4,25 @@ Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
+## Scope Adjustment #3 (2026-05-15, post-merge correct-course): SUPERSEDED by Story 9.9c
+
+Post-merge correct-course (`/bmad-correct-course`, deliverable [`_bmad-output/sprint-change-proposal-2026-05-15.md`](../sprint-change-proposal-2026-05-15.md)) determined that 9.9a's `oneOf` v1/v2 schema design and the dual-emit-path in `map_config_emitter.py` are over-engineered for a pre-production project with zero deployed consumers. **New Story 9.9c** unifies the schema to a single shape:
+
+- Top-level required: `schema_version: integer enum [1]` (config-shape version, not detection-method version), `reference_resolution`, `hud_version: string enum`, `score_screen_duration_ms: integer >= 0` (timing offset for score-screen extraction after `in_match` ends), `hud_version_detection: Zone[]`, `in_match_detection: Zone[]` (binary in-match-or-not — no 4-class `{lobby, in_match, score, transition}` cascade; score-screen is timing-derived; lobby/transition not differentiated), `minimap_identification: {id, identification_threshold, roi, maps: {<slug>: {zones: Zone[]}}}`.
+- One `Zone` shape via `$defs`: `{id, x, y, width, height, hsv, min_ratio, weight, weight_override}`.
+- `additionalProperties: false` at every level.
+- No `oneOf`. No discriminated union. Zod regenerates as a single object type.
+- `map_config_emitter.py` retargeted: single emit path (no `_detect_schema_version`, no `_build_v2_output` branch, no v1-coercion logic).
+- `jsonschema` strict-validation gate preserved end-to-end (same `_validate_against_schema` mechanism, new target schema).
+
+**This story's status:** stays `review` until the standard Two-PR follow-up flips it `done` — independent of 9.9c. The merged work is real history: `schema_version` field exists, `map_config_emitter.py` exists in the renamed-from-`map_config_generator.py` form, `jsonschema` validation gate works. 9.9c rewrites the schema and the emitter on top of that baseline; it does not retroactively rewrite this story.
+
+**Cross-references:**
+- New Story 9.9c entry: [`_bmad-output/epics-and-stories.md`](../epics-and-stories.md) (Epic 9 — Tooling section, after Story 9.10).
+- Sprint-status diff: `9-9a` (this story) — SUPERSEDED note; `9-1` + `9-4` flip backlog → cancelled (rationales updated); `9-9b` renamed + mechanism rewrite; `9-10` scope-expanded; `9-9c` + `9-11` + `9-12` + `9-13` + `9-14` added as `backlog`; `1-13` AC-amendment note (anchor flips 9.9a → 9.9c). See [`_bmad-output/sprint-status.yaml`](../sprint-status.yaml).
+
+---
+
 ## Scope Adjustment (2026-05-15, dev-story prep)
 
 Pre-implementation survey under `/bmad-dev-story` surfaced three premise mismatches between the story spec (written at create-story time) and the current repo state. User-approved scope adjustments:
