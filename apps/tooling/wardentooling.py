@@ -215,24 +215,58 @@ def flow_tool2() -> tuple[list[str], str | None]:
 def flow_tool3() -> tuple[list[str], str | None]:
     """Collect arguments for map_config_emitter.py.
 
-    Reads config.yaml and emits map_config.json (v1 or v2 depending on the
-    input shape). Pure config-driven — no frame input needed.
+    Reads zone fragments from a zones directory (written by zone_picker, Story
+    9.12) and emits a unified map_config.<hud_version>.json. No config.yaml
+    input. Pure fragment-driven — no frame input needed.
 
     Returns (args_list, None) — no video_path for this tool.
     """
     args = ["tools/map_config_emitter.py"]
 
-    config_path = questionary.text(
-        "Config path (-c)  [blank = config/config.yaml]:"
+    zones_parent = os.path.join(PROJECT_ROOT, "output", "zones")
+    # `_display` is repo-root-relative (clear for the user). `_value` is what
+    # actually gets passed to the emitter subprocess, which runs with
+    # cwd=PROJECT_ROOT (=apps/tooling/), so it must be relative to that.
+    zones_default_display = "apps/tooling/output/zones/"
+    zones_default_value = os.path.join("output", "zones")
+    zones_dir = questionary.text(
+        f"Zones directory (--zones-dir)  [blank = pick from {zones_default_display}]:"
     ).ask()
-    if config_path:
-        args += ["-c", config_path.strip()]
+    if zones_dir:
+        zones_dir = zones_dir.strip()
+    else:
+        # Blank: offer a picker over subdirectories of the conventional parent.
+        # No auto-select. If the parent doesn't exist, fall through with the
+        # default value so the emitter's clean error surfaces ("no fragment
+        # files at <path>"); this is the documented pre-9.12 behavior.
+        try:
+            subdirs = sorted(
+                e.name
+                for e in os.scandir(zones_parent)
+                if e.is_dir() and not e.name.startswith(".")
+            )
+        except OSError:
+            subdirs = []
+
+        if subdirs:
+            picked = questionary.select(
+                "Zone fragment directory:",
+                choices=subdirs,
+            ).ask()
+            if picked:
+                zones_dir = os.path.join("output", "zones", picked)
+            else:
+                zones_dir = zones_default_value
+        else:
+            zones_dir = zones_default_value
+
+    args += ["--zones-dir", zones_dir]
 
     output_dir = questionary.text(
-        "Output directory (-o)  [blank = config.output.default_dir]:"
+        "Output directory (--output-dir)  [blank = apps/tooling/output/map_configs/]:"
     ).ask()
     if output_dir:
-        args += ["-o", output_dir.strip()]
+        args += ["--output-dir", output_dir.strip()]
 
     return args, None
 
