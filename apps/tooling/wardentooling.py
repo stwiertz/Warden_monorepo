@@ -12,7 +12,6 @@ Usage:
 import glob
 import json
 import os
-import re
 import sys
 import subprocess
 
@@ -24,9 +23,6 @@ import questionary
 
 LAST_RUN_FILE = ".warden_last_run.json"
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-
-# Exclude code/config dirs from directory browser — show only data dirs
-_EXCLUDED_DIRS = {"tools", "utils", "config", "docs", "__pycache__"}
 
 
 # ---------------------------------------------------------------------------
@@ -124,87 +120,15 @@ def browse_image_file(prompt: str) -> str | None:
         print(f"  Path not found: {selection!r} — please try again.")
 
 
-def browse_directory(prompt: str) -> str:
-    """Prompt for a directory. Shows only non-code subdirs of project root
-    (excludes dirs starting with '.' or '_' and known code dirs).
-
-    Loops until a valid, existing directory is returned.
-    """
-    while True:
-        try:
-            subdirs = sorted(
-                e.name
-                for e in os.scandir(PROJECT_ROOT)
-                if e.is_dir()
-                and not e.name.startswith(".")
-                and not e.name.startswith("_")
-                and e.name not in _EXCLUDED_DIRS
-            )
-        except OSError:
-            subdirs = []
-
-        manual_opt = "[ Enter path manually ]"
-        choices = subdirs + [manual_opt]
-
-        if subdirs:
-            selection = questionary.select(prompt, choices=choices).ask()
-        else:
-            selection = manual_opt
-
-        if selection is None or selection == manual_opt:
-            selection = questionary.text("Directory path:").ask()
-
-        if selection and os.path.isdir(os.path.join(PROJECT_ROOT, selection)):
-            return selection
-        print(f"  Directory not found: {selection!r} — please try again.")
+# browse_directory() — REMOVED (Story 9.11: its sole caller was the retired
+# Tool 2 flow; no other references remained).
 
 
 # ---------------------------------------------------------------------------
-# Tool 1 — game_detector
+# Tool 1 (round extractor) + Tool 2 (frame labeler) — REMOVED (Story 9.11:
+# retired legacy tooling; black-screen detection is replaced by
+# `in_match_detection` zones, Tool 6 supersedes the old frame labeler).
 # ---------------------------------------------------------------------------
-
-
-def flow_tool1() -> tuple[list[str], str | None]:
-    """Collect arguments for game_detector.py.
-
-    Returns (args_list, video_path).
-    """
-    video_path = browse_video_file("Select video file for Tool 1 — Extract Rounds:")
-    args = ["tools/game_detector.py", video_path]
-
-    output_dir = questionary.text("Output directory (-o)  [blank = default]:").ask()
-    if output_dir:
-        args += ["-o", output_dir]
-
-    use_profile = questionary.confirm(
-        "Enable --profile (performance profiling)?", default=False
-    ).ask()
-    if use_profile:
-        args.append("--profile")
-
-    return args, video_path
-
-
-# ---------------------------------------------------------------------------
-# Tool 2 — frame_labeler
-# ---------------------------------------------------------------------------
-
-
-def flow_tool2() -> tuple[list[str], str | None]:
-    """Collect arguments for frame_labeler.py.
-
-    Returns (args_list, None) — no video_path for this tool.
-    """
-    source_dir = browse_directory(
-        "Select Tool 1 output folder (source for frame labeler):"
-    )
-    args = ["tools/frame_labeler.py", source_dir]
-
-    output_dir = questionary.text("Output directory (-o)  [blank = default]:").ask()
-    if output_dir:
-        args += ["-o", output_dir]
-
-    return args, None
 
 
 # ---------------------------------------------------------------------------
@@ -279,29 +203,9 @@ def flow_tool3() -> tuple[list[str], str | None]:
 
 
 # ---------------------------------------------------------------------------
-# Tool 5 — warden_analyzer
+# Tool 5 (round analyzer) — REMOVED (Story 9.11: retired legacy tooling;
+# Story 9.2 cancelled, HUD 2.0 footage breaks its legacy ROIs).
 # ---------------------------------------------------------------------------
-
-
-def flow_tool5() -> tuple[list[str], str | None]:
-    """Collect arguments for warden_analyzer.py.
-
-    Returns (args_list, video_path).
-    """
-    video_path = browse_video_file("Select video file for Tool 5 — Analyze Rounds:")
-    args = ["tools/warden_analyzer.py", video_path]
-
-    map_config = questionary.text(
-        "Map config path (--map-config)  [blank = output/map_config.json]:"
-    ).ask()
-    if map_config:
-        args += ["--map-config", map_config]
-
-    output_dir = questionary.text("Output directory (-o)  [blank = default]:").ask()
-    if output_dir:
-        args += ["-o", output_dir]
-
-    return args, video_path
 
 
 # ---------------------------------------------------------------------------
@@ -342,132 +246,23 @@ def flow_tool6() -> tuple[list[str], str | None]:
 
 
 # ---------------------------------------------------------------------------
-# Tool 7 — overlay_stack_analyzer
+# Tool 7 (overlay-stack analyzer) + Tool 8 (auto ROI discoverer) — REMOVED
+# (Story 9.11: retired legacy tooling; the variance/heatmap signal folds into
+# zone_picker (9.12) and the auto-suggest ROI layer is superseded by the
+# manual picker).
 # ---------------------------------------------------------------------------
 
 
-def flow_tool7() -> tuple[list[str], str | None]:
-    """Collect arguments for overlay_stack_analyzer.py.
-
-    Returns (args_list, None) — no video_path for this directory-driven tool.
-    Returns ([], None) if the user Ctrl-C's any prompt
-    (questionary returns None on interrupt).
-    """
-    args = ["tools/overlay_stack_analyzer.py"]
-
-    def _is_pos_int(text: str) -> bool:
-        # `.isdigit()` alone is True for non-ASCII digits (e.g. superscripts) that
-        # `int()` then refuses — require ASCII first so the parse can't crash.
-        return text.isascii() and text.isdigit() and int(text) > 0
-
-    input_dir = questionary.text(
-        "Labeled dataset directory (--input)  [blank = output/labeled]:"
-    ).ask()
-    if input_dir is None:
-        return [], None
-    input_dir = input_dir.strip()
-    if input_dir:
-        args += ["--input", input_dir]
-
-    output_dir = questionary.text(
-        "Output directory (--output)  [blank = output/overlay_stacks]:"
-    ).ask()
-    if output_dir is None:
-        return [], None
-    output_dir = output_dir.strip()
-    if output_dir:
-        args += ["--output", output_dir]
-
-    while True:
-        min_frames = questionary.text(
-            "Minimum frames per cell (--min-frames)  [blank = 2]:"
-        ).ask()
-        if min_frames is None:
-            return [], None
-        min_frames = min_frames.strip()
-        if not min_frames:
-            break
-        if _is_pos_int(min_frames):
-            args += ["--min-frames", min_frames]
-            break
-        print("  Invalid — enter a positive integer (or blank for the default of 2).")
-
-    ref_height = questionary.text(
-        "Resize every cell to this height (--ref-height)  [blank = per-cell modal shape]:"
-    ).ask()
-    if ref_height is None:
-        return [], None
-    ref_height = ref_height.strip()
-    if ref_height:
-        if _is_pos_int(ref_height):
-            args += ["--ref-height", ref_height]
-        else:
-            print("  Ignoring --ref-height: not a positive integer.")
-
-    heatmap = questionary.confirm(
-        "Produce HSV variance heatmaps too (--heatmap)?", default=False
-    ).ask()
-    if heatmap is None:
-        return [], None
-    if heatmap:
-        args.append("--heatmap")
-
-    return args, None
-
-
 # ---------------------------------------------------------------------------
-# Tool 8 — auto_roi_discoverer (package; invoked as a module)
-# ---------------------------------------------------------------------------
-
-
-def flow_tool8() -> tuple[list[str], str | None]:
-    """Collect arguments for auto_roi_discoverer (module invocation, like Image Inspector).
-
-    Directory-driven (like Tools 4 and 7) — returns ([], None) if the user Ctrl-C's any
-    prompt (questionary returns None on interrupt).
-    """
-    args = ["-m", "tools.auto_roi_discoverer"]
-
-    input_dir = questionary.text(
-        "Tool 7 output directory (--input)  [blank = output/overlay_stacks]:"
-    ).ask()
-    if input_dir is None:
-        return [], None
-    input_dir = input_dir.strip()
-    if input_dir:
-        args += ["--input", input_dir]
-
-    config_path = questionary.text(
-        "config.yaml path for the legacy-ROI overlay (--config)  [blank = config/config.yaml]:"
-    ).ask()
-    if config_path is None:
-        return [], None
-    config_path = config_path.strip()
-    if config_path:
-        args += ["--config", config_path]
-
-    exclusions_path = questionary.text(
-        "exclusions.yaml path (--exclusions)  [blank = output/auto_rois/exclusions.yaml if present]:"
-    ).ask()
-    if exclusions_path is None:
-        return [], None
-    exclusions_path = exclusions_path.strip()
-    if exclusions_path:
-        args += ["--exclusions", exclusions_path]
-
-    return args, None
-
-
-# ---------------------------------------------------------------------------
-# Tool 9 — roi_detection_tester (single file; invoked directly like Tool 7)
+# Tool 9 — roi_detection_tester (single-file headless tool)
 # ---------------------------------------------------------------------------
 
 
 def flow_tool9() -> tuple[list[str], str | None]:
     """Collect arguments for roi_detection_tester.py.
 
-    Directory-driven (like Tools 4/7/8) — returns ([], None) if the user Ctrl-C's any
-    prompt (questionary returns None on interrupt).
+    Directory-driven — returns ([], None) if the user Ctrl-C's any prompt
+    (questionary returns None on interrupt).
     """
     args = ["tools/roi_detection_tester.py"]
 
@@ -475,7 +270,7 @@ def flow_tool9() -> tuple[list[str], str | None]:
         return text.isascii() and text.isdigit() and int(text) > 0
 
     zones_path = questionary.text(
-        "Tool 8 zones fragment (--zones)  [blank = newest output/auto_rois/v*/discovered_zones.yaml]:"
+        "Zones fragment (--zones)  [blank = newest output/auto_rois/v*/discovered_zones.yaml]:"
     ).ask()
     if zones_path is None:
         return [], None
@@ -531,46 +326,8 @@ def flow_tool9() -> tuple[list[str], str | None]:
 # ---------------------------------------------------------------------------
 
 
-def flow_dev_roi_debugger() -> tuple[list[str], str | None]:
-    """Collect arguments for bsd_roi_debugger.py."""
-    video_path = browse_video_file("Select video file for ROI Debugger:")
-    args = ["tools/bsd_roi_debugger.py", video_path]
-
-    # --range with N:N format validation
-    while True:
-        range_val = questionary.text("Time range (--range N:N):", default="0:15").ask()
-        if re.match(r"^\d+:\d+$", range_val or ""):
-            args += ["--range", range_val]
-            break
-        print("  Invalid format — enter as N:N (e.g. 0:15)")
-
-    threshold = questionary.text("Threshold (--threshold)  [blank = default]:").ask()
-    if threshold:
-        args += ["--threshold", threshold]
-
-    output_dir = questionary.text("Output directory (-o)  [blank = default]:").ask()
-    if output_dir:
-        args += ["-o", output_dir]
-
-    return args, video_path
-
-
-def flow_dev_points_detector() -> tuple[list[str], str | None]:
-    """Collect arguments for points_state_detector.py."""
-    video_path = browse_video_file("Select video file for Points State Detector:")
-    args = ["tools/points_state_detector.py", video_path]
-
-    roi = questionary.text(
-        "ROI name (--roi)  [blank = default 'points']:", default="points"
-    ).ask()
-    if roi and roi != "points":
-        args += ["--roi", roi]
-
-    use_profile = questionary.confirm("Enable --profile?", default=False).ask()
-    if use_profile:
-        args.append("--profile")
-
-    return args, video_path
+# Dev ROI Debugger + Dev Points State Detector flows — REMOVED
+# (Story 9.11: retired legacy tooling).
 
 
 def flow_dev_image_inspector() -> tuple[list[str], str | None]:
@@ -597,8 +354,6 @@ def menu_dev() -> None:
             "Dev Tools:",
             choices=[
                 "Image Inspector",
-                "ROI Debugger",
-                "Points State Detector",
                 "← Back",
             ],
         ).ask()
@@ -609,12 +364,6 @@ def menu_dev() -> None:
         if choice == "Image Inspector":
             args, _ = flow_dev_image_inspector()
             run_tool(args)
-        elif choice == "ROI Debugger":
-            args, _ = flow_dev_roi_debugger()
-            run_tool(args)
-        elif choice == "Points State Detector":
-            args, _ = flow_dev_points_detector()
-            run_tool(args)
 
 
 # ---------------------------------------------------------------------------
@@ -622,14 +371,12 @@ def menu_dev() -> None:
 # ---------------------------------------------------------------------------
 
 _TOOL_MAP = {
-    "game_detector":          ("Tool 1 — Extract Rounds",                       flow_tool1),
-    "frame_labeler":          ("Tool 2 — Label Frames",                         flow_tool2),
+    # Tools 1, 2, 4, 5, 7, 8 removed (Tool 4 per Story 9.9a Scope Adjustment
+    # #2; Tools 1/2/5/7/8 per Story 9.11). Surviving numbers are intentionally
+    # left non-contiguous — Tool 9's key/label/numbering is preserved to avoid
+    # churning save_last_run state.
     "map_config_emitter":     ("Tool 3 — Emit Map Config",                      flow_tool3),
-    # Tool 4 (hash_validator) removed per Story 9.9a Scope Adjustment #2.
-    "warden_analyzer":        ("Tool 5 — Analyze Rounds",                       flow_tool5),
     "video_timeline_labeler": ("Tool 6 — Label Frames from Video Timeline",     flow_tool6),
-    "overlay_stack_analyzer": ("Tool 7 — Analyze Overlay Stacks",               flow_tool7),
-    "auto_roi_discoverer":    ("Tool 8 — Discover Game-State ROIs",             flow_tool8),
     "roi_detection_tester":   ("Tool 9 — Test ROI Detection on Labeled Frames", flow_tool9),
 }
 
@@ -642,22 +389,7 @@ def _reprompt_source(
 
     Tool 3 is too structurally complex for partial re-prompt; runs full flow.
     """
-    if tool_key == "game_detector":
-        new_video = browse_video_file("Select new video file:")
-        # last_args layout: ["tools/game_detector.py", <video>, ...]
-        new_args = [last_args[0], new_video] + last_args[2:]
-        return new_args, new_video
-    elif tool_key == "frame_labeler":
-        new_source = browse_directory("Select new source directory:")
-        # last_args layout: ["tools/frame_labeler.py", <source_dir>, ...]
-        new_args = [last_args[0], new_source] + last_args[2:]
-        return new_args, None
-    elif tool_key == "warden_analyzer":
-        new_video = browse_video_file("Select new video file:")
-        # last_args layout: ["tools/warden_analyzer.py", <video>, ...]
-        new_args = [last_args[0], new_video] + last_args[2:]
-        return new_args, new_video
-    elif tool_key == "video_timeline_labeler":
+    if tool_key == "video_timeline_labeler":
         new_video = browse_video_file("Select new video file:")
         if not new_video:
             # User cancelled the picker — bail to the main menu instead of
@@ -666,15 +398,8 @@ def _reprompt_source(
         # last_args layout: ["tools/video_timeline_labeler.py", <video>, ...]
         new_args = [last_args[0], new_video] + last_args[2:]
         return new_args, new_video
-    elif tool_key == "overlay_stack_analyzer":
-        # Directory-driven — no single "source path" to swap; just re-run the
-        # full flow.
-        return flow_tool7()
-    elif tool_key == "auto_roi_discoverer":
-        # Directory-driven (consumes Tool 7's output) — re-run the full flow.
-        return flow_tool8()
     elif tool_key == "roi_detection_tester":
-        # Directory-driven (consumes Tool 8's output + Tool 6's labeled dataset) —
+        # Directory-driven (consumes a zones fragment + the labeled dataset) —
         # re-run the full flow.
         return flow_tool9()
     else:
@@ -729,14 +454,12 @@ def menu_main() -> None:
         _offer_last_run(last)
 
     exe_name = os.path.basename(sys.executable)
+    # Numbering is intentionally non-contiguous: Tools 1/2/4/5/7/8 were retired
+    # (Story 9.11; Tool 4 earlier per 9.9a) — surviving tools keep their
+    # original numbers/keys so save_last_run state stays valid.
     choices_main = [
-        "Tool 1 — Extract Rounds",
-        "Tool 2 — Label Frames",
         "Tool 3 — Emit Map Config",
-        "Tool 5 — Analyze Rounds",
         "Tool 6 — Label Frames from Video Timeline",
-        "Tool 7 — Analyze Overlay Stacks",
-        "Tool 8 — Discover Game-State ROIs",
         "Tool 9 — Test ROI Detection on Labeled Frames",
         "Dev Tools",
         "Quit",
@@ -748,31 +471,7 @@ def menu_main() -> None:
         if choice is None or choice == "Quit":
             return
 
-        if choice == "Tool 1 — Extract Rounds":
-            args, video_path = flow_tool1()
-            if not args:
-                continue
-            confirmed = questionary.confirm(
-                f"Run: {exe_name} {' '.join(args)}?", default=True
-            ).ask()
-            if confirmed:
-                returncode = run_tool(args)
-                if returncode == 0:
-                    save_last_run("game_detector", "Tool 1 — Extract Rounds", args, video_path)
-
-        elif choice == "Tool 2 — Label Frames":
-            args, video_path = flow_tool2()
-            if not args:
-                continue
-            confirmed = questionary.confirm(
-                f"Run: {exe_name} {' '.join(args)}?", default=True
-            ).ask()
-            if confirmed:
-                returncode = run_tool(args)
-                if returncode == 0:
-                    save_last_run("frame_labeler", "Tool 2 — Label Frames", args, video_path)
-
-        elif choice == "Tool 3 — Emit Map Config":
+        if choice == "Tool 3 — Emit Map Config":
             args, video_path = flow_tool3()
             if not args:
                 continue
@@ -789,18 +488,6 @@ def menu_main() -> None:
                         video_path,
                     )
 
-        elif choice == "Tool 5 — Analyze Rounds":
-            args, video_path = flow_tool5()
-            if not args:
-                continue
-            confirmed = questionary.confirm(
-                f"Run: {exe_name} {' '.join(args)}?", default=True
-            ).ask()
-            if confirmed:
-                returncode = run_tool(args)
-                if returncode == 0:
-                    save_last_run("warden_analyzer", "Tool 5 — Analyze Rounds", args, video_path)
-
         elif choice == "Tool 6 — Label Frames from Video Timeline":
             args, video_path = flow_tool6()
             if not args:
@@ -814,40 +501,6 @@ def menu_main() -> None:
                     save_last_run(
                         "video_timeline_labeler",
                         "Tool 6 — Label Frames from Video Timeline",
-                        args,
-                        video_path,
-                    )
-
-        elif choice == "Tool 7 — Analyze Overlay Stacks":
-            args, video_path = flow_tool7()
-            if not args:
-                continue
-            confirmed = questionary.confirm(
-                f"Run: {exe_name} {' '.join(args)}?", default=True
-            ).ask()
-            if confirmed:
-                returncode = run_tool(args)
-                if returncode == 0:
-                    save_last_run(
-                        "overlay_stack_analyzer",
-                        "Tool 7 — Analyze Overlay Stacks",
-                        args,
-                        video_path,
-                    )
-
-        elif choice == "Tool 8 — Discover Game-State ROIs":
-            args, video_path = flow_tool8()
-            if not args:
-                continue
-            confirmed = questionary.confirm(
-                f"Run: {exe_name} {' '.join(args)}?", default=True
-            ).ask()
-            if confirmed:
-                returncode = run_tool(args)
-                if returncode == 0:
-                    save_last_run(
-                        "auto_roi_discoverer",
-                        "Tool 8 — Discover Game-State ROIs",
                         args,
                         video_path,
                     )
