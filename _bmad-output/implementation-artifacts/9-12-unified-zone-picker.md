@@ -1,6 +1,6 @@
 # Story 9.12: Unified Zone Picker
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -33,9 +33,9 @@ so that **workflow steps #2/#3/#4 collapse into one tool, the auto-discover dead
 - [x] **AC10 — Emitter round-trip green.** Fragments written by the tool pass `python apps/tooling/tools/map_config_emitter.py --zones-dir apps/tooling/output/zones/v<hud_version>` end-to-end (jsonschema gate green, `map_config.<hud_version>.json` emitted). This is the real contract test — the picker's output is only correct if the unchanged emitter accepts it.
 - [x] **AC11 — Pytest for pure logic only; no Tk in tests.** `apps/tooling/tests/test_zone_picker.py` covers `fragments.py` (load existing / merge-not-clobber / schema-valid-empty scaffold / stable id + MAP_LABELS ordering / round-trips through `map_config_emitter._load_fragments` + `_assemble_output` + `_validate_against_schema`) and `variance.py` (Welford mean/stddev correctness on a synthetic stack; circular-Hue wrap correctness — e.g. hues {179,0} → near-zero circular std, not ~90). NO Tk/GUI instantiation in tests (Tool 6/8/9 precedent; `conftest.py` is a sys.path shim only — no fixtures). Synthetic `tmp_path` data only — no real dataset/video/`config.yaml`.
 - [x] **AC12 — `wardentooling.py` registers the tool.** New top-level menu entry following the `flow_tool6`/`flow_tool9` template: a `flow_zone_picker()` collecting `--hud-version`, `--labeled-dir`, `--zones-dir`, a `_TOOL_MAP` entry, a `choices_main` entry, a `menu_main` branch, and a `_reprompt_source` branch. Label house-style is `Tool N — …`; the next free number is **10** (Tools 7/8 gaps are intentional per 9.11 — do not renumber Tool 9). Package invocation: `python -m tools.zone_picker …` (mirror `image_inspector`'s `__main__.py` pattern; the existing `run_tool()` arg-list shape in `wardentooling.py` may need a `-m`-aware branch — note any adaptation in Completion Notes).
-- [ ] **AC13 [HELD]** — Test suite green: `cd apps/tooling && uv run pytest -q` passes at `108 + <new test count>`; `pnpm --filter tooling test` matches. No regression to the 108 baseline (Story 9.11 post-merge). `python -m tools.zone_picker --help` and `python wardentooling.py` (menu renders the new entry, no exception) smoke clean.
-- [ ] **AC14 [HELD]** — `_bmad-output/sprint-status.yaml`: `9-12-unified-zone-picker` flows `ready-for-dev → in-progress → review → done`; `last_updated` updated. epic-9 stays `in-progress`.
-- [ ] **AC15 [HELD]** — Single-PR delivery + Two-PR follow-up per [[feedback_two_pr_docs_execution]] + 9.9c/9.11 precedent. `gh` is unauthenticatable non-interactively → deliver via local `git merge --no-ff story-9-12-unified-zone-picker → main`; the `review → done` flip + post-merge box closures land via a second `--no-ff` follow-up branch (`story-9-12-postmerge`). Main PR/commit title: `feat: unified zone picker (Story 9.12)`.
+- [x] **AC13 [HELD]** — Test suite green: `cd apps/tooling && uv run pytest -q` passes at `108 + <new test count>`; `pnpm --filter tooling test` matches. No regression to the 108 baseline (Story 9.11 post-merge). `python -m tools.zone_picker --help` and `python wardentooling.py` (menu renders the new entry, no exception) smoke clean.
+- [x] **AC14 [HELD]** — `_bmad-output/sprint-status.yaml`: `9-12-unified-zone-picker` flows `ready-for-dev → in-progress → review → done`; `last_updated` updated. epic-9 stays `in-progress`.
+- [x] **AC15 [HELD]** — Single-PR delivery + Two-PR follow-up per [[feedback_two_pr_docs_execution]] + 9.9c/9.11 precedent. `gh` is unauthenticatable non-interactively → deliver via local `git merge --no-ff story-9-12-unified-zone-picker → main`; the `review → done` flip + post-merge box closures land via a second `--no-ff` follow-up branch (`story-9-12-postmerge`). Main PR/commit title: `feat: unified zone picker (Story 9.12)`.
 
 ## Tasks / Subtasks
 
@@ -63,8 +63,8 @@ so that **workflow steps #2/#3/#4 collapse into one tool, the auto-discover dead
 - [x] **Task 7: wardentooling registration + pure-logic tests (AC: 11, 12, 13)**
   - [x] Add `flow_zone_picker()`, `_TOOL_MAP`, `choices_main`, `menu_main`, `_reprompt_source` entries (template = `flow_tool6`/`flow_tool9`). Verify `python -c "import wardentooling"` clean and the TUI renders the new entry.
   - [x] `apps/tooling/tests/test_zone_picker.py`: pure-logic only (AC11 list). `cd apps/tooling && uv run pytest -q` green at `108 + N`; `pnpm --filter tooling test` matches; `python -m tools.zone_picker --help` clean.
-- [ ] **Task 8: Story closure + PR + sprint-status (AC: 13, 14, 15)** **[HELD]**
-  - [ ] Flip ACs/Tasks `[x]`; Status → `done` via Two-PR follow-up. Local `--no-ff` delivery; second `--no-ff` follow-up for `review → done` + post-merge boxes. Sprint-status lifecycle flips. epic-9 stays `in-progress`.
+- [x] **Task 8: Story closure + PR + sprint-status (AC: 13, 14, 15)** **[HELD]**
+  - [x] Flip ACs/Tasks `[x]`; Status → `done` via Two-PR follow-up. Local `--no-ff` delivery; second `--no-ff` follow-up for `review → done` + post-merge boxes. Sprint-status lifecycle flips. epic-9 stays `in-progress`.
 
 ## Dev Notes
 
@@ -236,4 +236,5 @@ claude-opus-4-7[1m] (Amelia, /bmad-dev-story)
 
 ### Change Log
 
-- 2026-05-16 → 2026-05-17 — /bmad-dev-story 9.12 (Amelia): implemented the Unified Zone Picker package (Tasks 1–7). AC1–AC12 + Tasks 1–7 `[x]`; AC13/14/15 + Task 8 `[ ] [HELD]` for the Two-PR post-merge follow-up. apps/tooling pytest 108 → 132 (+24, 0 regressions); `pnpm --filter tooling test` 132 parity. Status `in-progress → review`. Delivered via local `git merge --no-ff story-9-12-unified-zone-picker → main` (`gh` unauthenticatable non-interactively — 9.9c/9.11 precedent); `review → done` + post-merge box-flips deferred to `story-9-12-postmerge`.
+- 2026-05-16 → 2026-05-17 — /bmad-dev-story 9.12 (Amelia): implemented the Unified Zone Picker package (Tasks 1–7). AC1–AC12 + Tasks 1–7 `[x]`; AC13/14/15 + Task 8 `[ ] [HELD]` for the Two-PR post-merge follow-up. apps/tooling pytest 108 → 132 (+24, 0 regressions); `pnpm --filter tooling test` 132 parity. Status `in-progress → review`. Delivered via local `git merge --no-ff story-9-12-unified-zone-picker → main` (merge commit `54724ed`; `gh` unauthenticatable non-interactively — 9.9c/9.11 precedent); `review → done` + post-merge box-flips deferred to `story-9-12-postmerge`.
+- 2026-05-17 — Story 9.12 post-merge Two-PR follow-up (Amelia): AC13 post-merge gate confirmed on `main` HEAD (`54724ed`) — apps/tooling pytest **132 passed**, 0 regressions to the Story-9.11 108 baseline. AC13/AC14/AC15 + Task 8 flipped `[x]`; Status `review → done`; sprint-status `9-12 → done` + `last_updated`. Delivered as a second local `git merge --no-ff story-9-12-postmerge → main`. epic-9 stays `in-progress`; 9.9b unchanged (still blocked on 9.13/9.14).
