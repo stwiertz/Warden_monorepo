@@ -322,6 +322,57 @@ def flow_tool9() -> tuple[list[str], str | None]:
 
 
 # ---------------------------------------------------------------------------
+# Tool 10 — zone_picker (interactive Tk package; -m invocation)
+# ---------------------------------------------------------------------------
+
+
+def flow_zone_picker() -> tuple[list[str], str | None]:
+    """Collect arguments for the Unified Zone Picker (Story 9.12).
+
+    Package invocation: ``python -m tools.zone_picker --hud-version {v1,v2}``
+    (mirrors flow_dev_image_inspector's ``-m`` pattern; run_tool already does
+    ``[sys.executable] + args`` so no run_tool change is needed). Returns
+    ([], None) if the user Ctrl-C's any prompt (questionary returns None).
+    """
+    hud_version = questionary.select(
+        "HUD version this picking session calibrates (--hud-version):",
+        choices=["v1", "v2"],
+    ).ask()
+    if hud_version is None:
+        return [], None
+    args = ["-m", "tools.zone_picker", "--hud-version", hud_version]
+
+    labeled_dir = questionary.text(
+        "Labeled dataset root (--labeled-dir)  [blank = output/labeled]:"
+    ).ask()
+    if labeled_dir is None:
+        return [], None
+    labeled_dir = labeled_dir.strip()
+    if labeled_dir:
+        args += ["--labeled-dir", labeled_dir]
+
+    zones_dir = questionary.text(
+        "Zone-fragment dir (--zones-dir)  [blank = output/zones/v<hud>]:"
+    ).ask()
+    if zones_dir is None:
+        return [], None
+    zones_dir = zones_dir.strip()
+    if zones_dir:
+        args += ["--zones-dir", zones_dir]
+
+    mode = questionary.select(
+        "Preselect a mode panel (--mode):",
+        choices=["(let me pick in the UI)", "hud", "in_match", "per_map"],
+    ).ask()
+    if mode is None:
+        return [], None
+    if mode != "(let me pick in the UI)":
+        args += ["--mode", mode]
+
+    return args, None
+
+
+# ---------------------------------------------------------------------------
 # Dev tool flows
 # ---------------------------------------------------------------------------
 
@@ -378,6 +429,7 @@ _TOOL_MAP = {
     "map_config_emitter":     ("Tool 3 — Emit Map Config",                      flow_tool3),
     "video_timeline_labeler": ("Tool 6 — Label Frames from Video Timeline",     flow_tool6),
     "roi_detection_tester":   ("Tool 9 — Test ROI Detection on Labeled Frames", flow_tool9),
+    "zone_picker":            ("Tool 10 — Unified Zone Picker",                 flow_zone_picker),
 }
 
 
@@ -402,6 +454,9 @@ def _reprompt_source(
         # Directory-driven (consumes a zones fragment + the labeled dataset) —
         # re-run the full flow.
         return flow_tool9()
+    elif tool_key == "zone_picker":
+        # Option-driven interactive tool — re-run the full flow.
+        return flow_zone_picker()
     else:
         # map_config_emitter: directory-driven re-run of the full flow.
         return flow_tool3()
@@ -461,6 +516,7 @@ def menu_main() -> None:
         "Tool 3 — Emit Map Config",
         "Tool 6 — Label Frames from Video Timeline",
         "Tool 9 — Test ROI Detection on Labeled Frames",
+        "Tool 10 — Unified Zone Picker",
         "Dev Tools",
         "Quit",
     ]
@@ -518,6 +574,23 @@ def menu_main() -> None:
                     save_last_run(
                         "roi_detection_tester",
                         "Tool 9 — Test ROI Detection on Labeled Frames",
+                        args,
+                        video_path,
+                    )
+
+        elif choice == "Tool 10 — Unified Zone Picker":
+            args, video_path = flow_zone_picker()
+            if not args:
+                continue
+            confirmed = questionary.confirm(
+                f"Run: {exe_name} {' '.join(args)}?", default=True
+            ).ask()
+            if confirmed:
+                returncode = run_tool(args)
+                if returncode == 0:
+                    save_last_run(
+                        "zone_picker",
+                        "Tool 10 — Unified Zone Picker",
                         args,
                         video_path,
                     )
