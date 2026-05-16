@@ -20,8 +20,8 @@ import numpy as np
 import pytest
 import yaml
 
-from tools.auto_roi_discoverer.model import HsvBand, Rect, TARGET_CLASSES
-from tools.frame_labeler import MAP_LABELS
+from tools.common.zones import HsvBand, Rect, TARGET_CLASSES
+from tools.common.labels import MAP_LABELS
 
 from tools.roi_detection_tester import (
     FrameResult,

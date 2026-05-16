@@ -32,7 +32,7 @@ from utils.video import (
     get_video_duration,
     get_video_info,
 )
-from tools.frame_labeler import LABEL_DISPLAY, MAP_LABELS
+from tools.common.labels import LABEL_DISPLAY, MAP_LABELS
 
 # Filesystem-safe HUD version: letters, digits, '.', '-', '_'. No '..' / no path seps.
 _HUD_VERSION_RE = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -40,7 +40,8 @@ _HUD_VERSION_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 # Non-map classes that this tool labels in addition to the 14 maps.
 NON_MAP_CLASSES = ("lobby", "transition", "score")
 
-# Hotkey -> map class. Positional, matches frame_labeler.py to avoid muscle-memory conflict.
+# Hotkey -> map class. Positional, in canonical MAP_LABELS order (kept stable
+# across labeler generations to avoid operator muscle-memory conflict).
 MAP_HOTKEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "q", "w", "e", "r"]
 
 
