@@ -3,7 +3,7 @@
 Consumes Tool 8's hand-merge fragment (``output/auto_rois/v<ver>/discovered_zones.yaml``)
 + Tool 6's labeled PNG dataset (``output/labeled/v<ver>/<class>/*.png``); replays every
 labeled frame through every discovered zone's hue-wrap ``cv2.inRange`` band test
-(reusing :func:`auto_roi_discoverer.validator.band_inrange_ratio` — no reinvention);
+(reusing :func:`tools.common.zones.band_inrange_ratio` — no reinvention);
 aggregates fires into TP/FP/FN/TN per zone and per-classifier confusion matrices for
 **both** the 4-way game-state classifier (``lobby`` / ``in_match`` / ``score`` /
 ``transition``) and the N-way map-ID classifier (per-map zones), and writes:
@@ -47,14 +47,14 @@ import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 import yaml  # noqa: E402
 
-from tools.auto_roi_discoverer.model import (  # noqa: E402
+from tools.common.zones import (  # noqa: E402
     TARGET_CLASSES,
     HsvBand,
     Rect,
+    band_inrange_ratio,
 )
-from tools.auto_roi_discoverer.validator import band_inrange_ratio  # noqa: E402
-from tools.frame_labeler import MAP_LABELS  # noqa: E402
-from tools.overlay_stack_analyzer import _default_input_dir as _tool7_default_labeled  # noqa: E402
+from tools.common.labels import MAP_LABELS  # noqa: E402
+from tools.common.labeled_dataset import default_labeled_dir as _tool7_default_labeled  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +142,7 @@ def _default_zones_path() -> str | None:
 class ZoneSpec:
     """A single zone: its class membership + its rect + its HSV band.
 
-    Composes the reused :class:`tools.auto_roi_discoverer.model.Rect` and
+    Composes the reused :class:`tools.common.zones.Rect` and
     :class:`HsvBand` — does NOT redefine them.
     """
 
@@ -365,7 +365,7 @@ def iter_labeled_frames(
 def zone_fires_on_frame(zone: ZoneSpec, frame_bgr_at_ref: np.ndarray) -> tuple[bool, float]:
     """Per-frame band-fire test for one zone on a reference-height-resized BGR frame.
 
-    Reuses :func:`tools.auto_roi_discoverer.validator.band_inrange_ratio` — same
+    Reuses :func:`tools.common.zones.band_inrange_ratio` — same
     hue-wrap ``cv2.inRange`` + ``bitwise_or`` logic, no reinvention. Clips the rect
     to the frame first to survive zones drawn off the edge.
     """
