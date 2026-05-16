@@ -6,6 +6,12 @@ Each entry: bullet with the finding + brief reason.
 
 ---
 
+## Deferred from: code review of 9-9c-schema-unification (2026-05-16, second pass)
+
+- **Residual boundary-coverage gaps in the rewritten pytest suite** (`apps/tooling/tests/test_map_config_emitter.py`) — Even after the 2026-05-15 first pass added P5–P11 (slug-regex, boolean-`weight_override`, extra-unknown-field, parametrized missing-key), no test exercises exact inclusive schema bounds (`Hsv.h_center` 0 and 360, `h_tol` 180, `s/v_center`/`tol` 100, `Zone.weight` 0), negative `weight`, zero-map `minimap_identification.maps: {}`, or an empty-object `{}` fragment crossing the assemble→validate boundary. AC8's per-bucket case-count floors are met and verified, so these are hardening beyond spec — an off-by-one at an inclusive bound would currently pass CI. Fold into Story 9.14 (Tool 9 refit for the unified schema), which re-exercises the same schema surface, rather than reopen 9.9c.
+
+---
+
 ## Deferred from: code review of 9-9c-schema-unification (2026-05-15)
 
 - **`emit()` write is not crash-atomic — partial file possible on mid-`json.dump` kill** (`apps/tooling/tools/map_config_emitter.py:132-135`) — AC2's "atomic refusal" guarantees validation-before-write only, not crash-resistance. The pattern is inherited verbatim from 9.9a. Standard fix: write to a sibling `.tmp` file then `os.replace()`. Defer until either (a) a real crash-during-emit incident surfaces, or (b) the 9.9b iteration loop accumulates enough re-emits that mid-write crashes become statistically likely.

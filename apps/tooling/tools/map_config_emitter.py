@@ -51,8 +51,9 @@ def _load_fragments(zones_dir: Path) -> dict:
 
     Returns a dict with keys `manifest`, `hud_version_detection`,
     `in_match_detection`, `minimap_identification`. Raises `FileNotFoundError`
-    with the offending path if any fragment file is missing; lets
-    `json.JSONDecodeError` bubble up if any file is malformed.
+    with the offending path if any fragment file is missing; raises
+    `ValueError` (wrapping `json.JSONDecodeError`) with the offending
+    path if any file is malformed.
     """
     fragments: dict = {}
     for name in _FRAGMENT_FILES:
@@ -82,6 +83,8 @@ def _assemble_output(fragments: dict) -> dict:
     `schema_version: 1` is inserted as the first key for readable diffs.
     """
     manifest = fragments["manifest"]
+    if not isinstance(manifest, dict):
+        raise ValueError("manifest.json must be a JSON object")
     for key in ("hud_version", "score_screen_duration_ms", "reference_resolution"):
         if key not in manifest:
             raise ValueError(f"manifest.json missing required field {key!r}")
@@ -191,6 +194,9 @@ def main() -> None:
     try:
         emit(zones_dir, output_dir)
     except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except OSError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
     except json.JSONDecodeError as e:
