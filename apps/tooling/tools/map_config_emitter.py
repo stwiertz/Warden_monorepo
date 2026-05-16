@@ -1,16 +1,17 @@
-"""Map Config Emitter - config-driven map_config.json writer.
+"""Map Config Emitter - fragment-driven map_config.<hud_version>.json writer.
 
-Reads apps/tooling/config/config.yaml, detects which schema version the input
-shape implies (v1 = legacy minimap_identification.configs[0] wrapper; v2 = Tool 8
-flat shape with game_state_zones cascade), assembles the matching map_config.json
-output dict, validates against contracts/map-config.schema.json, and writes the
-file. ROI+HSV detection only - perceptual hashing was a research thread that
-never shipped and has been removed (Story 9.9a Scope Adjustment #2, 2026-05-15).
+Reads four JSON zone fragments from a zones directory written by `zone_picker`
+(Story 9.12) — `manifest.json`, `hud_version_detection.json`,
+`in_match_detection.json`, `minimap_identification.json` — assembles them into
+a single unified map_config dict matching contracts/map-config.schema.json,
+validates strictly via Draft202012Validator, and writes the result to
+`<output_dir>/map_config.<hud_version>.json` (one file per HUD version).
+On validation failure the emitter calls `sys.exit(1)` BEFORE any file write
+(atomic refusal). The emitter does NOT read `config.yaml` and has no
+dependency on legacy tooling — decoupled ahead of Story 9.11.
 
 Usage:
-    python tools/map_config_emitter.py                         # uses config/config.yaml + config.output.default_dir
-    python tools/map_config_emitter.py -c path/to/config.yaml
-    python tools/map_config_emitter.py -o path/to/output_dir
+    python tools/map_config_emitter.py --zones-dir <dir> [--output-dir <dir>]
 """
 
 from __future__ import annotations
@@ -21,185 +22,80 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 import jsonschema
-
-from utils.config import load_config
 
 # Schema source-of-truth lives at the repo root: <repo>/contracts/map-config.schema.json.
 # From this file (apps/tooling/tools/map_config_emitter.py), three .parents hops
 # reach <repo>.
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "contracts" / "map-config.schema.json"
 
+# Anchor to __file__ so the wardentooling subprocess (cwd=apps/tooling/) and
+# direct CLI invocations (cwd=repo root) both resolve to the same target.
+_DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output" / "map_configs"
+
+_FRAGMENT_FILES = (
+    "manifest",
+    "hud_version_detection",
+    "in_match_detection",
+    "minimap_identification",
+)
+
 
 # ---------------------------------------------------------------------------
-# Schema version detection
+# Input layer - read disk-resident zone fragments
 # ---------------------------------------------------------------------------
 
 
-def _detect_schema_version(config_yaml_dict: dict) -> int:
-    """Detect v1 vs v2 input shape from the parsed config.yaml dict.
+def _load_fragments(zones_dir: Path) -> dict:
+    """Read the four zone-fragment JSON files from `zones_dir`.
 
-    Returns 2 if EITHER:
-      - top-level `game_state_zones` is present and non-empty, OR
-      - `minimap_identification` is the Tool 8 flat shape: top-level values are
-        lists of dicts that have `hsv` + `min_ratio` (no `configs` wrapper, no
-        per-map `zones` wrapper).
-
-    Returns 1 if `minimap_identification.configs` exists (the legacy HUD V1
-    shape) OR if neither v2 marker is present.
+    Returns a dict with keys `manifest`, `hud_version_detection`,
+    `in_match_detection`, `minimap_identification`. Raises `FileNotFoundError`
+    with the offending path if any fragment file is missing; raises
+    `ValueError` (wrapping `json.JSONDecodeError`) with the offending
+    path if any file is malformed.
     """
-    if config_yaml_dict.get("game_state_zones"):
-        return 2
-
-    minimap = config_yaml_dict.get("minimap_identification")
-    if isinstance(minimap, dict):
-        if "configs" in minimap:
-            return 1
-        for value in minimap.values():
-            if (isinstance(value, list) and value
-                    and isinstance(value[0], dict)
-                    and "hsv" in value[0] and "min_ratio" in value[0]):
-                return 2
-    return 1
+    fragments: dict = {}
+    for name in _FRAGMENT_FILES:
+        path = zones_dir / f"{name}.json"
+        if not path.is_file():
+            raise FileNotFoundError(f"missing zone fragment: {path}")
+        try:
+            fragments[name] = json.loads(path.read_text(encoding="utf-8-sig"))
+        except json.JSONDecodeError as e:
+            raise ValueError(f"invalid JSON in {path}: {e}") from e
+    return fragments
 
 
 # ---------------------------------------------------------------------------
-# v1 emit - flatten the legacy minimap_identification.configs[0] wrapper
+# Assembly - turn fragments into the unified output dict
 # ---------------------------------------------------------------------------
 
 
-def _build_v1_output(config_yaml_dict: dict) -> dict:
-    """Assemble the v1 output dict from the legacy config.yaml shape.
+def _assemble_output(fragments: dict) -> dict:
+    """Build the unified output dict from loaded fragments.
 
-    Reads `minimap_identification.configs[0]` (single config, by convention) and
-    flattens the array wrapper. Per-map `zones` lists pass through unchanged
-    (each zone keeps its `id`/`x`/`y`/`width`/`height`/`hsv`/`min_ratio`/`weight`/
-    `weight_override`).
+    No coercion, no field renaming: `zone_picker` writes fragments in the
+    target shape, and human-edited fragments are expected to match. The
+    validation gate (`_validate_against_schema`) is the single enforcement
+    point — keep this function dumb so atomic refusal works.
+
+    `schema_version: 1` is inserted as the first key for readable diffs.
     """
-    ref = config_yaml_dict["reference_resolution"]
-    minimap_block = config_yaml_dict.get("minimap_identification") or {}
-    configs = minimap_block.get("configs") or []
-    if not configs:
-        raise ValueError(
-            "v1 emit requires `minimap_identification.configs` in config.yaml "
-            "(legacy HUD V1 shape)"
-        )
-    cfg = configs[0]
-    roi = cfg["roi"]
-
+    manifest = fragments["manifest"]
+    if not isinstance(manifest, dict):
+        raise ValueError("manifest.json must be a JSON object")
+    for key in ("hud_version", "score_screen_duration_ms", "reference_resolution"):
+        if key not in manifest:
+            raise ValueError(f"manifest.json missing required field {key!r}")
     return {
         "schema_version": 1,
-        "reference_resolution": {"width": int(ref["width"]), "height": int(ref["height"])},
-        "minimap_identification": {
-            "id": str(cfg["id"]),
-            "identification_threshold": float(cfg["identification_threshold"]),
-            "roi": {
-                "name": str(roi["name"]),
-                "x": int(roi["x"]),
-                "y": int(roi["y"]),
-                "width": int(roi["width"]),
-                "height": int(roi["height"]),
-            },
-            "maps": {
-                map_name: {"zones": [_coerce_v1_zone(z) for z in entry.get("zones") or []]}
-                for map_name, entry in (cfg.get("maps") or {}).items()
-            },
-        },
-    }
-
-
-def _coerce_v1_zone(zone: dict) -> dict:
-    """Pass-through coercion for a HUD V1 zone dict - copy the 9 required keys
-    in canonical order and ignore unknowns (defensive against yaml drift)."""
-    return {
-        "id": str(zone["id"]),
-        "x": int(zone["x"]),
-        "y": int(zone["y"]),
-        "width": int(zone["width"]),
-        "height": int(zone["height"]),
-        "hsv": {
-            "h_center": int(zone["hsv"]["h_center"]),
-            "h_tol": int(zone["hsv"]["h_tol"]),
-            "s_center": int(zone["hsv"]["s_center"]),
-            "s_tol": int(zone["hsv"]["s_tol"]),
-            "v_center": int(zone["hsv"]["v_center"]),
-            "v_tol": int(zone["hsv"]["v_tol"]),
-        },
-        "min_ratio": float(zone["min_ratio"]),
-        "weight": float(zone["weight"]),
-        "weight_override": bool(zone["weight_override"]),
-    }
-
-
-# ---------------------------------------------------------------------------
-# v2 emit - Tool 8 flat shape with game_state_zones cascade
-# ---------------------------------------------------------------------------
-
-
-def _build_v2_output(config_yaml_dict: dict) -> dict:
-    """Assemble the v2 output dict from the post-9.9b hand-merged config.yaml.
-
-    Reads `game_state_zones` + `minimap_identification` (flat shape: keys are
-    map names, values are lists of zone dicts). Maps iterate in MAP_LABELS
-    canonical order for stable diffs across re-emits.
-    """
-    from tools.frame_labeler import MAP_LABELS
-
-    ref = config_yaml_dict["reference_resolution"]
-    gsz_in = config_yaml_dict.get("game_state_zones") or {}
-    gsz = {
-        cls: [_coerce_v2_zone(z) for z in (gsz_in.get(cls) or [])]
-        for cls in ("lobby", "in_match", "score", "transition")
-    }
-
-    minimap = config_yaml_dict.get("minimap_identification") or {}
-    if not isinstance(minimap, dict):
-        minimap = {}
-    maps = {}
-    for label in MAP_LABELS:
-        zones = minimap.get(label)
-        if isinstance(zones, list):
-            maps[label] = [_coerce_v2_zone(z) for z in zones]
-    for name, zones in minimap.items():
-        if name in maps:
-            continue
-        if (isinstance(zones, list) and zones
-                and isinstance(zones[0], dict) and "hsv" in zones[0]):
-            maps[name] = [_coerce_v2_zone(z) for z in zones]
-
-    return {
-        "schema_version": 2,
-        "reference_resolution": {"width": int(ref["width"]), "height": int(ref["height"])},
-        "game_state_zones": gsz,
-        "maps": maps,
-    }
-
-
-def _coerce_v2_zone(zone: dict) -> dict:
-    """Coerce a HUD V2 zone dict into the v2 ZoneSpec shape.
-
-    Tool 8's fragment writes `{name, x, y, width, height, hsv, min_ratio}`.
-    Legacy HUD V1 zones (`{id, ..., weight, weight_override}`) get coerced:
-    rename `id` -> `name` and drop `weight`/`weight_override` (re-introduction is
-    a future-config-version decision, NOT v2's job).
-    """
-    return {
-        "name": zone.get("name") or zone.get("id") or "zone",
-        "x": int(zone["x"]),
-        "y": int(zone["y"]),
-        "width": int(zone["width"]),
-        "height": int(zone["height"]),
-        "hsv": {
-            "h_center": int(zone["hsv"]["h_center"]),
-            "h_tol": int(zone["hsv"]["h_tol"]),
-            "s_center": int(zone["hsv"]["s_center"]),
-            "s_tol": int(zone["hsv"]["s_tol"]),
-            "v_center": int(zone["hsv"]["v_center"]),
-            "v_tol": int(zone["hsv"]["v_tol"]),
-        },
-        "min_ratio": float(zone["min_ratio"]),
+        "reference_resolution": manifest["reference_resolution"],
+        "hud_version": manifest["hud_version"],
+        "score_screen_duration_ms": manifest["score_screen_duration_ms"],
+        "hud_version_detection": fragments["hud_version_detection"],
+        "in_match_detection": fragments["in_match_detection"],
+        "minimap_identification": fragments["minimap_identification"],
     }
 
 
@@ -226,17 +122,17 @@ def _format_validation_error(e: jsonschema.exceptions.ValidationError) -> str:
     return f"map_config validation failed at {path}: {e.message}"
 
 
-def emit(config: dict, output_dir: str) -> dict:
-    """Top-level emit pipeline - detect, build, validate, write.
+def emit(zones_dir: Path, output_dir: Path) -> dict:
+    """Top-level emit pipeline - load, assemble, validate, write.
 
-    Returns the output dict that was written. Calls `sys.exit(1)` on schema
-    validation failure (no partial file written).
+    Reads the four zone fragments from `zones_dir`, builds the unified output
+    dict, runs the strict-validation gate, and writes
+    `<output_dir>/map_config.<hud_version>.json` (filename derived from the
+    manifest's `hud_version`). Returns the dict that was written. Calls
+    `sys.exit(1)` on schema validation failure (no partial file written).
     """
-    version = _detect_schema_version(config)
-    if version == 1:
-        output = _build_v1_output(config)
-    else:
-        output = _build_v2_output(config)
+    fragments = _load_fragments(zones_dir)
+    output = _assemble_output(fragments)
 
     try:
         _validate_against_schema(output)
@@ -245,22 +141,18 @@ def emit(config: dict, output_dir: str) -> dict:
         sys.exit(1)
 
     os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, "map_config.json")
+    output_path = Path(output_dir) / f"map_config.{output['hud_version']}.json"
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2)
 
+    maps = output["minimap_identification"]["maps"]
+    total_map_zones = sum(len(entry["zones"]) for entry in maps.values())
     print(f"\n{'=' * 50}")
-    print(f"Map Config Emitter (v{version})")
-    if version == 1:
-        n_maps = len(output["minimap_identification"]["maps"])
-        total_zones = sum(len(m["zones"]) for m in output["minimap_identification"]["maps"].values())
-        print(f"  Maps: {n_maps}")
-        print(f"  Total zones: {total_zones}")
-    else:
-        print(f"  Maps: {len(output['maps'])}")
-        for cls in ("lobby", "in_match", "score", "transition"):
-            print(f"  game_state_zones.{cls}: {len(output['game_state_zones'][cls])} zone(s)")
-    print(f"  Output: {os.path.abspath(output_path)}")
+    print(f"Map Config Emitter ({output['hud_version']})")
+    print(f"  hud_version_detection: {len(output['hud_version_detection'])} zone(s)")
+    print(f"  in_match_detection: {len(output['in_match_detection'])} zone(s)")
+    print(f"  minimap_identification.maps: {len(maps)} map(s), {total_map_zones} total zone(s)")
+    print(f"  Output: {output_path.resolve()}")
     print(f"{'=' * 50}")
     return output
 
@@ -272,29 +164,44 @@ def emit(config: dict, output_dir: str) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Emit map_config.json from config.yaml (ROI+HSV; v1 or v2 by input shape)."
+        description=(
+            "Emit map_config.<hud_version>.json from zone fragments produced by zone_picker "
+            "(Story 9.12). Single unified schema (no v1/v2 branches)."
+        )
     )
     parser.add_argument(
-        "-c", "--config",
-        default="config/config.yaml",
-        help="Path to config file (default: config/config.yaml)",
+        "--zones-dir",
+        required=True,
+        help=(
+            "Directory containing manifest.json, hud_version_detection.json, "
+            "in_match_detection.json, minimap_identification.json"
+        ),
     )
     parser.add_argument(
-        "-o", "--output-dir",
-        default=None,
-        help="Output directory for map_config.json (default: config.output.default_dir)",
+        "--output-dir",
+        default=str(_DEFAULT_OUTPUT_DIR),
+        help=f"Output directory for map_config.<hud_version>.json (default: {_DEFAULT_OUTPUT_DIR})",
     )
     args = parser.parse_args()
 
-    if not os.path.isfile(args.config):
-        print(f"Error: Config file not found: {args.config}", file=sys.stderr)
+    zones_dir = Path(args.zones_dir)
+    if not zones_dir.is_dir():
+        print(f"Error: Zones directory not found: {zones_dir}", file=sys.stderr)
         sys.exit(1)
 
-    config = load_config(args.config)
-    output_dir = args.output_dir if args.output_dir else config["output"]["default_dir"]
+    output_dir = Path(args.output_dir)
 
     try:
-        emit(config, output_dir)
+        emit(zones_dir, output_dir)
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except OSError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"Error: invalid JSON in zone fragment: {e}", file=sys.stderr)
+        sys.exit(1)
     except (KeyError, ValueError) as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
