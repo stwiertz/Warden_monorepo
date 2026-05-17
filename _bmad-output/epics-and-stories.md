@@ -665,7 +665,7 @@ This map traces every FR, NFR, architecture work item (AR), brownfield dispositi
 
 ---
 
-**Total epics: 11** (Epic 0 transition gate + Epic 1 foundation + Epic 2 cross-surface contracts + Epics 3–9 user-value + Epic 10 launch gate).
+**Total epics: 11** (Epic 0 transition gate + Epic 1 foundation + Epic 2 cross-surface contracts + Epics 3–9 user-value + Epic 10 launch gate). — *Addendum 2026-05-17 (Stephane, /bmad-correct-course): a post-V1 Epic 11 (Tooling Desktop GUI, backlog, non-V1-blocking) is appended at the end of this document; it does not alter the 11-epic V1 structure above or Decision #ES-1. See sprint-change-proposal-2026-05-17.md.*
 
 **Resolved decisions in this step:**
 - **Decision #ES-1 (Sprint 3 epic boundaries):** RESOLVED with the 11-epic structure above. Epic 0 is the Sprint 2.5 closure transition gate. Epic 1 is the V1-blocking foundation (architecture spike + brownfield + cross-language contracts + cross-surface invariants). Epic 2 lands the Reader-App build gate and the activation telemetry contract (separated from Epic 1 because both are surface-cross-cutting contracts that other epics consume — Epic 3 needs telemetry hooks; Epic 5 + 6 emit telemetry through the wrapper). Epic 3 lands the cross-surface six-state entitlement (mobile UI banners + web dashboard reflection); the user's example "Epic-4-Entitlement" maps here. Epic 4 is the web subscribe-and-manage funnel (consolidates legacy web Epic 1/2/3/5 carry-forward + UX-Sprint-3 web surface — token bump, OG card, password reset, cancel dialog). Epics 5/6/7/8 split mobile by user-value cluster (review / clip-and-export / reliability / localization-and-support) per the principle of feature-folder boundary rather than lumping into a single "mobile-UX-Sprint-3-Surface" epic. Epic 9 consolidates tooling. Epic 10 is launch readiness.
@@ -3195,3 +3195,23 @@ The 12 cross-surface invariants from architecture are honored across stories:
 2. Apply the 80/20 maintenance-vs-V1-stories capacity split per Decision #ES-10.
 3. Target Sprint 3 commit only AFTER Epic 0 audit closes (Decision #ES-3).
 4. Reserve a parallel demand-evidence sprint for Story 10.5 capture (non-blocking but critical for re-baselining post-V1 reference targets).
+
+---
+
+## Epic 11: Tooling — Desktop GUI (POST-V1 ADDENDUM, NOT V1-BLOCKING)
+
+**Status:** backlog · post-V1 · explicitly out of V1 scope
+**Added:** 2026-05-17 (Stephane, /bmad-correct-course) — see [sprint-change-proposal-2026-05-17.md](sprint-change-proposal-2026-05-17.md)
+
+**Rationale.** Supersedes nothing. The V1 operator entry point remains the questionary TUI (`apps/tooling/wardentooling.py`) per PRD `tooling-TUI-001` and the PRD:766 "no `--no-tui` in V1" deferral. This epic exists only to hold a future GUI initiative so its design does not drift from delivered tool behavior. It does not change the V1 epic structure or Decision #ES-1.
+
+**Founding constraints (binding ACs for any future GUI story):**
+- **C1** — The Tool 9 report surface MUST expose all **three** classifiers (`hud_version`, binary `in_match`, per-map) with per-classifier accuracy + confusion matrix. Source of truth: `wardentooling.py` `flow_tool9` — NOT the stale `apps/tooling/tools/roi_detection_tester.md`.
+- **C2** — The Tool 9 screen MUST present a configure→run step exposing the real flags `--hud-version-threshold`, `--in-match-threshold`, `--map-threshold`, `--limit`, `--save-frame-predictions` before the report view.
+- **C3** — The video tester MUST NOT invent controls; `video_test.py` takes positional video + `--config` + `--output` only. A sample-rate control is a separate feature request against `video_test.py`, not a GUI affordance.
+- **C4** — HUD-version handling MUST adopt the delivered model: free-form custom strings (labeler modal), path token `v<ver>` incl. `v2.0`, normalized via the 9.14 `_normalize_hud()` (`v2.0`↔`v2`). No invented `v1/v2/v3` global enum.
+- **C5** — The labeler MUST surface snap policy (`--snap nearest|prior|after`) and snapped-PTS feedback.
+- **C6** — Undo semantics MUST match delivered single-step (Backspace = undo last batch); any multi-step undo is a scoped enhancement story, not assumed.
+- **C7** — The toolkit decision (Tkinter vs PySide6/PyQt6) is an Epic 11 architecture spike. Reusable as-is: `tools/common/zones.py`, `zone_picker/fragments.py`, `variance.py`. Discarded under a Qt rewrite: all Tk GUI glue (`zone_picker/app.py`, `image_inspector/canvas.py` `ImageCanvas`, `ROIMode`/`HSVFilterMode`).
+
+**Stories:** none yet — authored via `bmad-create-story` when post-V1 work begins. Recommended first story: the C7 Tk-vs-Qt architecture spike (gates all GUI screen work).
