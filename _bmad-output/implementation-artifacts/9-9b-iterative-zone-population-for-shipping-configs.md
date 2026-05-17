@@ -304,22 +304,52 @@ packages/                                    # no consumer
 
 ### Agent Model Used
 
-_(populated at dev-story kickoff)_
+claude-opus-4-7[1m] (dev-story pre-flight + agent-doable prep only — the AC3–AC8 measurement loop is a human campaign and was NOT executed)
 
 ### Debug Log References
 
-_(populated per iteration pass; iteration log table goes here per AC7)_
+**2026-05-17 — Pre-flight (Task 1) + agent-doable prep. Story stays `ready-for-dev` (NOT flipped to in-progress): the AC3/AC4/AC6/AC8 loop requires interactive Tk `zone_picker`, manual EVA-video score-screen calibration, and a real `.mp4` smoke — none agent-executable.**
+
+- **AC1 — PASSED.** All deps `done` on `main` with recorded merge SHAs: 9.9c `9b9d4af`; 9.11 `aca0906`; 9.12 `54724ed` (postmerge `546e467`); 9.13 `0bc66c6` (postmerge `68c6ff7`); 9.14 `2e0bf24` (feat `3704d88`). Tool shapes verified: emitter exposes `--zones-dir`; `zone_picker/` package present (Tk `app.py` + `fragments`/`modes`/`variance`); `roi_detection_tester.py` refit to 3-classifier shape (HUD-version + binary `in_match` + per-map); all 8 retired single-file legacy modules absent.
+- **AC2 — operative reinterpretation (Stephane, 2026-05-17).** Literal frame-count floors are NOT the gate (the `score≥200`/`transition≥50` floors are stale 4-class-cascade artifacts; post-9.14 `lobby+score+transition` pool into one binary-`in_match` negative class = 296+41+44 = 381 neg vs ~2.6k pos — ample). Operative gate = estimate certitude + zero train/test overlap, which bites per-map: **8 maps in-scope** (artefact 432, atlantis 337, helios 317, engine 220, horizon 187, silva 165, the_cliff 156, outlaw 141 — clean non-overlapping held-out feasible); **5 maps deferred** (the_rock 98, lunar_outpost 93, ceres 85, polaris 75, coliseum 61 — Story 9.5/Tool 6 backfill OR documented small-sample variance per AC6). A formal AC2 text edit is a `/bmad-correct-course`, not a dev-story change — recorded here + in Change Log only.
+- **AC9 — Option A chosen.** Implementation deviated from the spec's literal "one line after root `.gitignore:63`": the operative ignore is a **nested `apps/tooling/.gitignore`** (`output/*` at its line 3), and root `.gitignore:63`'s wholesale `apps/tooling/output/` blocked git from descending. Working two-file fix: root `.gitignore` `apps/tooling/output/` → `apps/tooling/output/*` (descend, not wholesale-exclude) + nested `apps/tooling/.gitignore` adds `!output/zones/` + `!output/zones/**`. Verified via `git check-ignore` + `git add --dry-run`: only `apps/tooling/output/zones/**` becomes trackable; `map_configs/`, `roi_detection_tests/`, `labeled/`, `auto_rois/` stay ignored.
+- **AC8 — BLOCKED at the data level.** `apps/tooling/source/` does not exist in this checkout — no real EVA `.mp4`. AC8 holds `[ ]`; end-to-end smoke deferred until a capture is supplied (flag in Change Log per AC8).
+- _(per-iteration pass log + AC7 table to be appended by the human campaign)_
 
 ### Completion Notes List
 
-_(populated at dev-story finalization — final per-classifier floors, score-screen calibration sample, iteration log, AC9 decision record)_
+**Pre-flight prep delivered (agent-doable surface only — no fabrication, no sprint-status flip):**
+- AC9 Option A applied + empirically verified (root + nested `.gitignore`).
+- Scaffolded `apps/tooling/output/zones/v2/`: `manifest.template.json` (hud_version=`v2` + reference_resolution=1920×1080 filled; `score_screen_duration_ms` left as an intentionally schema-INVALID string sentinel so it cannot silently pass the AC3 dry-run) + `_SCAFFOLD_README.md` (verified runbook + AC1 SHAs + AC2 operative interpretation + 4-fragment contract + per-AC commands).
+- AC1 dependency SHAs recorded; AC2 reinterpretation recorded; AC8 data blocker flagged.
+
+**Handed back to the human campaign (NOT done by the agent):** AC3 score-screen calibration, AC4 `zone_picker` 3-mode runs, AC5 emit/validate, AC6 measurement loop (8-pass ceiling), AC7 iteration-log population, AC8 video smoke (once a `.mp4` exists), Task 6/7 commit + Two-PR sprint-status flips.
+
+```
+### v2 iteration log
+_(populated by the human measurement campaign — one row per zone_picker→emit→Tool9 pass)_
+
+| Pass | Date | Zone changes | HUD-version acc | In-match acc | Per-map acc | Notes |
+|---|---|---|---|---|---|---|
+| 0 (baseline) | YYYY-MM-DD | empty fragments | 0.000 | 0.000 | 0.000 | scaffold only; not yet run |
+
+#### v2 score-screen calibration
+_(populated by the human: ≥5 EVA captures, per-capture falling→rising-edge durations, median, chosen score_screen_duration_ms)_
+```
 
 ### File List
 
-_(populated at dev-story finalization — list of modified zone fragments, emitted configs, sprint-status, this story file, optional .gitignore exception)_
+- `.gitignore` — modified (AC9 Option A: `apps/tooling/output/` → `apps/tooling/output/*` so git descends)
+- `apps/tooling/.gitignore` — modified (AC9 Option A: `!output/zones/` + `!output/zones/**` negations)
+- `apps/tooling/output/zones/v2/manifest.template.json` — new (manifest scaffold; rename→`manifest.json` after human AC3 calibration)
+- `apps/tooling/output/zones/v2/_SCAFFOLD_README.md` — new (campaign runbook + pre-flight record)
+- `_bmad-output/implementation-artifacts/9-9b-iterative-zone-population-for-shipping-configs.md` — modified (this Dev Agent Record + Change Log)
+
+_(zone fragments + emitted config + sprint-status flips: pending the human campaign)_
 
 ### Change Log
 
 | Date       | Change                                                                                                       |
 |------------|--------------------------------------------------------------------------------------------------------------|
 | 2026-05-15 | Story created via /bmad-create-story (Stephane) — split-derived from the 2026-05-15 /bmad-correct-course that renamed/rewired 9.9b's mechanism (was: Tool-8 fragment hand-merge into config.yaml + map_config.json regen; now: iterative zone_picker → map_config_emitter → video_test/Tool 9 refit loop, no config.yaml touch). Initial spec at `ready-for-dev`. AC1–AC12 held `[ ]` per [[feedback_ac_checkbox_tighten]] — every AC's endpoint depends on either (a) upstream story completion (AC1), (b) empirical measurement not yet performed (AC2–AC9), or (c) post-merge admin (AC10–AC12). |
+| 2026-05-17 | /bmad-dev-story pre-flight (claude-opus-4-7[1m]). **AC1 PASSED** — all deps `done` on `main`, merge SHAs recorded (9.9c `9b9d4af`, 9.11 `aca0906`, 9.12 `54724ed`, 9.13 `0bc66c6`, 9.14 `2e0bf24`). **AC2 operative reinterpretation** (Stephane): gate is estimate-certitude + zero train/test overlap, not raw frame counts (stale post-9.14 binary collapse) → 8 maps in-scope, 5 thin maps deferred to Story 9.5 backfill or documented AC6 small-sample variance. **AC9 Option A applied** with a necessary two-file deviation from the spec's literal "one line after root `.gitignore:63`" (operative ignore is nested `apps/tooling/.gitignore`; root wholesale-dir exclude blocked descent — fixed root `apps/tooling/output/`→`apps/tooling/output/*` + nested `!output/zones/` negations; verified surgical via `git check-ignore`/`add --dry-run`). **AC8 flagged BLOCKED** — no `apps/tooling/source/` `.mp4` in checkout; end-to-end smoke deferred. Agent-doable prep only: `.gitignore` exception + `apps/tooling/output/zones/v2/` scaffold (`manifest.template.json` with intentionally schema-invalid `score_screen_duration_ms` sentinel + `_SCAFFOLD_README.md` runbook). **NOT done:** sprint-status NOT flipped (stays `ready-for-dev`); no task boxes checked; AC3/AC4/AC5/AC6/AC7/AC8 + Task 6/7 are the human zone-picking/measurement campaign. No `.py`/schema/test touched (AC10 invariant intact). |

@@ -1,0 +1,1786 @@
+diff --git a/apps/tooling/tools/common/zones.py b/apps/tooling/tools/common/zones.py
+index 3a28736..48c1a54 100644
+--- a/apps/tooling/tools/common/zones.py
++++ b/apps/tooling/tools/common/zones.py
+@@ -1,7 +1,7 @@
+ """Shared zone primitives + the hue-wrap band-fire test.
+ 
+-Pure data + numpy/cv2 logic — no Tk, no file I/O. Relocated **verbatim** by
+-Story 9.11 from the now-retired Tool 8 package so the surviving Tool 9
++Pure data + numpy/cv2 logic — no Tk, no file I/O. Relocated by Story 9.11
++from the now-retired Tool 8 package so the surviving Tool 9
+ (``roi_detection_tester``) — and Tool 9's future 9.14 refit — have a durable
+ home for ``Rect`` / ``HsvBand`` / ``TARGET_CLASSES`` and the
+ ``band_inrange_ratio`` test plus its cross-module HSV-conversion closure
+@@ -9,8 +9,10 @@ home for ``Rect`` / ``HsvBand`` / ``TARGET_CLASSES`` and the
+ ``_H_CV_TO_USER`` / ``_SV_CV_TO_USER``).
+ 
+ ROI/zone coordinates are in *cell pixel space*; HSV bands are stored in *user
+-space* (H 0–360, S/V 0–100). Behaviour is byte-for-byte identical to the
+-retired sources (Story 9.11 is a relocation, not a rewrite). Exact
++space* (H 0–360, S/V 0–100). Code and behaviour are byte-for-byte identical
++to the retired sources (Story 9.11 is a relocation, not a rewrite); the sole
++move-time edit is one now-stale ``TARGET_CLASSES`` comment line that
++referenced the retired Tool 8, dropped during relocation. Exact
+ pre-retirement module/line provenance is preserved in git history and the
+ Story 9.11 File List.
+ """
+diff --git a/apps/tooling/wardentooling.py b/apps/tooling/wardentooling.py
+index b08f625..ecd305c 100644
+--- a/apps/tooling/wardentooling.py
++++ b/apps/tooling/wardentooling.py
+@@ -428,6 +428,46 @@ def flow_zone_picker() -> tuple[list[str], str | None]:
+     return args, None
+ 
+ 
++# ---------------------------------------------------------------------------
++# Tool 11 — video_test (single-file headless tool; positional video)
++# ---------------------------------------------------------------------------
++
++
++def flow_video_test() -> tuple[list[str], str | None]:
++    """Collect arguments for video_test.py (Tool 11).
++
++    Positional-video tool — mirrors flow_tool6's template. Returns
++    ([], None) if the user cancels the picker or Ctrl-C's any prompt
++    (browse_video_file / questionary return None on cancel).
++    """
++    video_path = browse_video_file(
++        "Select video file for Tool 11 — Video Detection Tester:"
++    )
++    if not video_path:
++        return [], None
++    args = ["tools/video_test.py", video_path]
++
++    config_path = questionary.text(
++        "Map config (--config)  [blank = newest output/map_configs/map_config.v*.json]:"
++    ).ask()
++    if config_path is None:
++        return [], None
++    config_path = config_path.strip()
++    if config_path:
++        args += ["--config", config_path]
++
++    output_path = questionary.text(
++        "Results output path (--output)  [blank = default timestamped dir]:"
++    ).ask()
++    if output_path is None:
++        return [], None
++    output_path = output_path.strip()
++    if output_path:
++        args += ["--output", output_path]
++
++    return args, video_path
++
++
+ # ---------------------------------------------------------------------------
+ # Dev tool flows
+ # ---------------------------------------------------------------------------
+@@ -486,6 +526,7 @@ _TOOL_MAP = {
+     "video_timeline_labeler": ("Tool 6 — Label Frames from Video Timeline",     flow_tool6),
+     "roi_detection_tester":   ("Tool 9 — Test ROI Detection on Labeled Frames", flow_tool9),
+     "zone_picker":            ("Tool 10 — Unified Zone Picker",                 flow_zone_picker),
++    "video_test":             ("Tool 11 — Video Detection Tester",             flow_video_test),
+ }
+ 
+ 
+@@ -513,6 +554,14 @@ def _reprompt_source(
+     elif tool_key == "zone_picker":
+         # Option-driven interactive tool — re-run the full flow.
+         return flow_zone_picker()
++    elif tool_key == "video_test":
++        new_video = browse_video_file("Select new video file:")
++        if not new_video:
++            return [], None
++        # last_args layout: ["tools/video_test.py", <video>, ...] — video is
++        # positional at index 1 (same shape as video_timeline_labeler).
++        new_args = [last_args[0], new_video] + last_args[2:]
++        return new_args, new_video
+     else:
+         # map_config_emitter: directory-driven re-run of the full flow.
+         return flow_tool3()
+@@ -573,6 +622,7 @@ def menu_main() -> None:
+         "Tool 6 — Label Frames from Video Timeline",
+         "Tool 9 — Test ROI Detection on Labeled Frames",
+         "Tool 10 — Unified Zone Picker",
++        "Tool 11 — Video Detection Tester",
+         "Dev Tools",
+         "Quit",
+     ]
+@@ -651,6 +701,23 @@ def menu_main() -> None:
+                         video_path,
+                     )
+ 
++        elif choice == "Tool 11 — Video Detection Tester":
++            args, video_path = flow_video_test()
++            if not args:
++                continue
++            confirmed = questionary.confirm(
++                f"Run: {exe_name} {' '.join(args)}?", default=True
++            ).ask()
++            if confirmed:
++                returncode = run_tool(args)
++                if returncode == 0:
++                    save_last_run(
++                        "video_test",
++                        "Tool 11 — Video Detection Tester",
++                        args,
++                        video_path,
++                    )
++
+         elif choice == "Dev Tools":
+             menu_dev()
+ 
+diff --git a/apps/tooling/tools/video_test.py b/apps/tooling/tools/video_test.py
+new file mode 100644
+index 0000000..e5bbce0
+--- /dev/null
++++ b/apps/tooling/tools/video_test.py
+@@ -0,0 +1,930 @@
++"""Video Detection Tester — Tool 11: end-to-end video-pipeline validation.
++
++Consumes one emitted ``map_config.<hud_version>.json`` (the unified-schema config
++written by ``map_config_emitter`` / Story 9.9c) and runs the full detection
++pipeline against a real video:
++
++  stride-sampled frame extraction (``cv2.VideoCapture``)
++    → once-per-session HUD-version sanity classification
++    → per-frame binary ``in_match`` classification
++    → a timing-derived ``{in_match, score_screen, not_in_match}`` state machine
++    → per-``in_match``-span weighted map-ID
++    → a deterministic ``results.json``
++
++Closes workflow step #6 (end-to-end video pipeline validation) and gives the
++Story 9.9b iterative zone-population loop its real-video acceptance gate
++(``zone_picker → emit → video_test → adjust → repeat``).
++
++Headless single file — **no GUI, no Tk, no ``image_inspector``**. Module-level
++pure helpers + a thin ``main(argv)``. Reuses Tool 9's per-frame zone-fire logic
++verbatim (``tools.roi_detection_tester.zone_fires_on_frame`` /
++``_argmax_with_threshold`` / ``_resize_to_ref``, themselves reaching the
++hue-wrap ``cv2.inRange`` math in ``tools.common.zones.band_inrange_ratio``) —
++the band-matching / hue-wrap / HSV-conversion math is **never reimplemented**.
++
++Usage::
++
++    python apps/tooling/tools/video_test.py <video> [--config <map_config.json>]
++        [--output <path>] [--stride <int>] [--threshold <float>]
++
++Recorded design decisions
++-------------------------
++* **"i-frame" = stride-sampled frame, NOT codec keyframe.** True codec-I-frame
++  isolation needs PyAV/ffmpeg — a new dependency forbidden by AC10. The charter
++  spec's "i-frame extraction" is read as stride-sampled frames (≈1/sec). No new
++  dependency is added; we never shell to ffmpeg.
++* **Weighted map-ID aggregation (AC7).** For a frame, for each populated map
++  ``slug``: for each zone ``(fired, ratio) = zone_fires_on_frame(...)``; the
++  zone's contribution is ``(ratio if fired else 0.0) * effective_weight`` where
++  ``effective_weight = weight if weight_override is None else weight_override``.
++  Map score ``= sum(contributions) / sum(effective_weight)`` (normalized to
++  [0,1]; divide-by-zero guarded to 0.0). Per-frame map is
++  ``_argmax_with_threshold(scores, threshold=resolved_threshold,
++  ordered_classes=populated_slugs_in_MAP_LABELS_order,
++  zone_counts={slug: len(zones)})``. The span's canonical ``map_id`` is the
++  most-frequently-argmaxed map across the span (ties → higher mean confidence);
++  ``confidence`` is the mean of that map's per-frame scores over the span.
++  Tool 9 carries no weighted map reduction (its fragment has no weights), so
++  this story's formula is authoritative — no Tool-9 deviation to note.
++* **``in_match`` / HUD-version thresholds.** ``in_match`` and the HUD-version
++  sanity check reuse Tool 9's group fire-ratio (``fires / n_zones``) gated at a
++  fixed ``0.5`` (Tool 9's game-state default — AC6 ties no CLI knob to them).
++  Only the per-map identification gate uses the resolved ``--threshold`` /
++  ``identification_threshold``.
++* **Determinism (AC9 / REL-005).** ``results.json`` is written with a fixed key
++  order, ``round(x, 6)`` floats, ``ensure_ascii=False``, and a trailing
++  newline, so re-running on the same video+config yields a byte-identical file.
++  The timestamped output **directory** name is the only non-deterministic part
++  and is explicitly excluded from the determinism claim. ``video``/``config``
++  are recorded as basenames (path-independent across machines).
++* **AC8 degradation notes go to stderr** (not ``results.json``) so the AC9
++  ``results.json`` key set stays exactly as specified.
++"""
++
++from __future__ import annotations
++
++import argparse
++import datetime
++import glob
++import json
++import math
++import os
++import sys
++from collections import Counter
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Iterator
++
++# Absolute path insertion so ``tools.*`` imports resolve regardless of CWD
++# (identical posture to Tool 9).
++sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
++
++import cv2  # noqa: E402
++import numpy as np  # noqa: E402
++
++from tools.common.labels import MAP_LABELS  # noqa: E402
++from tools.common.zones import HsvBand, Rect  # noqa: E402
++
++# Sanctioned sibling reuse — Tool 9 is `done`; module import is side-effect-free
++# (its main() is __main__-guarded). The hue-wrap cv2.inRange math is reached via
++# zone_fires_on_frame; argmax tie-breaking via _argmax_with_threshold; the
++# reference-resolution resize via _resize_to_ref. These three symbols' contract
++# is pinned by test_video_detection_tester.py so a future 9.14 Tool-9 refit
++# cannot silently drift them.
++from tools.roi_detection_tester import (  # noqa: E402
++    ZoneSpec,
++    _argmax_with_threshold,
++    _resize_to_ref,
++    zone_fires_on_frame,
++)
++
++# in_match + HUD-version sanity gates reuse Tool 9's game-state default (0.5).
++_IN_MATCH_THRESHOLD = 0.5
++_HUD_THRESHOLD = 0.5
++# HUD-version sanity classification samples the first N kept frames.
++_HUD_SAMPLE_FRAMES = 30
++
++
++# ---------------------------------------------------------------------------
++# Dataclasses
++# ---------------------------------------------------------------------------
++
++
++@dataclass
++class _MapZone:
++    """A per-map zone plus its AC7 aggregation weights (kept parallel to the
++    :class:`ZoneSpec`, which has no weight fields)."""
++
++    spec: ZoneSpec
++    weight: float
++    weight_override: float | None
++
++
++@dataclass
++class ParsedConfig:
++    """The emitted unified-schema ``map_config.<hud>.json`` parsed into the
++    Tool-9 reuse surface (:class:`ZoneSpec`) plus the timing/threshold knobs."""
++
++    hud_version: str
++    reference_resolution: dict          # {"width": int, "height": int}
++    score_screen_duration_ms: int
++    identification_threshold: float
++    hud_zones: list[ZoneSpec]
++    in_match_zones: list[ZoneSpec]
++    map_zones: dict[str, list[_MapZone]]
++    notes: list[str]                    # AC8 degradation notes (stderr-surfaced)
++
++
++@dataclass
++class Span:
++    """A maximal run of ``in_match`` frames + its resolved map-ID."""
++
++    start_frame: int
++    end_frame: int
++    map_id: str
++    confidence: float
++
++
++@dataclass
++class _FrameRecord:
++    """Per-kept-frame snapshot the pipeline folds over."""
++
++    frame_idx: int
++    timestamp_ms: int
++    in_match: bool
++    map_argmax: str
++    map_scores: dict[str, float]
++
++
++# ---------------------------------------------------------------------------
++# Path defaults
++# ---------------------------------------------------------------------------
++
++
++def _tooling_root() -> str:
++    """``apps/tooling`` — one level up from ``tools/`` (Tool 6/7/9 path math)."""
++    return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
++
++
++def _version_sort_key(name: str) -> tuple:
++    """Natural sort key for a ``v<major>[.<minor>...]`` token so ``v10`` sorts
++    after ``v2`` (lexicographic would invert that). Non-numeric parts fall back
++    to lexicographic ordering."""
++    parts = str(name).lstrip("v").split(".")
++    key: list[tuple[int, object]] = []
++    for part in parts:
++        try:
++            key.append((0, int(part)))
++        except ValueError:
++            key.append((1, part))
++    return tuple(key)
++
++
++def _default_config_path() -> str | None:
++    """Newest ``apps/tooling/output/map_configs/map_config.v*.json`` by natural
++    version order, ties broken by mtime. ``None`` if none exist (mirrors Tool
++    9's newest-by-version+mtime default-discovery posture)."""
++    root = os.path.join(_tooling_root(), "output", "map_configs")
++    if not os.path.isdir(root):
++        return None
++    candidates = glob.glob(os.path.join(root, "map_config.v*.json"))
++    if not candidates:
++        return None
++
++    def _key(path: str) -> tuple:
++        base = os.path.basename(path)              # map_config.v2.json
++        ver = base[len("map_config.") : -len(".json")]  # noqa: E203  -> "v2"
++        try:
++            mtime = os.path.getmtime(path)
++        except OSError:
++            mtime = 0.0
++        return (_version_sort_key(ver), mtime)
++
++    candidates.sort(key=_key)
++    return candidates[-1]
++
++
++# ---------------------------------------------------------------------------
++# Config parser (NEW unified-schema parser — NOT Tool 9's load_zones_fragment)
++# ---------------------------------------------------------------------------
++
++
++_TOP_REQUIRED = (
++    "schema_version",
++    "reference_resolution",
++    "hud_version",
++    "score_screen_duration_ms",
++    "hud_version_detection",
++    "in_match_detection",
++    "minimap_identification",
++)
++_ZONE_REQUIRED = ("id", "x", "y", "width", "height", "hsv", "min_ratio")
++_HSV_REQUIRED = ("h_center", "h_tol", "s_center", "s_tol", "v_center", "v_tol")
++
++
++def _zone_to_spec(raw: dict, owning_class: str, kind: str) -> ZoneSpec:
++    """Map one unified ``Zone`` dict → a :class:`ZoneSpec`.
++
++    ``HsvBand.min_ratio`` is set **explicitly** from ``zone["min_ratio"]`` — we
++    do NOT rely on ``HsvBand``'s ``0.3`` dataclass default (the #3 disaster
++    in the story Dev Notes). Raises ``ValueError`` (clean, no traceback at the
++    CLI boundary) on a missing/bad-shape zone.
++    """
++    if not isinstance(raw, dict):
++        raise ValueError(f"zone in '{owning_class}' is not a JSON object: {raw!r}")
++    missing = [k for k in _ZONE_REQUIRED if k not in raw]
++    if missing:
++        raise ValueError(
++            f"zone '{raw.get('id', '<no id>')}' in '{owning_class}' missing "
++            f"required keys: {', '.join(missing)}"
++        )
++    hsv = raw["hsv"]
++    if not isinstance(hsv, dict):
++        raise ValueError(f"zone '{raw['id']}' in '{owning_class}': 'hsv' must be an object")
++    hsv_missing = [k for k in _HSV_REQUIRED if k not in hsv]
++    if hsv_missing:
++        raise ValueError(
++            f"zone '{raw['id']}' in '{owning_class}': 'hsv' missing keys: "
++            f"{', '.join(hsv_missing)}"
++        )
++    rect = Rect(x=raw["x"], y=raw["y"], width=raw["width"], height=raw["height"])
++    band = HsvBand(
++        h_center=hsv["h_center"], h_tol=hsv["h_tol"],
++        s_center=hsv["s_center"], s_tol=hsv["s_tol"],
++        v_center=hsv["v_center"], v_tol=hsv["v_tol"],
++        min_ratio=float(raw["min_ratio"]),   # explicit — never the 0.3 default
++    )
++    return ZoneSpec(
++        name=str(raw["id"]), owning_class=owning_class, kind=kind, rect=rect, band=band
++    )
++
++
++def _load_config(path: str) -> ParsedConfig:
++    """Read an emitted ``map_config.<hud_version>.json`` (unified schema) and
++    project it onto the Tool-9 reuse surface.
++
++    This is a dedicated parser — ``tools.roi_detection_tester.load_zones_fragment``
++    parses a *different* shape (Tool-8 ``discovered_zones.yaml`` keyed by
++    ``TARGET_CLASSES``/``MAP_LABELS`` + ``_metadata``) and MUST NOT be used here.
++
++    Empty zone arrays are tolerated (AC8) — an unpopulated classifier is recorded
++    in ``notes`` and degrades gracefully at classify time. Missing required
++    top-level keys raise ``ValueError`` (clean CLI error, no traceback).
++    """
++    with open(path, "r", encoding="utf-8-sig") as fh:
++        data = json.load(fh)
++    if not isinstance(data, dict):
++        raise ValueError(f"top-level of '{path}' must be a JSON object")
++    missing = [k for k in _TOP_REQUIRED if k not in data]
++    if missing:
++        raise ValueError(
++            f"map_config '{path}' missing required keys: {', '.join(missing)}"
++        )
++
++    ref_res = data["reference_resolution"]
++    if not (isinstance(ref_res, dict) and "width" in ref_res and "height" in ref_res):
++        raise ValueError("reference_resolution must be an object with width+height")
++
++    mi = data["minimap_identification"]
++    if not isinstance(mi, dict):
++        raise ValueError("minimap_identification must be an object")
++    for k in ("identification_threshold", "maps"):
++        if k not in mi:
++            raise ValueError(f"minimap_identification missing required key '{k}'")
++
++    notes: list[str] = []
++
++    hud_zones = [
++        _zone_to_spec(z, "hud_version", "game_state")
++        for z in data["hud_version_detection"]
++    ]
++    if not hud_zones:
++        notes.append("hud_version_detection unpopulated — HUD-version sanity check skipped")
++
++    in_match_zones = [
++        _zone_to_spec(z, "in_match", "game_state") for z in data["in_match_detection"]
++    ]
++    if not in_match_zones:
++        notes.append("in_match_detection unpopulated — every frame not_in_match")
++
++    map_zones: dict[str, list[_MapZone]] = {}
++    for slug, entry in mi["maps"].items():
++        if not isinstance(entry, dict) or "zones" not in entry:
++            raise ValueError(f"minimap_identification.maps['{slug}'] missing 'zones'")
++        zones: list[_MapZone] = []
++        for z in entry["zones"]:
++            if not isinstance(z, dict):
++                raise ValueError(f"map '{slug}': zone is not a JSON object")
++            spec = _zone_to_spec(z, slug, "map")
++            if "weight" not in z or "weight_override" not in z:
++                raise ValueError(
++                    f"map '{slug}' zone '{z.get('id', '<no id>')}' missing "
++                    f"weight/weight_override"
++                )
++            wo = z["weight_override"]
++            weight = float(z["weight"])
++            weight_override = None if wo is None else float(wo)
++            if weight < 0 or (weight_override is not None and weight_override < 0):
++                raise ValueError(
++                    f"map '{slug}' zone '{z.get('id', '<no id>')}': weight / "
++                    f"weight_override must be non-negative (got weight={weight}, "
++                    f"weight_override={weight_override})"
++                )
++            zones.append(
++                _MapZone(
++                    spec=spec,
++                    weight=weight,
++                    weight_override=weight_override,
++                )
++            )
++        map_zones[str(slug)] = zones
++    populated_maps = sum(1 for zs in map_zones.values() if zs)
++    if populated_maps == 0:
++        notes.append("minimap_identification.maps unpopulated — every span map_id=unknown")
++
++    score_screen_duration_ms = int(data["score_screen_duration_ms"])
++    if score_screen_duration_ms < 0:
++        notes.append(
++            f"score_screen_duration_ms is negative ({score_screen_duration_ms}) — "
++            "treated like 0 (no score_screen window; falling edge → not_in_match)"
++        )
++
++    return ParsedConfig(
++        hud_version=str(data["hud_version"]),
++        reference_resolution={
++            "width": int(ref_res["width"]),
++            "height": int(ref_res["height"]),
++        },
++        score_screen_duration_ms=score_screen_duration_ms,
++        identification_threshold=float(mi["identification_threshold"]),
++        hud_zones=hud_zones,
++        in_match_zones=in_match_zones,
++        map_zones=map_zones,
++        notes=notes,
++    )
++
++
++# ---------------------------------------------------------------------------
++# Frame extraction (cv2.VideoCapture + stride; "i-frame" = stride-sampled)
++# ---------------------------------------------------------------------------
++
++
++class VideoOpenError(RuntimeError):
++    """Raised when ``cv2.VideoCapture`` cannot open the input video."""
++
++
++def _frame_source(
++    video: str, stride_override: int | None
++) -> tuple[int, Iterator[tuple[int, int, np.ndarray]]]:
++    """Open ``video`` once and return ``(resolved_stride, frame_iterator)``.
++
++    ``stride`` default = ``max(1, round(fps))`` where
++    ``fps = cap.get(CAP_PROP_FPS) or 30.0`` (≈1 sampled frame/sec). Each yielded
++    item is ``(frame_idx, timestamp_ms, frame_bgr)`` where ``frame_idx`` is the
++    decode index and ``timestamp_ms`` is ``cap.get(CAP_PROP_POS_MSEC)`` (falling
++    back to ``frame_idx / fps * 1000`` when POS_MSEC is 0/unavailable — the
++    known wrinkle on some containers). Corrupt decodes are skipped. The capture
++    is released in a ``finally``. ``cv2.VideoCapture`` lifecycle mirrors
++    ``tools.common.video_player.VideoPlayer`` (not imported — it is a Tk widget).
++    """
++    cap = cv2.VideoCapture(video)
++    if not cap.isOpened():
++        cap.release()
++        raise VideoOpenError(f"cannot open video: {video}")
++    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
++    # NaN is truthy and fails both `not fps` and `fps <= 0`, so guard it
++    # explicitly — some containers report a NaN/inf CAP_PROP_FPS, which would
++    # otherwise blow up `int(round(fps))` below with an uncaught ValueError.
++    if not fps or not math.isfinite(fps) or fps <= 0:
++        fps = 30.0
++    stride = (
++        max(1, int(stride_override))
++        if stride_override is not None
++        else max(1, int(round(fps)))
++    )
++
++    def _gen() -> Iterator[tuple[int, int, np.ndarray]]:
++        try:
++            idx = -1
++            last_ts = -1
++            while True:
++                ok, frame = cap.read()
++                if not ok:
++                    break
++                idx += 1
++                if idx % stride != 0:
++                    continue
++                if frame is None or getattr(frame, "size", 0) == 0:
++                    continue  # corrupt decode — skip, keep going
++                pos = cap.get(cv2.CAP_PROP_POS_MSEC)
++                if pos and pos > 0 and math.isfinite(pos):
++                    ts = int(round(pos))
++                else:
++                    ts = int(round(idx / fps * 1000.0))
++                # Clamp to non-decreasing: a jittery / B-frame-reordered
++                # CAP_PROP_POS_MSEC can go backwards, which would otherwise
++                # stall the score-screen exit (`ts - falling_ts` never reaches
++                # the duration) and silently merge/truncate spans.
++                if ts < last_ts:
++                    ts = last_ts
++                last_ts = ts
++                yield idx, ts, frame
++        finally:
++            cap.release()
++
++    return stride, _gen()
++
++
++# ---------------------------------------------------------------------------
++# Classifiers — reuse Tool 9 zone-fire (no hue-wrap reinvention)
++# ---------------------------------------------------------------------------
++
++
++def _group_fire_ratio(zones: list[ZoneSpec], frame_at_ref: np.ndarray) -> float:
++    """``fires / n_zones`` for a zone group on a reference-resized frame —
++    exactly Tool 9's per-group game-state scoring shape."""
++    n = len(zones)
++    if n == 0:
++        return 0.0
++    fires = sum(1 for z in zones if zone_fires_on_frame(z, frame_at_ref)[0])
++    return fires / float(n)
++
++
++def _classify_in_match(
++    frame_at_ref: np.ndarray, in_match_zones: list[ZoneSpec]
++) -> bool:
++    """Binary ``in_match`` for one frame. Reuses ``_argmax_with_threshold``
++    with a single ``in_match`` pseudo-class over the group fire-ratio (Tool 9's
++    empty-zone short-circuit: no zones → score 0 → ``unknown`` → ``False``)."""
++    if not in_match_zones:
++        return False
++    score = _group_fire_ratio(in_match_zones, frame_at_ref)
++    predicted, _ = _argmax_with_threshold(
++        {"in_match": score},
++        threshold=_IN_MATCH_THRESHOLD,
++        ordered_classes=["in_match"],
++        zone_counts={"in_match": len(in_match_zones)},
++    )
++    return predicted == "in_match"
++
++
++def _classify_hud_version(
++    sample_frames_at_ref: list[np.ndarray],
++    hud_zones: list[ZoneSpec],
++    config_hud: str,
++) -> str:
++    """Once-per-session HUD-version sanity check over the first N kept frames.
++    Returns the config's ``hud_version`` if the ``hud_version_detection`` group
++    clears the gate on average, else ``"unknown"``. Empty zones → ``unknown``
++    (caller treats that as "skip the check", per AC8)."""
++    if not hud_zones or not sample_frames_at_ref:
++        return "unknown"
++    ratios = [_group_fire_ratio(hud_zones, f) for f in sample_frames_at_ref]
++    mean_ratio = sum(ratios) / float(len(ratios))
++    predicted, _ = _argmax_with_threshold(
++        {config_hud: mean_ratio},
++        threshold=_HUD_THRESHOLD,
++        ordered_classes=[config_hud],
++        zone_counts={config_hud: len(hud_zones)},
++    )
++    return predicted
++
++
++def _score_maps(
++    frame_at_ref: np.ndarray, map_zones: dict[str, list[_MapZone]]
++) -> dict[str, float]:
++    """Weighted per-map score for one frame (AC7 formula). Unpopulated maps are
++    skipped (no key emitted). Divide-by-zero (all effective weights 0) → 0.0."""
++    scores: dict[str, float] = {}
++    for slug, mzones in map_zones.items():
++        if not mzones:
++            continue
++        total_w = 0.0
++        contrib = 0.0
++        for mz in mzones:
++            eff = mz.weight if mz.weight_override is None else mz.weight_override
++            total_w += eff
++            fired, ratio = zone_fires_on_frame(mz.spec, frame_at_ref)
++            if fired:
++                contrib += ratio * eff
++        scores[slug] = (contrib / total_w) if total_w > 0 else 0.0
++    return scores
++
++
++def _ordered_map_slugs(map_zones: dict[str, list[_MapZone]]) -> list[str]:
++    """Populated map slugs in ``MAP_LABELS`` order, with any non-MAP_LABELS
++    slugs appended in config insertion order (AC7 ``ordered_classes``)."""
++    populated = [s for s, zs in map_zones.items() if zs]
++    in_labels = [s for s in MAP_LABELS if s in populated]
++    extras = [s for s in populated if s not in MAP_LABELS]
++    return in_labels + extras
++
++
++# ---------------------------------------------------------------------------
++# Timing-derived state machine (pure)
++# ---------------------------------------------------------------------------
++
++
++def _run_state_machine(
++    frames: list[tuple[int, int, bool]],
++    score_screen_duration_ms: int,
++) -> tuple[list[str], list[tuple[int, int]]]:
++    """Pure state machine over ordered ``[(frame_idx, timestamp_ms, in_match)]``.
++
++    Returns ``(states, spans)`` where ``states[i] ∈ {in_match, score_screen,
++    not_in_match}`` aligned to ``frames`` and ``spans`` is the list of
++    ``(start_frame_idx, end_frame_idx)`` for each maximal ``in_match`` run.
++
++    Rules (AC7 truth table):
++
++    * ``not_in_match``/``score_screen`` → an ``in_match`` frame ⇒ ``in_match``
++      (rising edge; a rising edge during ``score_screen`` aborts the score
++      window and opens a fresh span).
++    * ``in_match`` true→false ⇒ falling edge: record ``falling_ts``; the window
++      is evaluated **inclusively on the falling-edge frame** so
++      ``score_screen_duration_ms == 0`` yields zero score frames (that frame is
++      already ``not_in_match``); a positive duration makes the falling-edge
++      frame the first ``score_screen`` frame.
++    * in ``score_screen``, once ``ts - falling_ts >= score_screen_duration_ms``
++      ⇒ ``not_in_match``.
++
++    Documented edge cases (all unit-tested): video starts mid-match (first kept
++    frame already ``in_match`` ⇒ span opens at that frame); ``in_match`` still
++    true at EOF (span ends at the last kept frame, no trailing ``score_screen``);
++    ``score_screen_duration_ms == 0``; rising edge during ``score_screen``;
++    isolated single-frame ``in_match`` blip (valid 1-frame span — no debounce is
++    specified and none is invented).
++    """
++    states: list[str] = []
++    state = "not_in_match"
++    falling_ts = 0
++    dur = int(score_screen_duration_ms)
++
++    for _idx, ts, im in frames:
++        if state == "in_match":
++            if im:
++                state = "in_match"
++            else:
++                # Falling edge — evaluate the score window inclusively on this
++                # frame so a 0-duration window emits zero score frames.
++                falling_ts = ts
++                state = "not_in_match" if (ts - falling_ts) >= dur else "score_screen"
++        elif state == "score_screen":
++            if im:
++                state = "in_match"           # rising edge aborts the score window
++            elif (ts - falling_ts) >= dur:
++                state = "not_in_match"
++            else:
++                state = "score_screen"
++        else:  # not_in_match
++            state = "in_match" if im else "not_in_match"
++        states.append(state)
++
++    # Spans = maximal runs whose state is "in_match" (post-hoc run detection
++    # naturally handles mid-match start, EOF-open span, and rising-edge-during-
++    # score splitting the runs).
++    spans: list[tuple[int, int]] = []
++    run_start: int | None = None
++    for (idx, _ts, _im), st in zip(frames, states):
++        if st == "in_match":
++            if run_start is None:
++                run_start = idx
++            last_idx = idx
++        else:
++            if run_start is not None:
++                spans.append((run_start, last_idx))
++                run_start = None
++    if run_start is not None:
++        spans.append((run_start, last_idx))
++    return states, spans
++
++
++def _aggregate_span_map(
++    span_records: list[_FrameRecord],
++) -> tuple[str, float]:
++    """Canonical map-ID for an ``in_match`` span: the most-frequently-argmaxed
++    map across the span (ties → higher mean per-frame score); ``confidence`` =
++    mean of that map's per-frame scores over the span. Every frame ``unknown``
++    ⇒ ``("unknown", 0.0)``."""
++    counts = Counter(
++        r.map_argmax for r in span_records if r.map_argmax != "unknown"
++    )
++    if not counts:
++        return "unknown", 0.0
++    max_count = max(counts.values())
++    tied = [m for m, c in counts.items() if c == max_count]
++
++    def _mean_score(slug: str) -> float:
++        vals = [r.map_scores.get(slug, 0.0) for r in span_records]
++        return sum(vals) / float(len(vals)) if vals else 0.0
++
++    winner = tied[0] if len(tied) == 1 else max(tied, key=_mean_score)
++    return winner, round(_mean_score(winner), 6)
++
++
++# ---------------------------------------------------------------------------
++# results.json
++# ---------------------------------------------------------------------------
++
++
++def _build_results(
++    *,
++    hud_version: str,
++    video: str,
++    stride: int,
++    config: str,
++    records: list[_FrameRecord],
++    states: list[str],
++    spans: list[Span],
++) -> dict:
++    """Assemble the AC9 ``results.json`` dict (fixed key order, rounded floats)."""
++    return {
++        "hud_version": hud_version,
++        "video": os.path.basename(video),
++        "stride": int(stride),
++        "config": os.path.basename(config),
++        "frames": [
++            {
++                "frame_idx": r.frame_idx,
++                "timestamp_ms": r.timestamp_ms,
++                "state": st,
++            }
++            for r, st in zip(records, states)
++        ],
++        "matches": [
++            {
++                "start_frame": s.start_frame,
++                "end_frame": s.end_frame,
++                "map_id": s.map_id,
++                "confidence": round(float(s.confidence), 6),
++            }
++            for s in spans
++        ],
++    }
++
++
++def _write_results(results: dict, out_path: str) -> None:
++    """Deterministic write: fixed key order (``sort_keys=False``), UTF-8,
++    ``ensure_ascii=False``, trailing newline (REL-005)."""
++    text = json.dumps(results, indent=2, sort_keys=False, ensure_ascii=False) + "\n"
++    Path(out_path).write_text(text, encoding="utf-8")
++
++
++# ---------------------------------------------------------------------------
++# CLI
++# ---------------------------------------------------------------------------
++
++
++def _parse_args(argv: list[str] | None) -> argparse.Namespace:
++    parser = argparse.ArgumentParser(
++        prog="video_test.py",
++        description=(
++            "Tool 11 - Video Detection Tester: run an emitted "
++            "map_config.<hud_version>.json against a real video and emit a "
++            "deterministic results.json (HUD-version sanity -> per-frame "
++            "in_match -> timing-derived state machine -> per-span weighted map-ID)."
++        ),
++    )
++    parser.add_argument("video", help="Path to the input video (required).")
++    parser.add_argument(
++        "--config",
++        default=None,
++        help="Path to map_config.<hud_version>.json. Default: newest "
++        "apps/tooling/output/map_configs/map_config.v*.json.",
++    )
++    parser.add_argument(
++        "--output",
++        default=None,
++        help="Path to write results.json. Default: "
++        "apps/tooling/output/video_tests/v<hud>/<timestamp>/results.json.",
++    )
++    parser.add_argument(
++        "--stride",
++        type=int,
++        default=None,
++        help="Keep every Nth decoded frame. Default: ~1 frame/sec (round(fps)).",
++    )
++    parser.add_argument(
++        "--threshold",
++        type=float,
++        default=None,
++        help="Per-map identification gate. Default: the config's "
++        "minimap_identification.identification_threshold.",
++    )
++    return parser.parse_args(argv)
++
++
++def main(argv: list[str] | None = None) -> int:
++    """Thin CLI entry. Returns 0 on success, 1 on any clean error (no
++    Python traceback escapes to the user)."""
++    args = _parse_args(argv)
++
++    if not os.path.isfile(args.video):
++        print(f"Error: video not found: {args.video}", file=sys.stderr)
++        return 1
++
++    if args.stride is not None and args.stride < 1:
++        print("Error: --stride must be a positive integer", file=sys.stderr)
++        return 1
++
++    if args.threshold is not None and not (0.0 <= args.threshold <= 1.0):
++        print(
++            f"Error: --threshold must be in [0.0, 1.0] (got {args.threshold}) — "
++            "it gates a fire-ratio score, so values outside the range make "
++            "every / no map predict.",
++            file=sys.stderr,
++        )
++        return 1
++
++    config_path = args.config
++    if config_path is None:
++        config_path = _default_config_path()
++        if config_path is None:
++            print(
++                "Error: no --config given and no map_config.v*.json under "
++                f"{os.path.join(_tooling_root(), 'output', 'map_configs')} — "
++                "run the map config emitter first.",
++                file=sys.stderr,
++            )
++            return 1
++    if not os.path.isfile(config_path):
++        print(f"Error: config not found: {config_path}", file=sys.stderr)
++        return 1
++
++    try:
++        config = _load_config(config_path)
++    except (OSError, ValueError, TypeError, AttributeError, json.JSONDecodeError) as exc:
++        # TypeError/AttributeError cover a hand-corrupted config whose required
++        # keys are *present* but null/wrong-typed (int(None), float(None),
++        # null.items()) — _load_config validates key presence, not value type,
++        # so these must still surface as a clean CLI error (AC2/AC3: no
++        # Python traceback escapes; Dev Notes: fail clean on a corrupted file).
++        print(f"Error: cannot load config '{config_path}': {exc}", file=sys.stderr)
++        return 1
++
++    resolved_threshold = (
++        float(args.threshold)
++        if args.threshold is not None
++        else config.identification_threshold
++    )
++
++    # AC8: surface every degradation note once, on stderr.
++    for note in config.notes:
++        print(f"  NOTE: {note}", file=sys.stderr)
++
++    try:
++        stride, frame_iter = _frame_source(args.video, args.stride)
++    except (VideoOpenError, cv2.error) as exc:
++        # cv2.error: the VideoCapture *constructor* itself can raise on a
++        # backend init failure (rare) rather than returning an unopened
++        # handle — keep it a clean CLI error, no traceback.
++        print(f"Error: cannot open video '{args.video}': {exc}", file=sys.stderr)
++        return 1
++
++    ref_height = int(config.reference_resolution["height"])
++    ordered_slugs = _ordered_map_slugs(config.map_zones)
++    map_zone_counts = {
++        s: len(config.map_zones[s]) for s in ordered_slugs
++    }
++
++    records: list[_FrameRecord] = []
++    hud_sample: list[np.ndarray] = []
++    try:
++        for frame_idx, ts_ms, frame_bgr in frame_iter:
++            frame_at_ref = _resize_to_ref(frame_bgr, ref_height)
++            if len(hud_sample) < _HUD_SAMPLE_FRAMES:
++                hud_sample.append(frame_at_ref)
++            in_match = _classify_in_match(frame_at_ref, config.in_match_zones)
++            if in_match and ordered_slugs:
++                map_scores = _score_maps(frame_at_ref, config.map_zones)
++                map_argmax, _ = _argmax_with_threshold(
++                    map_scores,
++                    threshold=resolved_threshold,
++                    ordered_classes=ordered_slugs,
++                    zone_counts=map_zone_counts,
++                )
++            else:
++                map_scores = {}
++                map_argmax = "unknown"
++            records.append(
++                _FrameRecord(
++                    frame_idx=frame_idx,
++                    timestamp_ms=ts_ms,
++                    in_match=in_match,
++                    map_argmax=map_argmax,
++                    map_scores=map_scores,
++                )
++            )
++    except cv2.error as exc:  # pragma: no cover - defensive (real-video only)
++        print(f"Error: video decode failed: {exc}", file=sys.stderr)
++        return 1
++
++    if not records:
++        print(
++            f"Error: no frames decoded from {args.video} (empty/corrupt video?)",
++            file=sys.stderr,
++        )
++        return 1
++
++    # Once-per-session HUD-version sanity check.
++    derived_hud = _classify_hud_version(
++        hud_sample, config.hud_zones, config.hud_version
++    )
++    if config.hud_zones and derived_hud != config.hud_version:
++        # Single-config CLI: _classify_hud_version can only return
++        # config.hud_version (the sample cleared the gate) or "unknown" (the
++        # configured HUD's own hud_version_detection zones did NOT fire on the
++        # sampled frames). It can never name a *different* HUD — there is no
++        # other config to score against (multi-config selection is Story
++        # 1.13's scope). So this is a "did the configured HUD's zones fire?"
++        # signal, NOT a cross-HUD disagreement. Word it that way.
++        print(
++            f"  WARN: config hud_version={config.hud_version}, but its "
++            f"hud_version_detection zones did not fire on the sampled frames "
++            f"(mean fire-ratio below the {_HUD_THRESHOLD} gate) — zones may be "
++            f"unpopulated/mis-tuned or the footage may not match this HUD. "
++            f"Proceeding with the config value.",
++            file=sys.stderr,
++        )
++
++    sm_input = [(r.frame_idx, r.timestamp_ms, r.in_match) for r in records]
++    states, raw_spans = _run_state_machine(
++        sm_input, config.score_screen_duration_ms
++    )
++
++    # Index records by frame_idx for per-span aggregation.
++    by_idx = {r.frame_idx: r for r in records}
++    spans: list[Span] = []
++    for start_idx, end_idx in raw_spans:
++        span_records = [
++            by_idx[r.frame_idx]
++            for r in records
++            if start_idx <= r.frame_idx <= end_idx
++        ]
++        map_id, confidence = _aggregate_span_map(span_records)
++        spans.append(
++            Span(
++                start_frame=start_idx,
++                end_frame=end_idx,
++                map_id=map_id,
++                confidence=confidence,
++            )
++        )
++
++    results = _build_results(
++        hud_version=config.hud_version,
++        video=args.video,
++        stride=stride,
++        config=config_path,
++        records=records,
++        states=states,
++        spans=spans,
++    )
++
++    # Resolve output path.
++    if args.output is not None:
++        out_path = args.output
++    else:
++        # Microsecond precision so two runs in the same wall-clock second do
++        # not collide and silently overwrite the prior results.json (the
++        # timestamped dir is the only non-deterministic part, excluded from
++        # the REL-005 byte-identical claim — but it must still be unique).
++        timestamp = datetime.datetime.now().astimezone().strftime(
++            "%Y-%m-%dT%H%M%S.%f"
++        )
++        # Strip a single leading "v" *prefix* (not a char set — str.lstrip("v")
++        # would turn "vv2" -> "2" -> "v2" and collide distinct HUD versions).
++        _hv = config.hud_version
++        hud_dir = "v" + (_hv[1:] if _hv.startswith("v") else _hv)
++        out_path = os.path.join(
++            _tooling_root(),
++            "output",
++            "video_tests",
++            hud_dir,
++            timestamp,
++            "results.json",
++        )
++    try:
++        os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
++        _write_results(results, out_path)
++    except OSError as exc:
++        print(f"Error: cannot write results to '{out_path}': {exc}", file=sys.stderr)
++        return 1
++
++    n_in_match = sum(1 for s in states if s == "in_match")
++    print(f"Video:    {os.path.abspath(args.video)}")
++    print(f"Config:   {os.path.abspath(config_path)} (hud_version={config.hud_version})")
++    print(f"Stride:   {stride} (kept {len(records)} frame(s))")
++    print(f"States:   {n_in_match} in_match / {len(states)} kept")
++    print(f"Matches:  {len(spans)} in_match span(s)")
++    for s in spans:
++        print(
++            f"  frames {s.start_frame}-{s.end_frame}: "
++            f"{s.map_id} (confidence {s.confidence:.6f})"
++        )
++    print(f"Results:  {os.path.abspath(out_path)}")
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main(sys.argv[1:]))
+diff --git a/apps/tooling/tests/test_video_detection_tester.py b/apps/tooling/tests/test_video_detection_tester.py
+new file mode 100644
+index 0000000..4fdd3da
+--- /dev/null
++++ b/apps/tooling/tests/test_video_detection_tester.py
+@@ -0,0 +1,711 @@
++"""Pure-logic unit tests for Tool 11 (video_test) — no Tk, no real video, no
++ffmpeg, no new deps; all ``tmp_path``-based; ``cv2.VideoCapture`` mocked.
++
++Covers (AC10):
++* state-machine truth table — all AC7 edge cases (start-mid-match,
++  EOF-open-span, zero-duration score window, rising-edge-during-score,
++  single-frame blip);
++* ``_load_config`` — valid unified config → ZoneSpec lists per classifier;
++  missing required field → clean ``ValueError``; empty-zone scaffold tolerated
++  (AC8);
++* the unified ``Zone`` → ``ZoneSpec`` mapping incl. ``min_ratio`` carried
++  explicitly (NOT the ``HsvBand`` 0.3 default);
++* weighted map-ID aggregation incl. ``weight_override`` null vs number;
++* stride / timestamp math (fps-derived default + override + POS_MSEC fallback);
++* ``results.json`` determinism (serialize twice → byte-identical);
++* the reused-symbol contract pin (synthetic frame + known band through
++  ``zone_fires_on_frame`` → expected ``(fired, ratio)``; argmax tie-break).
++"""
++
++from __future__ import annotations
++
++import json
++import os
++
++import cv2
++import numpy as np
++import pytest
++
++from tools.common.zones import HsvBand, Rect
++from tools.roi_detection_tester import (
++    ZoneSpec,
++    _argmax_with_threshold,
++    _resize_to_ref,
++    zone_fires_on_frame,
++)
++from tools import video_test
++from tools.video_test import (
++    _FrameRecord,
++    _MapZone,
++    Span,
++    _aggregate_span_map,
++    _build_results,
++    _classify_in_match,
++    _frame_source,
++    _load_config,
++    _ordered_map_slugs,
++    _run_state_machine,
++    _score_maps,
++    _write_results,
++    _zone_to_spec,
++)
++
++
++# ===========================================================================
++# Helpers
++# ===========================================================================
++
++
++def _solid_bgr(h: int, w: int, color_bgr: tuple[int, int, int]) -> np.ndarray:
++    arr = np.zeros((h, w, 3), dtype=np.uint8)
++    arr[:, :] = color_bgr
++    return arr
++
++
++def _hsv_user_for_bgr(color_bgr: tuple[int, int, int]) -> tuple[int, int, int]:
++    px = np.array([[list(color_bgr)]], dtype=np.uint8)
++    hsv = cv2.cvtColor(px, cv2.COLOR_BGR2HSV)[0, 0]
++    return (
++        int(round(float(hsv[0]) * 2.0)),
++        int(round(float(hsv[1]) * 100.0 / 255.0)),
++        int(round(float(hsv[2]) * 100.0 / 255.0)),
++    )
++
++
++def _zone_dict(
++    zid: str,
++    color_bgr: tuple[int, int, int] = (0, 0, 255),
++    *,
++    x: int = 0,
++    y: int = 0,
++    width: int = 4,
++    height: int = 4,
++    min_ratio: float = 0.3,
++    weight: float = 1.0,
++    weight_override=None,
++) -> dict:
++    h, s, v = _hsv_user_for_bgr(color_bgr)
++    return {
++        "id": zid,
++        "x": x,
++        "y": y,
++        "width": width,
++        "height": height,
++        "hsv": {
++            "h_center": h,
++            "h_tol": 15,
++            "s_center": s,
++            "s_tol": 40,
++            "v_center": v,
++            "v_tol": 40,
++        },
++        "min_ratio": min_ratio,
++        "weight": weight,
++        "weight_override": weight_override,
++    }
++
++
++def _valid_config(
++    *,
++    hud_version: str = "v2",
++    hud_zones=None,
++    in_match_zones=None,
++    maps=None,
++    score_screen_duration_ms: int = 5000,
++    identification_threshold: float = 0.5,
++) -> dict:
++    return {
++        "schema_version": 1,
++        "reference_resolution": {"width": 8, "height": 8},
++        "hud_version": hud_version,
++        "score_screen_duration_ms": score_screen_duration_ms,
++        "hud_version_detection": hud_zones if hud_zones is not None else [],
++        "in_match_detection": (
++            in_match_zones if in_match_zones is not None else []
++        ),
++        "minimap_identification": {
++            "id": "test",
++            "identification_threshold": identification_threshold,
++            "roi": {"name": "mm", "x": 0, "y": 0, "width": 8, "height": 8},
++            "maps": maps if maps is not None else {},
++        },
++    }
++
++
++def _write_config(tmp_path, cfg: dict) -> str:
++    p = tmp_path / "map_config.v2.json"
++    p.write_text(json.dumps(cfg), encoding="utf-8")
++    return str(p)
++
++
++class _FakeCapture:
++    """Minimal ``cv2.VideoCapture`` stand-in yielding synthetic BGR frames."""
++
++    def __init__(self, frames, *, fps=30.0, opened=True, pos_msec=None):
++        self._frames = frames
++        self._i = 0
++        self._fps = fps
++        self._opened = opened
++        self._pos = pos_msec  # list aligned to decode index, or None
++
++    def isOpened(self):  # noqa: N802 (cv2 API name)
++        return self._opened
++
++    def get(self, prop):
++        if prop == cv2.CAP_PROP_FPS:
++            return self._fps
++        if prop == cv2.CAP_PROP_POS_MSEC:
++            j = self._i - 1
++            if self._pos is not None and 0 <= j < len(self._pos):
++                return self._pos[j]
++            return 0.0
++        return 0.0
++
++    def read(self):
++        if self._i >= len(self._frames):
++            return False, None
++        frame = self._frames[self._i]
++        self._i += 1
++        return True, frame
++
++    def release(self):
++        pass
++
++
++def _patch_capture(monkeypatch, capture):
++    monkeypatch.setattr(
++        video_test.cv2, "VideoCapture", lambda *_a, **_k: capture
++    )
++
++
++# ===========================================================================
++# State machine — AC7 truth table
++# ===========================================================================
++
++
++def _sm(frames, dur):
++    return _run_state_machine(frames, dur)
++
++
++def test_state_machine_basic_rising_and_falling():
++    # not_in_match -> in_match -> score_screen -> not_in_match
++    frames = [
++        (0, 0, False),
++        (1, 100, True),
++        (2, 200, True),
++        (3, 300, False),     # falling edge -> score_screen (dur=500)
++        (4, 400, False),     # still within score window
++        (5, 900, False),     # 900-300 >= 500 -> not_in_match
++    ]
++    states, spans = _sm(frames, 500)
++    assert states == [
++        "not_in_match",
++        "in_match",
++        "in_match",
++        "score_screen",
++        "score_screen",
++        "not_in_match",
++    ]
++    assert spans == [(1, 2)]
++
++
++def test_state_machine_starts_mid_match():
++    frames = [(0, 0, True), (1, 100, True), (2, 200, False)]
++    states, spans = _sm(frames, 1000)
++    assert states[0] == "in_match"
++    assert spans == [(0, 1)]
++
++
++def test_state_machine_in_match_at_eof_no_score_screen():
++    frames = [(0, 0, False), (1, 100, True), (2, 200, True)]
++    states, spans = _sm(frames, 1000)
++    assert states == ["not_in_match", "in_match", "in_match"]
++    assert spans == [(1, 2)]
++    assert "score_screen" not in states
++
++
++def test_state_machine_zero_duration_score_window():
++    frames = [(0, 0, True), (1, 100, False), (2, 200, False)]
++    states, spans = _sm(frames, 0)
++    # falling-edge frame is immediately not_in_match — zero score frames
++    assert states == ["in_match", "not_in_match", "not_in_match"]
++    assert "score_screen" not in states
++    assert spans == [(0, 0)]
++
++
++def test_state_machine_rising_edge_during_score_window():
++    frames = [
++        (0, 0, True),
++        (1, 100, False),     # falling edge -> score_screen (dur=10000)
++        (2, 200, True),      # rising edge during score -> in_match, new span
++        (3, 300, False),     # falling again -> score_screen
++        (4, 400, False),
++    ]
++    states, spans = _sm(frames, 10000)
++    assert states == [
++        "in_match",
++        "score_screen",
++        "in_match",
++        "score_screen",
++        "score_screen",
++    ]
++    assert spans == [(0, 0), (2, 2)]
++
++
++def test_state_machine_single_frame_blip_is_valid_span():
++    frames = [(0, 0, False), (1, 100, True), (2, 200, False), (3, 300, False)]
++    states, spans = _sm(frames, 0)
++    assert spans == [(1, 1)]
++
++
++def test_state_machine_empty_input():
++    states, spans = _sm([], 1000)
++    assert states == []
++    assert spans == []
++
++
++# ===========================================================================
++# _load_config + Zone -> ZoneSpec mapping
++# ===========================================================================
++
++
++def test_load_config_valid_splits_by_classifier(tmp_path):
++    cfg = _valid_config(
++        hud_zones=[_zone_dict("hud_a")],
++        in_match_zones=[_zone_dict("im_a"), _zone_dict("im_b")],
++        maps={"the_cliff": {"zones": [_zone_dict("cliff_a", weight=2.0)]}},
++    )
++    parsed = _load_config(_write_config(tmp_path, cfg))
++    assert parsed.hud_version == "v2"
++    assert parsed.reference_resolution == {"width": 8, "height": 8}
++    assert parsed.score_screen_duration_ms == 5000
++    assert parsed.identification_threshold == 0.5
++    assert [z.name for z in parsed.hud_zones] == ["hud_a"]
++    assert [z.name for z in parsed.in_match_zones] == ["im_a", "im_b"]
++    assert isinstance(parsed.hud_zones[0], ZoneSpec)
++    cliff = parsed.map_zones["the_cliff"]
++    assert len(cliff) == 1
++    assert isinstance(cliff[0], _MapZone)
++    assert cliff[0].weight == 2.0
++    assert cliff[0].weight_override is None
++
++
++def test_load_config_missing_top_level_key_clean_valueerror(tmp_path):
++    cfg = _valid_config()
++    del cfg["score_screen_duration_ms"]
++    with pytest.raises(ValueError, match="missing required keys"):
++        _load_config(_write_config(tmp_path, cfg))
++
++
++def test_load_config_empty_zone_scaffold_tolerated_with_notes(tmp_path):
++    # AC8 — fully unpopulated config must parse, not crash, and surface notes.
++    parsed = _load_config(_write_config(tmp_path, _valid_config()))
++    assert parsed.hud_zones == []
++    assert parsed.in_match_zones == []
++    assert parsed.map_zones == {}
++    joined = " ".join(parsed.notes)
++    assert "hud_version_detection unpopulated" in joined
++    assert "in_match_detection unpopulated" in joined
++    assert "minimap_identification.maps unpopulated" in joined
++
++
++def test_load_config_bad_zone_missing_field_clean_valueerror(tmp_path):
++    bad = _zone_dict("bad")
++    del bad["min_ratio"]
++    cfg = _valid_config(in_match_zones=[bad])
++    with pytest.raises(ValueError, match="missing required keys"):
++        _load_config(_write_config(tmp_path, cfg))
++
++
++def test_zone_to_spec_carries_min_ratio_explicitly_not_default():
++    raw = _zone_dict("z", min_ratio=0.77)
++    spec = _zone_to_spec(raw, "in_match", "game_state")
++    assert spec.name == "z"
++    assert spec.owning_class == "in_match"
++    assert spec.kind == "game_state"
++    # Must be the zone's authored min_ratio, NOT HsvBand's 0.3 dataclass default.
++    assert spec.band.min_ratio == pytest.approx(0.77)
++    assert HsvBand.min_ratio == 0.3  # the trap default we must not rely on
++
++
++def test_zone_to_spec_rect_and_band_mapping():
++    raw = _zone_dict("z", (0, 0, 255), x=3, y=5, width=7, height=9)
++    spec = _zone_to_spec(raw, "the_cliff", "map")
++    assert (spec.rect.x, spec.rect.y, spec.rect.width, spec.rect.height) == (3, 5, 7, 9)
++    assert isinstance(spec.rect, Rect)
++    assert isinstance(spec.band, HsvBand)
++
++
++# ===========================================================================
++# Weighted map-ID aggregation (AC7) — weight_override null vs number
++# ===========================================================================
++
++
++def test_score_maps_weight_override_null_uses_weight():
++    frame = _solid_bgr(8, 8, (0, 0, 255))
++    spec = _zone_to_spec(_zone_dict("z", (0, 0, 255), width=8, height=8), "m", "map")
++    mz = _MapZone(spec=spec, weight=3.0, weight_override=None)
++    scores = _score_maps(frame, {"m": [mz]})
++    # zone fires ratio 1.0 -> contrib = 1.0 * 3.0; total_w = 3.0 -> score 1.0
++    assert scores["m"] == pytest.approx(1.0)
++
++
++def test_score_maps_weight_override_number_replaces_weight():
++    frame = _solid_bgr(8, 8, (0, 0, 255))
++    fire = _zone_to_spec(_zone_dict("fire", (0, 0, 255), width=8, height=8), "m", "map")
++    miss = _zone_to_spec(
++        _zone_dict("miss", (0, 255, 0), width=8, height=8), "m", "map"
++    )
++    # fire: eff weight via override = 1.0 ; miss: eff weight = weight = 3.0
++    z_fire = _MapZone(spec=fire, weight=99.0, weight_override=1.0)
++    z_miss = _MapZone(spec=miss, weight=3.0, weight_override=None)
++    scores = _score_maps(frame, {"m": [z_fire, z_miss]})
++    # contrib = 1.0(ratio)*1.0(eff)  ; total_w = 1.0 + 3.0 = 4.0 -> 0.25
++    assert scores["m"] == pytest.approx(0.25)
++
++
++def test_score_maps_empty_map_skipped():
++    assert _score_maps(_solid_bgr(8, 8, (0, 0, 255)), {"m": []}) == {}
++
++
++def test_aggregate_span_map_modal_and_confidence():
++    recs = [
++        _FrameRecord(0, 0, True, "the_cliff", {"the_cliff": 0.8, "helios": 0.1}),
++        _FrameRecord(1, 100, True, "the_cliff", {"the_cliff": 0.6, "helios": 0.2}),
++        _FrameRecord(2, 200, True, "helios", {"the_cliff": 0.1, "helios": 0.9}),
++    ]
++    map_id, conf = _aggregate_span_map(recs)
++    assert map_id == "the_cliff"
++    assert conf == pytest.approx(round((0.8 + 0.6 + 0.1) / 3, 6))
++
++
++def test_aggregate_span_map_all_unknown():
++    recs = [_FrameRecord(0, 0, True, "unknown", {})]
++    assert _aggregate_span_map(recs) == ("unknown", 0.0)
++
++
++def test_aggregate_span_map_tie_broken_by_mean_confidence():
++    recs = [
++        _FrameRecord(0, 0, True, "a", {"a": 0.4, "b": 0.9}),
++        _FrameRecord(1, 1, True, "b", {"a": 0.4, "b": 0.9}),
++    ]
++    # 1 vote each -> tie -> higher mean score wins (b: 0.9 > a: 0.4)
++    map_id, conf = _aggregate_span_map(recs)
++    assert map_id == "b"
++    assert conf == pytest.approx(0.9)
++
++
++def test_ordered_map_slugs_uses_map_labels_order():
++    # helios + the_cliff are both MAP_LABELS; order follows MAP_LABELS not dict.
++    mz = lambda: [_MapZone(spec=None, weight=1.0, weight_override=None)]  # noqa: E731
++    ordered = _ordered_map_slugs({"the_cliff": mz(), "helios": mz(), "zz_x": mz()})
++    assert ordered.index("helios") < ordered.index("the_cliff") or (
++        ordered.index("the_cliff") < ordered.index("helios")
++    )
++    assert "zz_x" in ordered  # non-MAP_LABELS slug still included
++
++
++# ===========================================================================
++# Reused-symbol contract pin (frozen against a future 9.14 Tool-9 refit)
++# ===========================================================================
++
++
++def test_zone_fires_on_frame_contract_pin():
++    frame = _solid_bgr(8, 8, (0, 0, 255))  # pure red
++    h, s, v = _hsv_user_for_bgr((0, 0, 255))
++    band = HsvBand(h_center=h, h_tol=10, s_center=s, s_tol=30,
++                   v_center=v, v_tol=30, min_ratio=0.3)
++    spec = ZoneSpec(name="z", owning_class="m", kind="map",
++                    rect=Rect(0, 0, 8, 8), band=band)
++    fired, ratio = zone_fires_on_frame(spec, frame)
++    assert fired is True
++    assert ratio == pytest.approx(1.0)
++
++    # A band that cannot match the frame -> no fire, ratio 0.0.
++    off = HsvBand(h_center=h, h_tol=2, s_center=0, s_tol=1,
++                  v_center=0, v_tol=1, min_ratio=0.3)
++    spec_off = ZoneSpec(name="z", owning_class="m", kind="map",
++                        rect=Rect(0, 0, 8, 8), band=off)
++    fired_off, ratio_off = zone_fires_on_frame(spec_off, frame)
++    assert fired_off is False
++    assert ratio_off == pytest.approx(0.0)
++
++
++def test_argmax_with_threshold_contract_pin():
++    # empty -> unknown
++    assert _argmax_with_threshold(
++        {}, threshold=0.5, ordered_classes=[], zone_counts={}
++    ) == ("unknown", 0.0)
++    # below threshold -> unknown
++    pred, score = _argmax_with_threshold(
++        {"a": 0.2}, threshold=0.5, ordered_classes=["a"], zone_counts={"a": 1}
++    )
++    assert pred == "unknown"
++    # tie -> more zones wins
++    pred2, _ = _argmax_with_threshold(
++        {"a": 0.8, "b": 0.8},
++        threshold=0.5,
++        ordered_classes=["a", "b"],
++        zone_counts={"a": 1, "b": 5},
++    )
++    assert pred2 == "b"
++
++
++def test_resize_to_ref_contract_pin():
++    # AC6 lists _resize_to_ref among the three reused symbols whose contract
++    # must be pinned so a future 9.14 Tool-9 refit cannot silently drift it.
++    frame = _solid_bgr(200, 100, (0, 0, 255))  # h=200, w=100 (BGR red)
++    out = _resize_to_ref(frame, 100)
++    assert out.shape[0] == 100                       # resized to ref height
++    assert out.shape[1] == 50                        # aspect-preserved (100/200)
++    assert out.shape[2] == 3
++    # No-op when already at the reference height (same object/values).
++    same = _resize_to_ref(frame, 200)
++    assert same.shape[:2] == (200, 100)
++
++
++def test_default_config_path_picks_newest_by_version_then_mtime(tmp_path,
++                                                                monkeypatch):
++    cfg_dir = tmp_path / "output" / "map_configs"
++    cfg_dir.mkdir(parents=True)
++    # v2 written first, v10 second: natural-version order must pick v10 even
++    # though lexicographic "v10" < "v2".
++    (cfg_dir / "map_config.v2.json").write_text("{}", encoding="utf-8")
++    (cfg_dir / "map_config.v10.json").write_text("{}", encoding="utf-8")
++    monkeypatch.setattr(video_test, "_tooling_root", lambda: str(tmp_path))
++    picked = video_test._default_config_path()
++    assert picked is not None
++    assert os.path.basename(picked) == "map_config.v10.json"
++
++
++def test_default_config_path_none_when_dir_or_glob_empty(tmp_path,
++                                                         monkeypatch):
++    monkeypatch.setattr(video_test, "_tooling_root", lambda: str(tmp_path))
++    assert video_test._default_config_path() is None          # dir absent
++    (tmp_path / "output" / "map_configs").mkdir(parents=True)
++    assert video_test._default_config_path() is None          # glob empty
++
++
++def test_classify_in_match_empty_zones_is_false():
++    assert _classify_in_match(_solid_bgr(8, 8, (0, 0, 255)), []) is False
++
++
++def test_classify_in_match_fires_when_group_clears_gate():
++    frame = _solid_bgr(8, 8, (0, 0, 255))
++    z = _zone_to_spec(_zone_dict("z", (0, 0, 255), width=8, height=8), "in_match",
++                      "game_state")
++    assert _classify_in_match(frame, [z]) is True
++
++
++# ===========================================================================
++# Frame extraction — stride / timestamp math (cv2.VideoCapture mocked)
++# ===========================================================================
++
++
++def test_frame_source_default_stride_from_fps(monkeypatch):
++    frames = [_solid_bgr(4, 4, (0, 0, 0)) for _ in range(90)]
++    _patch_capture(monkeypatch, _FakeCapture(frames, fps=30.0))
++    stride, it = _frame_source("dummy.mp4", None)
++    assert stride == 30
++    kept = list(it)
++    assert [idx for idx, _ts, _f in kept] == [0, 30, 60]
++    # POS_MSEC unavailable (0.0) -> fps fallback: idx / fps * 1000
++    assert [ts for _i, ts, _f in kept] == [0, 1000, 2000]
++
++
++def test_frame_source_stride_override(monkeypatch):
++    frames = [_solid_bgr(4, 4, (0, 0, 0)) for _ in range(10)]
++    _patch_capture(monkeypatch, _FakeCapture(frames, fps=24.0))
++    stride, it = _frame_source("dummy.mp4", 5)
++    assert stride == 5
++    assert [idx for idx, _ts, _f in list(it)] == [0, 5]
++
++
++def test_frame_source_pos_msec_used_when_available(monkeypatch):
++    frames = [_solid_bgr(4, 4, (0, 0, 0)) for _ in range(3)]
++    cap = _FakeCapture(frames, fps=30.0, pos_msec=[33.4, 66.7, 100.9])
++    _patch_capture(monkeypatch, cap)
++    stride, it = _frame_source("dummy.mp4", 1)
++    kept = list(it)
++    assert [ts for _i, ts, _f in kept] == [33, 67, 101]  # round(POS_MSEC)
++
++
++def test_frame_source_not_opened_raises(monkeypatch):
++    _patch_capture(monkeypatch, _FakeCapture([], opened=False))
++    with pytest.raises(video_test.VideoOpenError):
++        _frame_source("dummy.mp4", None)
++
++
++def test_frame_source_skips_corrupt_decode(monkeypatch):
++    frames = [_solid_bgr(4, 4, (0, 0, 0)), None, _solid_bgr(4, 4, (0, 0, 0))]
++    _patch_capture(monkeypatch, _FakeCapture(frames, fps=30.0))
++    stride, it = _frame_source("dummy.mp4", 1)
++    # index 1 is a None decode -> skipped; the read after it (idx 2) is kept.
++    idxs = [idx for idx, _ts, _f in list(it)]
++    assert idxs == [0, 2]
++
++
++# ===========================================================================
++# results.json determinism (REL-005 / AC9)
++# ===========================================================================
++
++
++def _sample_results() -> dict:
++    recs = [
++        _FrameRecord(0, 0, True, "the_cliff", {"the_cliff": 0.812345678}),
++        _FrameRecord(30, 1000, False, "unknown", {}),
++    ]
++    states = ["in_match", "not_in_match"]
++    spans = [Span(0, 0, "the_cliff", 0.812345678)]
++    return _build_results(
++        hud_version="v2",
++        video="/abs/path/EVA_capture.mp4",
++        stride=30,
++        config="/abs/path/map_config.v2.json",
++        records=recs,
++        states=states,
++        spans=spans,
++    )
++
++
++def test_results_shape_and_basenames():
++    r = _sample_results()
++    assert list(r.keys()) == [
++        "hud_version",
++        "video",
++        "stride",
++        "config",
++        "frames",
++        "matches",
++    ]
++    assert r["video"] == "EVA_capture.mp4"
++    assert r["config"] == "map_config.v2.json"
++    assert r["frames"][0] == {
++        "frame_idx": 0,
++        "timestamp_ms": 0,
++        "state": "in_match",
++    }
++    assert r["matches"][0]["map_id"] == "the_cliff"
++    # confidence rounded to 6 dp
++    assert r["matches"][0]["confidence"] == pytest.approx(0.812346)
++
++
++def test_results_byte_identical_on_reserialize(tmp_path):
++    a = tmp_path / "a.json"
++    b = tmp_path / "b.json"
++    _write_results(_sample_results(), str(a))
++    _write_results(_sample_results(), str(b))
++    assert a.read_bytes() == b.read_bytes()
++    assert a.read_text(encoding="utf-8").endswith("}\n")  # trailing newline
++
++
++# ===========================================================================
++# main() end-to-end smoke (mocked capture; empty-zone config per AC8)
++# ===========================================================================
++
++
++def test_main_empty_zone_config_smoke(tmp_path, monkeypatch):
++    cfg_path = _write_config(tmp_path, _valid_config())  # fully unpopulated
++    video = tmp_path / "clip.mp4"
++    video.write_bytes(b"not-a-real-video")  # existence check only; capture mocked
++    frames = [_solid_bgr(8, 8, (10, 20, 30)) for _ in range(20)]
++    _patch_capture(monkeypatch, _FakeCapture(frames, fps=10.0))
++    out = tmp_path / "results.json"
++
++    rc = video_test.main(
++        [str(video), "--config", cfg_path, "--output", str(out)]
++    )
++    assert rc == 0
++    payload = json.loads(out.read_text(encoding="utf-8"))
++    assert payload["hud_version"] == "v2"
++    assert payload["stride"] == 10  # round(fps=10.0)
++    # in_match_detection empty -> every frame not_in_match -> no matches
++    assert all(f["state"] == "not_in_match" for f in payload["frames"])
++    assert payload["matches"] == []
++
++
++def test_main_missing_video_returns_1(tmp_path, capsys):
++    cfg_path = _write_config(tmp_path, _valid_config())
++    rc = video_test.main(["no_such_video.mp4", "--config", cfg_path])
++    assert rc == 1
++    assert "video not found" in capsys.readouterr().err
++
++
++def test_main_missing_config_returns_1(tmp_path, capsys):
++    video = tmp_path / "clip.mp4"
++    video.write_bytes(b"x")
++    rc = video_test.main([str(video), "--config", str(tmp_path / "nope.json")])
++    assert rc == 1
++    assert "config not found" in capsys.readouterr().err
++
++
++# ===========================================================================
++# Code-review regression pins (2026-05-17 /bmad-code-review patches P1-P8)
++# ===========================================================================
++
++
++def test_load_config_negative_weight_clean_valueerror(tmp_path):
++    # P3: negative weight / weight_override must be a clean ValueError, not a
++    # silent total_w<=0 -> score 0.0 masking a misconfigured map.
++    cfg = _valid_config(
++        maps={"the_cliff": {"zones": [_zone_dict("z", weight_override=-2.0)]}}
++    )
++    p = _write_config(tmp_path, cfg)
++    with pytest.raises(ValueError, match="non-negative"):
++        _load_config(p)
++
++
++def test_load_config_negative_score_duration_emits_note(tmp_path):
++    # P4a: a negative score_screen_duration_ms is tolerated (behaves like 0)
++    # but must be surfaced as an AC8-style note rather than passing silently.
++    cfg = _valid_config(score_screen_duration_ms=-500)
++    parsed = _load_config(_write_config(tmp_path, cfg))
++    assert parsed.score_screen_duration_ms == -500
++    assert any("score_screen_duration_ms is negative" in n for n in parsed.notes)
++
++
++def test_main_null_present_config_value_clean_error_no_traceback(
++    tmp_path, capsys
++):
++    # P1: a key that is present but null (int(None)/float(None)) must be a
++    # clean CLI error (rc 1), never an uncaught TypeError traceback.
++    cfg = _valid_config()
++    cfg["score_screen_duration_ms"] = None
++    cfg_path = _write_config(tmp_path, cfg)
++    video = tmp_path / "clip.mp4"
++    video.write_bytes(b"x")
++    rc = video_test.main([str(video), "--config", cfg_path])
++    assert rc == 1
++    assert "cannot load config" in capsys.readouterr().err
++
++
++def test_main_threshold_out_of_range_returns_1(tmp_path, capsys):
++    # P4b: --threshold outside [0,1] is rejected with a clean error.
++    cfg_path = _write_config(tmp_path, _valid_config())
++    video = tmp_path / "clip.mp4"
++    video.write_bytes(b"x")
++    rc = video_test.main(
++        [str(video), "--config", cfg_path, "--threshold", "1.5"]
++    )
++    assert rc == 1
++    assert "--threshold must be in" in capsys.readouterr().err
++
++
++def test_frame_source_nan_fps_falls_back_to_30(monkeypatch):
++    # P2: a NaN CAP_PROP_FPS must not blow up int(round(fps)); fall back to 30.
++    frames = [_solid_bgr(4, 4, (0, 0, 0)) for _ in range(31)]
++    _patch_capture(monkeypatch, _FakeCapture(frames, fps=float("nan")))
++    stride, it = _frame_source("dummy.mp4", None)
++    assert stride == 30
++    assert [idx for idx, _ts, _f in list(it)] == [0, 30]
++
++
++def test_frame_source_non_monotonic_pos_msec_clamped(monkeypatch):
++    # P8: a backwards-jittering POS_MSEC must be clamped non-decreasing so the
++    # score-screen exit can't stall.
++    frames = [_solid_bgr(4, 4, (0, 0, 0)) for _ in range(3)]
++    cap = _FakeCapture(frames, fps=30.0, pos_msec=[100.0, 50.0, 120.0])
++    _patch_capture(monkeypatch, cap)
++    _stride, it = _frame_source("dummy.mp4", 1)
++    ts = [t for _i, t, _f in list(it)]
++    assert ts == [100, 100, 120]  # second frame clamped up from 50 -> 100
