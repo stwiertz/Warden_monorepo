@@ -1,5 +1,9 @@
 source/*
 __pycache__/
 output/*
+# Story 9.9b AC9 Option A: zone fragments are the committed source-of-truth
+# (emitted map_config.* stays ignored — regenerable from fragments via emitter).
+!output/zones/
+!output/zones/**
 .warden_last_run.json
 labeled/*

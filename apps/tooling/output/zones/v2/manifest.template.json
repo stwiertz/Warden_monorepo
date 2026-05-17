@@ -1,0 +1,5 @@
+{
+  "hud_version": "v2",
+  "reference_resolution": { "width": 1920, "height": 1080 },
+  "score_screen_duration_ms": "TODO_HUMAN_CALIBRATION__see_AC3__median_of_5plus_EVA_captures__integer_ms__then_rename_this_file_to_manifest.json"
+}

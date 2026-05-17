@@ -60,7 +60,10 @@ _bmad/custom/config.user.toml
 
 # Tooling source videos and outputs (large binaries — don't commit)
 apps/tooling/source/
-apps/tooling/output/
+# Story 9.9b AC9 Option A: `/*` (was `apps/tooling/output/`) so git descends and
+# the `!output/zones/` negation in apps/tooling/.gitignore can re-include the
+# committed zone fragments. Emitted map_config.* + all other output/ stay ignored.
+apps/tooling/output/*
 apps/tooling/labeled/
 
 # Mobile/Expo native cache
