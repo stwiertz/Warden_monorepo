@@ -261,22 +261,57 @@ def flow_tool6() -> tuple[list[str], str | None]:
 def flow_tool9() -> tuple[list[str], str | None]:
     """Collect arguments for roi_detection_tester.py.
 
-    Directory-driven — returns ([], None) if the user Ctrl-C's any prompt
-    (questionary returns None on interrupt).
+    Reads an emitted map_config.<hud_version>.json (the Story 9.9c unified
+    schema, written by map_config_emitter / Tool 3) and replays Tool 6's
+    labeled PNG dataset through it, reporting three classifiers (HUD-version,
+    binary in_match, per-map ID). Returns ([], None) if the user Ctrl-C's any
+    prompt (questionary returns None on interrupt).
     """
     args = ["tools/roi_detection_tester.py"]
 
     def _is_pos_int(text: str) -> bool:
         return text.isascii() and text.isdigit() and int(text) > 0
 
-    zones_path = questionary.text(
-        "Zones fragment (--zones)  [blank = newest output/auto_rois/v*/discovered_zones.yaml]:"
+    def _is_unit_float(text: str) -> bool:
+        try:
+            return 0.0 <= float(text) <= 1.0
+        except ValueError:
+            return False
+
+    configs_parent = os.path.join(PROJECT_ROOT, "output", "map_configs")
+    config_path = questionary.text(
+        "Map config (--config)  [blank = pick newest map_config.*.json from "
+        "apps/tooling/output/map_configs/]:"
     ).ask()
-    if zones_path is None:
+    if config_path is None:
         return [], None
-    zones_path = zones_path.strip()
-    if zones_path:
-        args += ["--zones", zones_path]
+    config_path = config_path.strip()
+    if config_path:
+        args += ["--config", config_path]
+    else:
+        # Blank: offer a picker over map_config.*.json files in the conventional
+        # parent. No auto-select. If none exist, fall through WITHOUT --config
+        # so roi_detection_tester's own newest-config default / clean error
+        # surfaces (mirrors flow_tool3's blank-picker-over-default pattern).
+        try:
+            cfg_files = sorted(
+                e.name
+                for e in os.scandir(configs_parent)
+                if e.is_file()
+                and e.name.startswith("map_config.")
+                and e.name.endswith(".json")
+            )
+        except OSError:
+            cfg_files = []
+        if cfg_files:
+            picked = questionary.select(
+                "Map config file:",
+                choices=cfg_files,
+            ).ask()
+            if picked is None:
+                return [], None
+            if picked:
+                args += ["--config", os.path.join("output", "map_configs", picked)]
 
     labeled_dir = questionary.text(
         "Labeled dataset directory (--labeled)  [blank = output/labeled]:"
@@ -309,6 +344,27 @@ def flow_tool9() -> tuple[list[str], str | None]:
             args += ["--limit", limit]
             break
         print("  Invalid — enter a positive integer (or blank for no cap).")
+
+    for flag, prompt in (
+        ("--hud-version-threshold",
+         "HUD-version threshold (--hud-version-threshold)  [blank = 0.5]:"),
+        ("--in-match-threshold",
+         "in_match threshold (--in-match-threshold)  [blank = 0.5]:"),
+        ("--map-threshold",
+         "Per-map threshold (--map-threshold)  [blank = config's "
+         "identification_threshold]:"),
+    ):
+        while True:
+            val = questionary.text(prompt).ask()
+            if val is None:
+                return [], None
+            val = val.strip()
+            if not val:
+                break
+            if _is_unit_float(val):
+                args += [flag, val]
+                break
+            print("  Invalid — enter a number in [0.0, 1.0] (or blank).")
 
     save_csv = questionary.confirm(
         "Save per-frame predictions CSV too (--save-frame-predictions)?", default=False
