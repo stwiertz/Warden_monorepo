@@ -211,3 +211,5 @@ development_status:
   10-4-stripe-production-activation: backlog
   10-5-demand-evidence-capture-pre-v1: backlog
   epic-10-retrospective: optional
+  epic-11: backlog  # POST-V1, NOT V1-BLOCKING. Tooling Desktop GUI. Added 2026-05-17 (Stephane, /bmad-correct-course): holds a future GUI initiative so its design cannot drift from delivered tool behavior. V1 operator entry point stays the questionary TUI (wardentooling.py) per PRD tooling-TUI-001 + PRD:766 "no --no-tui in V1". No Epic 9 / Epic 10 / Decision #ES-1 impact. Founding constraints C1–C7 (3-classifier Tool 9 report; real Tool 9 run knobs; no invented video sample-rate; delivered HUD-version model + 9.14 _normalize_hud; snap-policy surfaced; single-step undo; Tk-vs-Qt spike) live in epics-and-stories.md Epic 11. No stories until post-V1 (bmad-create-story). See sprint-change-proposal-2026-05-17.md.
+  epic-11-retrospective: optional

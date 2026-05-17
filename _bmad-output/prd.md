@@ -763,7 +763,7 @@ This section documents project-type-specific technical requirements per surface.
 
 **Scripting Support.**
 - **Both interactive and scriptable.** TUI launcher for interactive workflow (`questionary`-based; requires TTY; silent failure on pipe/redirect — known risk). Each underlying tool callable directly via argparse for scripting.
-- **No `--no-tui` headless flag** in V1 (deferred per tooling distillate; would mirror underlying tool args for scripting).
+- **No `--no-tui` headless flag** in V1 (deferred per tooling distillate; would mirror underlying tool args for scripting). A desktop GUI replacing the TUI is likewise **post-V1** — tracked as Epic 11 (backlog, non-V1-blocking) with founding constraints C1–C7; see `sprint-change-proposal-2026-05-17.md`. V1 operator entry point remains the questionary TUI (`tooling-TUI-001`).
 - **Last-run persistence** (`.warden_last_run.json`) supports re-run-with-same-args after successful exit; gitignored.
 - **Exit codes** — propagated from underlying tool subprocess to TUI launcher; saved-only-on-success persistence.
 
