@@ -6,6 +6,12 @@ Each entry: bullet with the finding + brief reason.
 
 ---
 
+## Deferred from: code review of 9-13-video-detection-tester (2026-05-17)
+
+- **Per-map empty `zones` among otherwise-populated maps is not individually surfaced** (`apps/tooling/tools/video_test.py:309-334` — `_load_config`) — AC8 only mandates a per-classifier global note (`minimap_identification.maps unpopulated — ...` fires only when *zero* maps are populated). A config with map A populated and map B `"zones": []` emits no note about B; B simply never appears in scores — a misauthored single empty map among many is invisible. Tool 9's precedent is matched (per-classifier granularity), so this is hardening beyond AC8, not a spec violation. Fold into Story 9.9b's iterative zone-population loop (which will repeatedly emit/test partially-populated configs and is the natural place a per-map coverage report earns its keep) rather than reopen 9.13.
+
+---
+
 ## Deferred from: code review of 9-9c-schema-unification (2026-05-16, second pass)
 
 - **Residual boundary-coverage gaps in the rewritten pytest suite** (`apps/tooling/tests/test_map_config_emitter.py`) — Even after the 2026-05-15 first pass added P5–P11 (slug-regex, boolean-`weight_override`, extra-unknown-field, parametrized missing-key), no test exercises exact inclusive schema bounds (`Hsv.h_center` 0 and 360, `h_tol` 180, `s/v_center`/`tol` 100, `Zone.weight` 0), negative `weight`, zero-map `minimap_identification.maps: {}`, or an empty-object `{}` fragment crossing the assemble→validate boundary. AC8's per-bucket case-count floors are met and verified, so these are hardening beyond spec — an off-by-one at an inclusive bound would currently pass CI. Fold into Story 9.14 (Tool 9 refit for the unified schema), which re-exercises the same schema surface, rather than reopen 9.9c.
@@ -53,3 +59,9 @@ Each entry: bullet with the finding + brief reason.
 - **Epics-and-stories file's status divergence on 7.4 / 7.5 persists post-PR** — `_bmad-output/epics-and-stories.md` Epic 0 Implementation Notes still claims 7.4 = `ready-for-dev` (legacy file says `done`) and 7.5 = `ready-for-dev` (legacy file says `in-progress`). The audit calls this stale but ships it stale. Story 0.2 owns the disposition tags on legacy files; epics-file status fixup belongs to a separate cleanup pass.
 - **Story 2.7 CASCADE claim not grep-verified against `database.ts`** — Audit row for 2.7 asserts ON DELETE CASCADE for `map_segments` / `clip_exports` / `audio_comments` without a direct grep against `apps/mobile/src/shared/services/database.ts`. Story 0.1 AC explicitly delegates verification to Stephane's manual review step, so this is process-correct — but worth noting if anyone later needs the CASCADE evidence.
 - **Audit Rule A negative-find evidence (zero `IAP` / `free-tier` / `cloud-encode` hits) not recorded in Debug Log References** — Story 0.1 Dev Notes describe the trigger-word search as the method; the Debug Log records "read fully" but no grep evidence. Process artifact (would strengthen reviewer-skepticism counter-evidence on a future audit) but not deliverable content.
+
+## Deferred from: code review of 9-13-video-detection-tester (2026-05-17, second /bmad-code-review pass)
+
+- **`int(score_screen_duration_ms)` truncates a float / rejects a `"500.0"`-style string** — `video_test.py:345`. Schema-gated upstream (the emitter writes an integer per `map-config.schema.json`), so this only bites a hand-corrupted config; low value, deferred until a robustness-pass on `_load_config`.
+- **`test_frame_source` POS_MSEC fake models the just-read frame, not real cv2's next-frame `CAP_PROP_POS_MSEC` semantics** — `test_video_detection_tester.py`. A test-fidelity nuance against the documented AC4 fallback decision, not a code defect; the production `timestamp_ms` could be off-by-one-frame vs real video and the fake would not catch it. Revisit if a real-video smoke (AC12, with 9.9b) shows timestamp drift.
+- **Default-discovery path has zero test coverage** — `test_video_detection_tester.py`. `_classify_hud_version` mismatch/WARN and the default `--config`/`--output` discovery branch (the only non-deterministic + collision-prone path) are unexercised; pre-existing test-debt, not caused by this change. Fold into the next test-coverage pass on Tool 11.
