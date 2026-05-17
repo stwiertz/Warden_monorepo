@@ -1,7 +1,7 @@
 """Shared zone primitives + the hue-wrap band-fire test.
 
-Pure data + numpy/cv2 logic — no Tk, no file I/O. Relocated **verbatim** by
-Story 9.11 from the now-retired Tool 8 package so the surviving Tool 9
+Pure data + numpy/cv2 logic — no Tk, no file I/O. Relocated by Story 9.11
+from the now-retired Tool 8 package so the surviving Tool 9
 (``roi_detection_tester``) — and Tool 9's future 9.14 refit — have a durable
 home for ``Rect`` / ``HsvBand`` / ``TARGET_CLASSES`` and the
 ``band_inrange_ratio`` test plus its cross-module HSV-conversion closure
@@ -9,8 +9,10 @@ home for ``Rect`` / ``HsvBand`` / ``TARGET_CLASSES`` and the
 ``_H_CV_TO_USER`` / ``_SV_CV_TO_USER``).
 
 ROI/zone coordinates are in *cell pixel space*; HSV bands are stored in *user
-space* (H 0–360, S/V 0–100). Behaviour is byte-for-byte identical to the
-retired sources (Story 9.11 is a relocation, not a rewrite). Exact
+space* (H 0–360, S/V 0–100). Code and behaviour are byte-for-byte identical
+to the retired sources (Story 9.11 is a relocation, not a rewrite); the sole
+move-time edit is one now-stale ``TARGET_CLASSES`` comment line that
+referenced the retired Tool 8, dropped during relocation. Exact
 pre-retirement module/line provenance is preserved in git history and the
 Story 9.11 File List.
 """
