@@ -429,6 +429,46 @@ def flow_zone_picker() -> tuple[list[str], str | None]:
 
 
 # ---------------------------------------------------------------------------
+# Tool 11 — video_test (single-file headless tool; positional video)
+# ---------------------------------------------------------------------------
+
+
+def flow_video_test() -> tuple[list[str], str | None]:
+    """Collect arguments for video_test.py (Tool 11).
+
+    Positional-video tool — mirrors flow_tool6's template. Returns
+    ([], None) if the user cancels the picker or Ctrl-C's any prompt
+    (browse_video_file / questionary return None on cancel).
+    """
+    video_path = browse_video_file(
+        "Select video file for Tool 11 — Video Detection Tester:"
+    )
+    if not video_path:
+        return [], None
+    args = ["tools/video_test.py", video_path]
+
+    config_path = questionary.text(
+        "Map config (--config)  [blank = newest output/map_configs/map_config.v*.json]:"
+    ).ask()
+    if config_path is None:
+        return [], None
+    config_path = config_path.strip()
+    if config_path:
+        args += ["--config", config_path]
+
+    output_path = questionary.text(
+        "Results output path (--output)  [blank = default timestamped dir]:"
+    ).ask()
+    if output_path is None:
+        return [], None
+    output_path = output_path.strip()
+    if output_path:
+        args += ["--output", output_path]
+
+    return args, video_path
+
+
+# ---------------------------------------------------------------------------
 # Dev tool flows
 # ---------------------------------------------------------------------------
 
@@ -486,6 +526,7 @@ _TOOL_MAP = {
     "video_timeline_labeler": ("Tool 6 — Label Frames from Video Timeline",     flow_tool6),
     "roi_detection_tester":   ("Tool 9 — Test ROI Detection on Labeled Frames", flow_tool9),
     "zone_picker":            ("Tool 10 — Unified Zone Picker",                 flow_zone_picker),
+    "video_test":             ("Tool 11 — Video Detection Tester",             flow_video_test),
 }
 
 
@@ -513,6 +554,14 @@ def _reprompt_source(
     elif tool_key == "zone_picker":
         # Option-driven interactive tool — re-run the full flow.
         return flow_zone_picker()
+    elif tool_key == "video_test":
+        new_video = browse_video_file("Select new video file:")
+        if not new_video:
+            return [], None
+        # last_args layout: ["tools/video_test.py", <video>, ...] — video is
+        # positional at index 1 (same shape as video_timeline_labeler).
+        new_args = [last_args[0], new_video] + last_args[2:]
+        return new_args, new_video
     else:
         # map_config_emitter: directory-driven re-run of the full flow.
         return flow_tool3()
@@ -573,6 +622,7 @@ def menu_main() -> None:
         "Tool 6 — Label Frames from Video Timeline",
         "Tool 9 — Test ROI Detection on Labeled Frames",
         "Tool 10 — Unified Zone Picker",
+        "Tool 11 — Video Detection Tester",
         "Dev Tools",
         "Quit",
     ]
@@ -647,6 +697,23 @@ def menu_main() -> None:
                     save_last_run(
                         "zone_picker",
                         "Tool 10 — Unified Zone Picker",
+                        args,
+                        video_path,
+                    )
+
+        elif choice == "Tool 11 — Video Detection Tester":
+            args, video_path = flow_video_test()
+            if not args:
+                continue
+            confirmed = questionary.confirm(
+                f"Run: {exe_name} {' '.join(args)}?", default=True
+            ).ask()
+            if confirmed:
+                returncode = run_tool(args)
+                if returncode == 0:
+                    save_last_run(
+                        "video_test",
+                        "Tool 11 — Video Detection Tester",
                         args,
                         video_path,
                     )
