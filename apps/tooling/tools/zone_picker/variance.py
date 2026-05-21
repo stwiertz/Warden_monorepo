@@ -16,12 +16,13 @@ No tkinter — :class:`ClassStats` is unit-tested headless (AC11).
 from __future__ import annotations
 
 import math
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 import cv2
 import numpy as np
 
-from tools.common.zones import HsvBand, Rect
+from tools.common.zones import HsvBand, Rect, band_inrange_ratio
 
 # ---------------------------------------------------------------------------
 # Welford (BGR / linear-HSV) — verbatim from overlay_stack_analyzer.py @ ba6b326
@@ -237,30 +238,43 @@ class ClassStats:
         return derive_band_for_rect(rect, self.mean_hsv, self.std_hsv, tol_k=tol_k)
 
 
-def class_stats(frames: list[np.ndarray]) -> ClassStats:
-    """Single-pass per-class variance fold over already-loaded BGR frames.
+def class_stats(
+    frames: Iterable[np.ndarray],
+    progress: Callable[[int], None] | None = None,
+) -> ClassStats:
+    """Single-pass per-class variance fold over BGR frames.
 
-    Frames must share a shape (the picker resizes on load — same contract as
-    Tool 7's modal-shape pass). Raises ``ValueError`` on an empty list. The fold
-    is the recovered Tool 7 per-frame loop, minus the two-pass PNG re-read
-    (frames are in memory here): BGR Welford + linear-HSV Welford + circular-Hue
-    accumulator, then channel-0 of mean/std HSV overwritten with the circular
-    results (channels 1/2 stay linear S/V).
+    ``frames`` may be any iterable (a list, or a generator that decodes PNGs
+    lazily) — it is consumed exactly once, so the picker can stream thousands
+    of 1080p frames through it without ever holding them all in memory. Frames
+    must share a shape (the picker resizes on load — same contract as Tool 7's
+    modal-shape pass). Raises ``ValueError`` if the iterable yields no frames.
+    The fold is the recovered Tool 7 per-frame loop, minus the two-pass PNG
+    re-read: BGR Welford + linear-HSV Welford + circular-Hue accumulator, then
+    channel-0 of mean/std HSV overwritten with the circular results (channels
+    1/2 stay linear S/V). ``progress`` (if given) is called with the running
+    frame count after each frame is folded.
     """
-    if not frames:
-        raise ValueError("class_stats requires at least one frame")
-
-    shape = np.asarray(frames[0]).shape
-    bgr_state = _welford_init(shape)
-    hsv_state = _welford_init(shape)
-    hue_state = _circ_hue_init((shape[0], shape[1]))
+    bgr_state = hsv_state = hue_state = None
+    count = 0
 
     for frame in frames:
         f = np.asarray(frame)
+        if bgr_state is None:  # first frame fixes the shape (was frames[0])
+            shape = f.shape
+            bgr_state = _welford_init(shape)
+            hsv_state = _welford_init(shape)
+            hue_state = _circ_hue_init((shape[0], shape[1]))
         bgr_state = _welford_update(bgr_state, f.astype(np.float64))
         hsv = cv2.cvtColor(f, cv2.COLOR_BGR2HSV)
         hsv_state = _welford_update(hsv_state, hsv.astype(np.float64))
         hue_state = _circ_hue_update(hue_state, hsv[:, :, 0])
+        count += 1
+        if progress is not None:
+            progress(count)
+
+    if count == 0:
+        raise ValueError("class_stats requires at least one frame")
 
     mean_bgr, stddev_bgr = _welford_finalize(bgr_state)
     mean_hsv_lin, std_hsv_lin = _welford_finalize(hsv_state)
@@ -284,4 +298,100 @@ def class_stats(frames: list[np.ndarray]) -> ClassStats:
         mean_hsv=mean_hsv,
         std_hsv=std_hsv,
         heatmap_bgr=heatmap_bgr,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Already-picked zone-set re-evaluation — the "no-redraw re-check" (Story 9.12
+# follow-up). Pure / Tk-free / unit-tested headless; lives here (not app.py)
+# because variance.py is C7-survivable: an Epic 11 Qt rewrite discards the Tk
+# glue but reuses this module as-is, so the re-check logic is not lost.
+#
+# Numerics are byte-for-byte the prior inline app.py readout: per-zone
+# band_inrange_ratio on the (clamped) rect over the class mean image; aggregate
+# = Σ effective_weight·fired / Σ effective_weight, effective_weight =
+# weight_override if not None else weight. Moving this here changes NO behaviour
+# — app.py now delegates instead of duplicating the loop.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ZoneSetReadout:
+    """Re-evaluation of an already-picked zone set against a class mean image.
+
+    ``ratios`` / ``fired`` are per-zone, in the input order. ``aggregate`` is
+    the weighted fired-fraction (0.0 when the set is empty or total weight is
+    0). ``n_zones`` is ``len(zones)``. This is the signal that lets the operator
+    flip the Class/Map dropdown to the negative class and instantly see how the
+    SAVED zones score there — no manual ROI redraw.
+    """
+
+    ratios: list[float]
+    fired: list[bool]
+    aggregate: float
+    n_zones: int
+
+
+def evaluate_zone_set(
+    zones: "list[tuple[Rect, HsvBand, float, float | None]]",
+    mean_bgr: np.ndarray,
+) -> ZoneSetReadout:
+    """Re-evaluate ``zones`` (the picker's ``(rect, band, weight, wo)`` tuples)
+    against ``mean_bgr`` (a :class:`ClassStats.mean_bgr`). Pure; no Tk, no I/O.
+    """
+    ratios: list[float] = []
+    fired: list[bool] = []
+    total = 0.0
+    fired_w = 0.0
+    for rect, band, weight, wo in zones:
+        eff = float(weight if wo is None else wo)
+        total += eff
+        r = band_inrange_ratio(band, rect.clamp_to(mean_bgr.shape), mean_bgr)
+        hit = r >= band.min_ratio
+        ratios.append(r)
+        fired.append(hit)
+        if hit:
+            fired_w += eff
+    aggregate = fired_w / total if total else 0.0
+    return ZoneSetReadout(
+        ratios=ratios, fired=fired, aggregate=aggregate, n_zones=len(zones)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Live positive-VS-negative discrimination — a candidate (rect, band) scored
+# against BOTH class proxy means at once, so the operator sees at ＋Add time
+# whether the zone fires on the target class and stays dark on the other. Pure
+# / Tk-free / C7-survivable. The picker caches the two means (positive pooled
+# maps / negative lobby+score+transition) and calls this on every drag + Add.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ZoneDiscrimination:
+    """Same band scored on the positive and the negative mean image. Useful
+    zone ⇔ ``discriminant`` (fires positive, dark negative)."""
+
+    pos_ratio: float
+    neg_ratio: float
+    pos_fires: bool
+    neg_fires: bool
+
+    @property
+    def discriminant(self) -> bool:
+        return self.pos_fires and not self.neg_fires
+
+
+def zone_discrimination(
+    rect: Rect, band: HsvBand, pos_mean_bgr: np.ndarray, neg_mean_bgr: np.ndarray
+) -> ZoneDiscrimination:
+    """Score ``(rect, band)`` against both class means. Each fire flag is the
+    band's own ``min_ratio`` applied to that mean's in-range ratio."""
+    pr = band_inrange_ratio(band, rect.clamp_to(pos_mean_bgr.shape), pos_mean_bgr)
+    nr = band_inrange_ratio(band, rect.clamp_to(neg_mean_bgr.shape), neg_mean_bgr)
+    return ZoneDiscrimination(
+        pos_ratio=pr,
+        neg_ratio=nr,
+        pos_fires=pr >= band.min_ratio,
+        neg_fires=nr >= band.min_ratio,
     )

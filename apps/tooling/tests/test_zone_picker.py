@@ -317,3 +317,67 @@ class TestDeriveBand:
             Rect(0, 0, 0, 0), np.zeros((5, 5, 3)), np.zeros((5, 5, 3))
         )
         assert band.h_tol == 10 and band.s_tol == 5 and band.v_tol == 5
+
+
+class TestEvaluateZoneSet:
+    """The no-redraw re-check (Story 9.12 follow-up) — pure aggregate/weight
+    math. ``min_ratio`` extremes (0.0 → always fires, 2.0 → never fires) isolate
+    the weighting from the HSV ratio so the assertions are deterministic."""
+
+    _MEAN = np.zeros((4, 4, 3), np.uint8)
+
+    def test_empty_zone_set_is_zeroed(self):
+        r = V.evaluate_zone_set([], self._MEAN)
+        assert r.n_zones == 0 and r.aggregate == 0.0
+        assert r.ratios == [] and r.fired == []
+
+    def test_weighted_aggregate_and_fired_flags(self):
+        always = HsvBand(0, 360, 50, 100, 50, 100, min_ratio=0.0)  # ratio≥0 → fires
+        never = HsvBand(0, 360, 50, 100, 50, 100, min_ratio=2.0)   # ratio<2 → dark
+        zones = [
+            (Rect(0, 0, 4, 4), always, 1.0, None),  # eff 1.0, fired
+            (Rect(0, 0, 4, 4), never, 3.0, None),   # eff 3.0, dark
+        ]
+        r = V.evaluate_zone_set(zones, self._MEAN)
+        assert r.n_zones == 2
+        assert r.fired == [True, False]
+        assert all(0.0 <= x <= 1.0 for x in r.ratios)
+        assert r.aggregate == pytest.approx(1.0 / 4.0)  # 1.0 / (1.0 + 3.0)
+
+    def test_weight_override_supersedes_weight(self):
+        always = HsvBand(0, 360, 50, 100, 50, 100, min_ratio=0.0)
+        never = HsvBand(0, 360, 50, 100, 50, 100, min_ratio=2.0)
+        zones = [
+            (Rect(0, 0, 4, 4), always, 1.0, 10.0),  # eff = wo 10.0, fired
+            (Rect(0, 0, 4, 4), never, 5.0, None),   # eff = weight 5.0, dark
+        ]
+        r = V.evaluate_zone_set(zones, self._MEAN)
+        assert r.aggregate == pytest.approx(10.0 / 15.0)
+
+
+class TestZoneDiscrimination:
+    """Live positive-VS-negative readout. White (V≈100) positive mean and black
+    (V≈0) negative mean with a high-V band separate deterministically without
+    HSV hand-math."""
+
+    _WHITE = np.full((4, 4, 3), 255, np.uint8)
+    _BLACK = np.zeros((4, 4, 3), np.uint8)
+    # Wide H/S, V locked high → matches white, misses black.
+    _HIGH_V = HsvBand(0, 180, 0, 100, 100, 10, min_ratio=0.3)
+
+    def test_fires_positive_dark_negative_is_discriminant(self):
+        d = V.zone_discrimination(
+            Rect(0, 0, 4, 4), self._HIGH_V, self._WHITE, self._BLACK
+        )
+        assert d.pos_fires and not d.neg_fires
+        assert d.discriminant is True
+        assert d.pos_ratio == pytest.approx(1.0)
+        assert d.neg_ratio == pytest.approx(0.0)
+
+    def test_fires_on_both_is_not_discriminant(self):
+        wide_v = HsvBand(0, 180, 0, 100, 50, 100, min_ratio=0.3)  # V any → both fire
+        d = V.zone_discrimination(
+            Rect(0, 0, 4, 4), wide_v, self._WHITE, self._BLACK
+        )
+        assert d.pos_fires and d.neg_fires
+        assert d.discriminant is False
