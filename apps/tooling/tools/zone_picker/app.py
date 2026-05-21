@@ -12,8 +12,10 @@ round-trip.
 
 from __future__ import annotations
 
+import queue
 import subprocess
 import sys
+import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
@@ -33,10 +35,29 @@ from .modes import (
     _InspectorShim,
     mode_by_key,
 )
-from .variance import ClassStats, class_stats
+from .variance import (
+    ClassStats,
+    class_stats,
+    evaluate_zone_set,
+    zone_discrimination,
+)
 
 _REF_H = 1080  # ROIMode.REF_H — frames are resized to this so zone rects (ref
 _REF_W = 1920  # space) align with the mean image band_inrange_ratio reads.
+
+# in_match / hud modes pool thousands of 1080p frames (~6 MB each). The full
+# variance fold *streams* every frame (numerically exact), but the raw viewer
+# only ever shows one frame at a time, so keep just an evenly-strided in-memory
+# sample for Prev/Next stepping instead of all ~14 GB of them.
+_RAW_SAMPLE_CAP = 400
+
+# The in-picker readout is an explicit FAST PROXY — Tool 9 (AC6) owns the
+# authoritative full-dataset accuracy. So the variance fold only needs an
+# evenly-strided sample of the class, not every (pooled in_match = ~2.4k) PNG:
+# the class mean image stabilises fast and decoding ~50 frames instead of
+# thousands makes a Class/Map switch near-instant. Tune here if a noisier mean
+# is acceptable for even faster switching.
+_FOLD_SAMPLE_CAP = 50
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +90,30 @@ def _bgr_to_pil(frame_bgr: np.ndarray) -> Image.Image:
     return Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
 
 
+def _evenly_sampled(paths: list[str], cap: int) -> list[str]:
+    """An evenly-spaced subset of ``paths`` of size ``min(len, cap)``, spanning
+    first..last so the sampled mean represents the whole class (not front-
+    loaded). Shared by the primary loader and the background mean-prefetch."""
+    n = len(paths)
+    if n <= cap or cap <= 1:
+        return list(paths) if n <= cap else [paths[0]]
+    idx = sorted({round(k * (n - 1) / (cap - 1)) for k in range(cap)})
+    return [paths[i] for i in idx]
+
+
+def _mean_of_sample(paths: list[str], cap: int) -> np.ndarray | None:
+    """Decode an evenly-strided sample and return its class mean BGR (proxy),
+    or None if nothing decodes. Pure-ish (I/O only); no Tk."""
+    frames = []
+    for p in _evenly_sampled(paths, cap):
+        img = _read_bgr(p)
+        if img is not None:
+            frames.append(_resize_to_ref(img))
+    if not frames:
+        return None
+    return class_stats(frames).mean_bgr
+
+
 # ---------------------------------------------------------------------------
 # Main window
 # ---------------------------------------------------------------------------
@@ -92,8 +137,25 @@ class ZonePickerApp(tk.Tk):
         self._frames: list[np.ndarray] = []
         self._frame_paths: list[str] = []
         self._frame_idx = 0
+        # Bumped on every selection change; a background load whose token no
+        # longer matches is stale and silently discarded (last-click-wins).
+        self._load_token = 0
+        # Worker→main hand-off. Tk/Tcl is NOT thread-safe and calling
+        # ``.after`` from a worker thread is unreliable on Windows, so the
+        # background loader only ever puts messages here; a permanent
+        # main-thread poller (started in _build_ui) drains it.
+        self._load_q: queue.Queue = queue.Queue()
         self._stats: ClassStats | None = None
         self._last_rect: Rect | None = None
+        # Last HSV band (auto-seed or operator-tuned) — persisted across a
+        # canvas rebuild so flipping the Class/Map dropdown re-checks the SAME
+        # zone on the new class without re-drawing/re-typing it.
+        self._last_band: HsvBand | None = None
+        # Proxy class means keyed by selection label, so in_match can score a
+        # candidate against BOTH positive and negative at once (the other class
+        # is prefetched in the background so no dropdown toggle is needed).
+        self._mean_cache: dict[str, np.ndarray] = {}
+        self._prefetching: set[str] = set()
         self._view = "raw"
 
         self._mode = mode_by_key(initial_mode)
@@ -169,6 +231,9 @@ class ZonePickerApp(tk.Tk):
 
         self._shim = _InspectorShim(self._toolbar, self.set_status)
 
+        # Permanent main-thread poller for background-load messages.
+        self.after(80, self._drain_load_q)
+
     def set_status(self, text):
         self._status.config(text=str(text))
 
@@ -194,34 +259,135 @@ class ZonePickerApp(tk.Tk):
         if not paths:
             self.set_status(f"No PNGs for selection '{sel}'")
             return
-        self.set_status(f"Loading {len(paths)} frame(s) for '{sel}' …")
-        self.update_idletasks()
+        # Spawn a worker and return immediately so the Tk event loop keeps
+        # running (the window paints / stays responsive). The heavy decode +
+        # variance fold over thousands of 1080p frames used to run inline —
+        # before mainloop() on first selection — which is why the window
+        # opened white and "Not Responding".
+        self._load_token += 1
+        token = self._load_token
+        self.set_status(f"Loading {len(paths)} frame(s) for '{sel}' … 0%")
+        threading.Thread(
+            target=self._load_worker, args=(token, sel, paths), daemon=True
+        ).start()
 
-        frames: list[np.ndarray] = []
-        kept_paths: list[str] = []
-        for p in paths:
-            img = _read_bgr(p)
-            if img is None:
-                continue
-            frames.append(_resize_to_ref(img))
-            kept_paths.append(p)
-        if not frames:
-            self.set_status(f"No readable PNGs for '{sel}'")
-            return
+    def _load_worker(self, token: int, sel: str, paths: list[str]):
+        """Background: fold an evenly-strided sample of the class (cap
+        ``_FOLD_SAMPLE_CAP``) through ``class_stats`` — the readout is an
+        explicit fast PROXY (Tool 9 / AC6 owns full-dataset accuracy), so only
+        ~50 PNGs are decoded instead of the whole (pooled in_match ≈ 2.4k) set,
+        making a Class/Map switch near-instant. NO Tk calls — every result is
+        pushed onto ``self._load_q`` for the main-thread poller. The first
+        decoded frame is pushed straight away as a 'preview' so a picture
+        appears within ~1 s."""
+        class_total = len(paths)
+        sel_paths = _evenly_sampled(paths, _FOLD_SAMPLE_CAP)
+        n_sel = len(sel_paths)
+        sample_frames: list[np.ndarray] = []
+        sample_paths: list[str] = []
+        sent_preview = False
 
-        self._frames = frames
-        self._frame_paths = kept_paths
-        self._frame_idx = 0
+        def frame_stream():
+            nonlocal sent_preview
+            for p in sel_paths:
+                if token != self._load_token:
+                    return  # superseded by a newer selection — abort early
+                img = _read_bgr(p)
+                if img is None:
+                    continue
+                frame = _resize_to_ref(img)
+                sample_frames.append(frame)
+                sample_paths.append(p)
+                if not sent_preview:
+                    sent_preview = True
+                    self._load_q.put(("preview", token, frame, p))
+                yield frame
+
+        def on_progress(n: int):
+            if n % 10 == 0 or n == n_sel:
+                pct = int(n * 100 / n_sel) if n_sel else 100
+                self._load_q.put(
+                    ("progress", token,
+                     f"Sampling {n_sel} of {class_total} '{sel}' frame(s) "
+                     f"… {pct}% (picture is live; proxy mean computing)")
+                )
+
         try:
-            self._stats = class_stats(frames)
-        except ValueError as exc:
-            self.set_status(f"variance error: {exc}")
-            self._stats = None
-        self._rebuild_canvas()
-        self.set_status(
-            f"'{sel}': {len(frames)} frames · mode={self._mode.label} · "
-            f"target={self._target_key()}"
+            stats = class_stats(frame_stream(), progress=on_progress)
+        except ValueError:
+            stats = None  # no readable frames (or superseded mid-stream)
+        if token != self._load_token:
+            return
+        self._load_q.put(
+            ("done", token, sel, stats, sample_frames, sample_paths, class_total)
         )
+
+    def _drain_load_q(self):
+        """Main thread: drain every queued worker message, then reschedule.
+        Permanent, cheap (80 ms idle tick); the only place load results touch
+        Tk."""
+        try:
+            while True:
+                self._handle_load_msg(self._load_q.get_nowait())
+        except queue.Empty:
+            pass
+        self.after(80, self._drain_load_q)
+
+    def _handle_load_msg(self, msg):
+        kind = msg[0]
+        if kind == "mean_cached":
+            # Background mean prefetch — class means are stable, so cache
+            # regardless of the current selection token, then refresh the
+            # discrimination readout in case both means are now available.
+            _, sel, mean_bgr = msg
+            self._prefetching.discard(sel)
+            if mean_bgr is not None:
+                self._mean_cache[sel] = mean_bgr
+                self._refresh_inprogress_status()
+            return
+        token = msg[1]
+        if token != self._load_token:
+            return  # a newer selection won the race — drop stale message
+        if kind == "progress":
+            self.set_status(msg[2])
+        elif kind == "preview":
+            _, _, frame, path = msg
+            self._frames = [frame]
+            self._frame_paths = [path]
+            self._frame_idx = 0
+            self._stats = None  # variance not ready yet — ROI still works
+            self._rebuild_canvas()
+            # _rebuild_canvas reactivates HSVFilterMode (which sets its own
+            # status) — restate what's happening so the hint isn't lost.
+            self.set_status(
+                "Picture is live — variance (mean/stddev/heatmap + ROI "
+                "band auto-seed) still computing in the background …"
+            )
+        elif kind == "done":
+            _, _, sel, stats, frames, paths, class_total = msg
+            if stats is None or not frames:
+                self.set_status(f"No readable PNGs for '{sel}'")
+                self._stats = None
+                return
+            self._frames = frames
+            self._frame_paths = paths
+            self._frame_idx = 0
+            self._stats = stats
+            self._mean_cache[sel] = stats.mean_bgr
+            self._prefetch_other_inmatch_mean()
+            self._rebuild_canvas()
+            shown = (
+                f"{stats.frame_count} sampled"
+                if stats.frame_count >= class_total
+                else f"{stats.frame_count} sampled of {class_total} "
+                f"(proxy — Tool 9/AC6 = full set)"
+            )
+            self.set_status(
+                f"'{sel}': {shown} · mode={self._mode.label} · "
+                f"target={self._target_key()} · proxy mean ready"
+                + self._saved_zones_status()
+                + self._inprogress_status()
+            )
 
     def _target_key(self) -> str:
         if self._mode.needs_map_selector:
@@ -247,6 +413,16 @@ class ZonePickerApp(tk.Tk):
         if self._roi_mode is not None:
             self._roi_mode.deactivate()
         if self._hsv_mode is not None:
+            # Capture operator-tuned HSV before the widgets are destroyed so a
+            # class switch (or view/step rebuild) does not wipe in-progress
+            # work. read_band() carries manual tweaks; fall back to the last
+            # auto-seed. min_ratio isn't held by the widgets — preserve the
+            # prior band's so it survives round-trips.
+            current = self._hsv_mode.read_band()
+            if current is not None:
+                if self._last_band is not None:
+                    current.min_ratio = self._last_band.min_ratio
+                self._last_band = current
             self._hsv_mode.deactivate()
         if self._canvas is not None:
             self._canvas.destroy()
@@ -262,6 +438,9 @@ class ZonePickerApp(tk.Tk):
         self._roi_mode.activate(self._canvas, self._shim)
         self._hsv_mode = SeedableHSVFilterMode()
         self._hsv_mode.activate(self._canvas, self._shim)
+        # Restore the preserved band into the fresh widgets — no re-typing.
+        if self._last_band is not None:
+            self._hsv_mode.seed_band(self._last_band)
 
         self._frame_lbl.config(
             text=f"{self._frame_idx + 1}/{len(self._frame_paths) or '–'}"
@@ -291,6 +470,7 @@ class ZonePickerApp(tk.Tk):
             self.set_status("ROI captured (no variance stats — band not seeded)")
             return
         band = self._stats.derive_band(self._last_rect)  # AC6 auto-seed
+        self._last_band = band
         if self._hsv_mode is not None:
             self._hsv_mode.seed_band(band)
         self._report_fire(self._last_rect, band)
@@ -305,29 +485,130 @@ class ZonePickerApp(tk.Tk):
         msg = f"fire ratio = {ratio:.3f} (min_ratio {band.min_ratio:.2f})"
         if self._mode.needs_map_selector:
             msg += "  ·  " + self._aggregate_msg()
+        msg += self._discrimination_status()
         self.set_status(msg)
 
     def _aggregate_msg(self) -> str:
         zones = self._zones.get(self._target_key(), [])
         if self._stats is None or not zones:
             return "aggregate = 0.000"
-        total = 0.0
-        fired = 0.0
-        for rect, band, weight, wo in zones:
-            eff = float(weight if wo is None else wo)
-            total += eff
-            r = band_inrange_ratio(
-                band, rect.clamp_to(self._stats.mean_bgr.shape), self._stats.mean_bgr
-            )
-            if r >= band.min_ratio:
-                fired += eff
-        score = fired / total if total else 0.0
+        score = evaluate_zone_set(zones, self._stats.mean_bgr).aggregate
         try:
             thr = float(self._thr_var.get())
         except ValueError:
             thr = 0.6
         flag = "✓" if score >= thr else "✗"
         return f"aggregate = {score:.3f} vs threshold {thr:.2f} {flag}"
+
+    def _saved_zones_status(self) -> str:
+        """No-redraw re-check: how do the ALREADY-SAVED zones for the current
+        target score against the just-loaded class mean? Flipping the Class/Map
+        dropdown to the negative class now instantly shows whether the picked
+        zones stay dark there — no manual ROI redraw. Empty string when there is
+        nothing saved yet (nothing to append)."""
+        if self._stats is None:
+            return ""
+        zones = self._zones.get(self._target_key(), [])
+        if not zones:
+            return ""
+        r = evaluate_zone_set(zones, self._stats.mean_bgr)
+        per = " ".join(
+            f"z{i + 1}={ratio:.3f}{'' if hit else '·dark'}"
+            for i, (ratio, hit) in enumerate(zip(r.ratios, r.fired))
+        )
+        try:
+            thr = float(self._thr_var.get())
+        except ValueError:
+            thr = 0.6
+        flag = "✓" if r.aggregate >= thr else "✗"
+        return (
+            f"  ↻ saved {r.n_zones} zone(s) on '{self._sel_var.get()}': "
+            f"{per} · aggregate={r.aggregate:.3f} vs thr {thr:.2f} {flag}"
+        )
+
+    def _inprogress_status(self) -> str:
+        """Same re-check, for the zone being picked but NOT yet ＋Add-ed: its
+        preserved rect+band scored on the just-loaded class. Lets you drag once
+        on positive, flip to negative, and read the same band's score there
+        without re-drawing. Empty when nothing is in progress."""
+        if self._stats is None or self._last_rect is None or self._last_band is None:
+            return ""
+        ratio = band_inrange_ratio(
+            self._last_band,
+            self._last_rect.clamp_to(self._stats.mean_bgr.shape),
+            self._stats.mean_bgr,
+        )
+        hit = ratio >= self._last_band.min_ratio
+        return (
+            f"  · in-progress zone on '{self._sel_var.get()}': "
+            f"fire={ratio:.3f} (min_ratio {self._last_band.min_ratio:.2f}) "
+            f"{'FIRES' if hit else 'dark'}"
+        )
+
+    # ------------------------------------------- in_match pos-VS-neg readout
+
+    def _inmatch_labels(self) -> tuple[str, str] | None:
+        """The (positive, negative) selection labels for in_match mode, else
+        None. Used to look up / prefetch both class means at once."""
+        if self._mode.key != "in_match":
+            return None
+        sels = self._mode.selections(self._version_dir)
+        if len(sels) < 2:
+            return None
+        return sels[0], sels[1]
+
+    def _prefetch_other_inmatch_mean(self):
+        """In in_match mode, compute the not-yet-cached class mean(s) in the
+        background so a candidate can be scored against BOTH positive and
+        negative without the operator switching the dropdown. Cheap now that
+        the fold is capped (~50 frames)."""
+        labels = self._inmatch_labels()
+        if labels is None:
+            return
+        for sel in labels:
+            if sel in self._mean_cache or sel in self._prefetching:
+                continue
+            paths = self._mode.pool_for(self._version_dir, sel)
+            if not paths:
+                continue
+            self._prefetching.add(sel)
+            threading.Thread(
+                target=self._prefetch_worker, args=(sel, paths), daemon=True
+            ).start()
+
+    def _prefetch_worker(self, sel: str, paths: list[str]):
+        """Background mean-only fold (no Tk); result pushed for the poller."""
+        mean = _mean_of_sample(paths, _FOLD_SAMPLE_CAP)
+        self._load_q.put(("mean_cached", sel, mean))
+
+    def _discrimination_status(self) -> str:
+        """in_match only: score the in-progress (rect, band) against BOTH the
+        positive and negative proxy means and verdict it. Empty outside
+        in_match or with no zone in progress; a 'computing' note while the
+        other class mean is still prefetching."""
+        labels = self._inmatch_labels()
+        if labels is None or self._last_rect is None or self._last_band is None:
+            return ""
+        pos_mean = self._mean_cache.get(labels[0])
+        neg_mean = self._mean_cache.get(labels[1])
+        if pos_mean is None or neg_mean is None:
+            return "  ⚖ (computing other class mean …)"
+        d = zone_discrimination(
+            self._last_rect, self._last_band, pos_mean, neg_mean
+        )
+        verdict = "DISCRIMINANT ✅" if d.discriminant else "NON-DISCRIMINANT ❌"
+        return (
+            f"  ⚖ pos={d.pos_ratio:.3f} {'FIRES' if d.pos_fires else 'dark'}"
+            f" / neg={d.neg_ratio:.3f} {'FIRES' if d.neg_fires else 'dark'}"
+            f" → {verdict}"
+        )
+
+    def _refresh_inprogress_status(self):
+        """A background mean prefetch landed — re-render the live readout so the
+        discrimination verdict appears with no operator action."""
+        if self._last_rect is None or self._last_band is None or self._stats is None:
+            return
+        self._report_fire(self._last_rect, self._last_band)
 
     # ------------------------------------------------------------ add/save
 
@@ -355,12 +636,14 @@ class ZonePickerApp(tk.Tk):
             except ValueError:
                 weight_override = None
         key = self._target_key()
+        self._last_band = band  # commit any manual HSV tweak as the live band
         self._zones.setdefault(key, []).append(
             (self._last_rect, band, weight, weight_override)
         )
         self.set_status(
             f"Added zone to '{key}' (now {len(self._zones[key])}).  "
             + (self._aggregate_msg() if self._mode.needs_map_selector else "")
+            + self._discrimination_status()
         )
 
     def _ensure_manifest(self, frags: dict) -> bool:
