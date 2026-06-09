@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "1084356703602",
+    "project_id": "warden-8ce50",
+    "storage_bucket": "warden-8ce50.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1084356703602:android:cbd2fdafdf85e682c459eb",
+        "android_client_info": {
+          "package_name": "team.warden.mobile"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1084356703602-ge7afnfdlujntou8k5m6omf0s57kn7u7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "team.warden.mobile",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "1084356703602-jn11nbb4cpakjg5apiabvn86oer9rinu.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC_X9pxejCrOY7SHBnTqBUqs44HAhlrI3M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1084356703602-jn11nbb4cpakjg5apiabvn86oer9rinu.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
