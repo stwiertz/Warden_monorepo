@@ -48,6 +48,11 @@ import {
   updateResultFramePath,
 } from "./segmentRepository";
 import { storage } from "../../shared/services/storage";
+import {
+  startForegroundService,
+  stopForegroundService,
+  updateForegroundServiceStage,
+} from "../../shared/services/foregroundService";
 import { getDetectionConfig } from "./detectionConfigService";
 import {
   createGameDetector,
@@ -273,11 +278,26 @@ export async function runProcessingPipeline(
 
   await updateSessionStatus(sessionId, "processing");
 
+  // Story 1.2 (BF-5) — push the stage to the FGS notification on each
+  // transition. Fire-and-forget: the wrapper never rejects, so this must not
+  // block or fail the pipeline.
+  let lastNotifiedStage: ProcessingStage | null = null;
   const reportProgress = (stage: ProcessingStage, stageProgress: number) => {
+    if (stage !== lastNotifiedStage) {
+      lastNotifiedStage = stage;
+      void updateForegroundServiceStage(stage);
+    }
     onProgress?.(stage, stageToOverallProgress(stage, stageProgress));
   };
 
   try {
+    // Story 1.2 (BF-5) — keep the JS context alive while the pipeline runs in
+    // the background (J2). Inside the try so a native start failure propagates
+    // to the catch below (session → "error"); the finally guarantees the
+    // service is always stopped — on success, on a re-thrown error, and even
+    // when this start call itself throws. Never leak the service (architecture.md:821).
+    await startForegroundService(sessionId);
+
     const lastStage = getCheckpoint(sessionId);
     let keyframes: KeyframeInfo[] = [];
     let videoDurationMs = 0;
@@ -517,5 +537,9 @@ export async function runProcessingPipeline(
     }
     await updateSessionStatus(sessionId, "error");
     throw error;
+  } finally {
+    // Owner-token stop: if a newer pipeline has since taken the singleton
+    // service, this stale stop is a no-op (never strips its J2 protection).
+    await stopForegroundService(sessionId);
   }
 }

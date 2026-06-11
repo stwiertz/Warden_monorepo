@@ -6,6 +6,22 @@ Each entry: bullet with the finding + brief reason.
 
 ---
 
+## Deferred from: dev-story 1-2-foreground-service-android-config-plugin (2026-06-11)
+
+- **AC7 / AC8 — manual J2 device verification** (`apps/mobile` foreground service) — Stephane elected (2026-06-11) to **batch all per-story manual checks into one complete manual pass at the end of Epic 1** rather than verify per-story. The Story 1.2 dev APK is already built + installed on the Poco X5 Pro 5G (`dc72b871`); the native layer compiles + registers with no crash. What's left is the human-in-the-loop background-and-resume observation (sign in with a paid account, run auto-slice, HOME for 60s, reopen; with Battery Optimization both ENABLED and DISABLED). Use the *Manual J2 verification* template in the story file to record raw outcomes. Substrate-gap stub-test fallback applies if gap #6 blocks the live pipeline.
+- **AC10 — iOS prebuild leg** (`apps/mobile/plugins/with-foreground-service.js`) — `expo prebuild --platform ios` cannot run on the Windows dev host (Expo skips iOS project generation off macOS/Linux). The plugin is iOS-inert by construction (only Android-scoped modifiers; JS wrapper early-returns on iOS; iOS Phase 2 TODO present), so no new iOS error is expected — but the literal "ios prebuild succeeds" assertion must be confirmed on macOS/Linux/CI as part of the Epic-1-end pass.
+- **Story-close admin (AC11 / AC12, Task 9)** — commit/push/PR held pending the Epic-1-end manual check; story Status stays `in-progress`, `sprint-status.yaml` untouched (Task 9 collapse + shared-doc commit-boundary). Code is complete and on the working tree.
+
+---
+
+## Deferred from: code review of 1-2-foreground-service-android-config-plugin (2026-06-11)
+
+- **Checkpoint-resume freezes/regresses the FGS notification stage text** (`processingPipeline.ts:285-343`) — resume at `lastStage="results"` never fires `reportProgress`, so the notification shows "Préparation…" for the whole run; resume at `"keyframes"` flips the text back to the keyframes label for the entire detection compute. Cosmetic (notification copy only); observe + polish at the Epic-1-end J2 manual pass.
+- **Android 12+ background-start restriction may block `updateStage` redelivery while backgrounded** (`with-foreground-service.js` MODULE_KT) — `ContextCompat.startForegroundService` from a backgrounded app can throw `ForegroundServiceStartNotAllowedException` (version/OEM-dependent; HyperOS aggressive). Swallowed by design — worst case the stage text freezes. Action for the AC7/AC8 manual pass: explicitly observe live stage-text updates **while the app is backgrounded**.
+- **Stage-string contract duplicated TS↔Kotlin with silent fallback** (`foregroundService.ts` + SERVICE_KT `stageToText`) — a future pipeline-stage rename silently degrades the notification to "Préparation…" with no compile/test signal on either side. Cosmetic hardening only; the 4 stage strings are architecture-bound and stable for V1.
+
+---
+
 ## Deferred from: code review of 1-4-firebase-v12-rn-auth-migration-add-deps-prebuild (2026-06-11)
 
 - **iOS Firebase config (Phase 2)** (`apps/mobile/app.json`) — `@react-native-firebase/{app,auth}` plugins are registered platform-agnostically, but only `android.googleServicesFile` is set; no `GoogleService-Info.plist` / `ios.googleServicesFile`. An iOS prebuild (`expo run:ios` script exists) would fail at Firebase pod link. Accepted as Phase 2 per `architecture.md:630` (1.4 is explicitly Android-only). Phase 2 should add the iOS plist + `ios.googleServicesFile` and a guard against accidental iOS prebuild while the plugins are globally registered.

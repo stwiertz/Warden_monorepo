@@ -21,6 +21,7 @@ import { subscriptionService } from "./src/features/auth/subscriptionService";
 import { googleSignInService } from "./src/features/auth/googleSignInService";
 import { useAuthStore } from "./src/features/auth/useAuthStore";
 import { bootstrapDetectionConfig } from "./src/features/video-processing/detectionConfigBootstrap";
+import { reconcileForegroundServiceAtLaunch } from "./src/shared/services/foregroundService";
 
 // DEV ONLY: bypasses login + subscription gate so the rest of the app can be
 // worked on without a working Firebase/Stripe wiring. Remove this branch (and
@@ -39,6 +40,10 @@ export default function App() {
 
   useEffect(() => {
     void bootstrapDetectionConfig();
+    // Story 1.2 (BF-5) — clear any foreground-service orphan left by a previous
+    // JS context (JS crash / dev reload / OS kill): once JS dies, nothing else
+    // can ever stop the sticky notification.
+    void reconcileForegroundServiceAtLaunch();
 
     if (AUTH_BYPASS) {
       console.warn(
