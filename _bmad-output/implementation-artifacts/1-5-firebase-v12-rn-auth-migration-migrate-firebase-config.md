@@ -35,7 +35,7 @@ The migration is **type-coupled** through these exports: changing the `auth` exp
 - **Option B — strict per-file, accept a transient red build.** Touch ONLY `firebaseConfig.ts`; drop the `auth` export; keep `app`. `authService.ts`/`googleSignInService.ts` won't compile until 1.6 — i.e., 1.5+1.6 must ship together (or the build is knowingly red between them). Cleaner ownership, dirtier intermediate state; contradicts AC3's "typecheck 0 in this story".
 - **Option C — JS-SDK-shaped compatibility shim.** `firebaseConfig.ts` exports an adapter that wraps native RNFB in the JS-SDK call shape so existing modular call-sites keep working unchanged. Most code, least idiomatic, fragile across 4 consumers — not recommended.
 
-_Decision: ____ (A / B / C)._ **Recommended: A.**
+_Decision: **A** (Stephane, 2026-06-11)._ ✅ Migrate the auth side + the two `auth` call-sites in this PR; retain the `firebase/app` `app` export for Firestore (removed in 1.8).
 
 **(0a-note) `googleSignInService.ts` is an UNLISTED consumer.** Story 1.4's source-tree anchors (and the epics' per-file plan) name only `firebaseConfig/authService/subscriptionService/detectionConfigService`. `googleSignInService.ts` imports `auth` and calls `GoogleAuthProvider.credential()` / `signInWithCredential(auth, …)` — a JS-SDK static-method shape with a **different** RNFB surface (`auth.GoogleAuthProvider.credential(idToken)` + `auth().signInWithCredential(cred)`). Under Option A it is migrated here (AC3 smoke-tests Google sign-in); under B it must be assigned to 1.6. **Flag it explicitly — do not orphan Google sign-in.**
 
@@ -46,15 +46,15 @@ RN Firebase's namespaced API is called as the module singleton (`auth().signInWi
 - **Option A — RECOMMENDED:** `firebaseConfig.ts` keeps a tiny ensure-initialized side-effect (RNFB auto-inits the native `[DEFAULT]` app from `google-services.json`, so this may be a no-op import) and **stops exporting `auth`**; the two auth consumers import `auth` from `@react-native-firebase/auth` directly. Cleanest end-state.
 - **Option B:** re-export `import auth from '@react-native-firebase/auth'; export { auth }` so consumers' import path is unchanged. Lower churn, but `auth` then means "the RNFB module," not "an instance" — mildly confusing.
 
-_Decision: ____ (A / B)._ **Recommended: A.** Keep the `app` (JS-SDK firebase/app) export regardless, for Firestore, until 1.8.
+_Decision: **A** (Stephane, 2026-06-11)._ ✅ Stop exporting `auth`; the two consumers `import auth from '@react-native-firebase/auth'` directly. Keep the `app` (JS-SDK firebase/app) export regardless, for Firestore, until 1.8.
 
-> **Verdicts (Stephane, ____):** _(0a) __ ; (0b) __ ; googleSignInService → __ ._ Record before Task 2.
+> **Verdicts (Stephane, 2026-06-11):** (0a) **A** ; (0b) **A** ; googleSignInService → **migrate in this PR** (namespaced `auth.GoogleAuthProvider.credential` + `auth().signInWithCredential`).
 
 ## Acceptance Criteria (checklist)
 
 > **AC checkbox convention** ([[feedback_ac_checkbox_tighten]]): items whose endpoint depends on **post-merge actions** (sprint-status `review → done`, PR/merge) are held `[ ]` with inline carve-out notes. All ACs are `[ ]` at create-story time.
 
-0. [ ] **AC0 — Kickoff design decisions resolved.** (0a) build-green strategy + (0b) `auth` export shape + googleSignInService disposition recorded in the implementation record before Task 2 (see §AC0 above). Recommended: A / A / migrate-in-this-PR.
+0. [ ] **AC0 — Kickoff design decisions resolved.** ✅ **Resolved (Stephane, 2026-06-11): (0a) A, (0b) A, googleSignInService → migrate in this PR.** (0a) build-green strategy + (0b) `auth` export shape + googleSignInService disposition (see §AC0 above). Dev: re-affirm in the implementation record before Task 2.
 
 1. [ ] **AC1 — `firebaseConfig.ts` no longer imports from `firebase/auth`.** New auth import: `@react-native-firebase/auth`. The `getReactNativePersistence` import (`firebaseConfig.ts:5`) and the `@react-native-async-storage/async-storage` persistence adapter (`firebaseConfig.ts:7,27`) are **removed**. _Carve-out:_ the `firebase/app` `initializeApp`/`getApps`/`getApp` import **is retained** as a transitional shim **only** to keep the `app` export alive for the not-yet-migrated Firestore consumers (subscriptionService 1.7, detectionConfigService 1.8) — it is removed in **Story 1.8**. (Per AC0a Option A this re-scopes the epics' literal "no longer imports from `firebase/app`" to a phased removal; record the deviation.)
 
