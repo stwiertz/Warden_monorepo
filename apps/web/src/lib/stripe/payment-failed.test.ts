@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => {
   const mockRunTransaction = vi.fn()
   const mockDocRef = { __ref: true } as unknown
   const mockDoc = vi.fn(() => mockDocRef)
-  const mockCollection = vi.fn(() => ({ doc: mockDoc }))
+  const mockCollection = vi.fn((..._args: unknown[]) => ({ doc: mockDoc }))
   return {
     mockSubRetrieve,
     mockTxGet,
@@ -298,7 +298,7 @@ describe('handlePaymentFailed', () => {
     installRunTxWithSnap(true, { status: 'past_due' })
     await handlePaymentFailed(makeFailedEvent())
     expect(mocks.mockTxUpdate).toHaveBeenCalledTimes(1)
-    const noopCalls = logSpy.mock.calls.filter((c) =>
+    const noopCalls = logSpy.mock.calls.filter((c: unknown[]) =>
       String(c[0]).includes('already past_due — no-op:'),
     )
     expect(noopCalls).toHaveLength(1)

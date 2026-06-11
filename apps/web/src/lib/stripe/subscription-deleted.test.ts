@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => {
   const mockRunTransaction = vi.fn()
   const mockDocRef = { __ref: true } as unknown
   const mockDoc = vi.fn(() => mockDocRef)
-  const mockCollection = vi.fn(() => ({ doc: mockDoc }))
+  const mockCollection = vi.fn((..._args: unknown[]) => ({ doc: mockDoc }))
   return {
     mockTxGet,
     mockTxCreate,
@@ -149,7 +149,9 @@ describe('handleSubscriptionDeleted', () => {
       'uid_abc',
     )
     // no-op MUST NOT also emit a `processed:` line
-    const processedCalls = logSpy.mock.calls.filter((c) => String(c[0]).includes('processed:'))
+    const processedCalls = logSpy.mock.calls.filter((c: unknown[]) =>
+      String(c[0]).includes('processed:'),
+    )
     expect(processedCalls).toHaveLength(0)
   })
 
@@ -215,7 +217,7 @@ describe('handleSubscriptionDeleted', () => {
     installRunTxWithSnap(true, { status: 'canceled' })
     await handleSubscriptionDeleted(makeDeletedEvent())
     expect(mocks.mockTxUpdate).toHaveBeenCalledTimes(1) // still 1 across both
-    const noopCalls = logSpy.mock.calls.filter((c) =>
+    const noopCalls = logSpy.mock.calls.filter((c: unknown[]) =>
       String(c[0]).includes('already canceled — no-op:'),
     )
     expect(noopCalls).toHaveLength(1)

@@ -15,7 +15,7 @@ vi.mock('@/lib/firebase/auth', () => ({
 
 const mockGet = vi.fn()
 const mockDoc = vi.fn(() => ({ get: mockGet }))
-const mockCollection = vi.fn(() => ({ doc: mockDoc }))
+const mockCollection = vi.fn((..._args: unknown[]) => ({ doc: mockDoc }))
 
 vi.mock('@/lib/firebase/admin', () => ({
   adminDb: {

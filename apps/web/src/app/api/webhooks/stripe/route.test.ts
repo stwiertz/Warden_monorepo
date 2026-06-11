@@ -19,7 +19,7 @@ const mockTxSet = vi.fn()
 const mockRunTransaction = vi.fn()
 const mockDocRef = { __ref: true }
 const mockDoc = vi.fn(() => mockDocRef)
-const mockCollection = vi.fn(() => ({ doc: mockDoc }))
+const mockCollection = vi.fn((..._args: unknown[]) => ({ doc: mockDoc }))
 
 vi.mock('@/lib/firebase/admin', () => ({
   adminDb: {
@@ -37,7 +37,7 @@ vi.mock('firebase-admin/firestore', () => ({
 // Route tests verify the route's contract with routeEvent — the real dispatch
 // (switch on event.type → handleX) is tested in webhooks.test.ts. Mocking
 // routeEvent as a single vi.fn() keeps the two test suites non-overlapping.
-const mockRouteEvent = vi.fn(async () => {})
+const mockRouteEvent = vi.fn(async (..._args: unknown[]) => {})
 
 vi.mock('@/lib/stripe/webhooks', () => ({
   routeEvent: (...args: unknown[]) => mockRouteEvent(...args),
@@ -47,7 +47,7 @@ function makeEvent(type = 'invoice.paid', id = 'evt_test_123') {
   return {
     id,
     type,
-    api_version: '2026-03-25.dahlia',
+    api_version: '2026-04-22.dahlia',
     livemode: false,
     data: { object: {} },
   }
@@ -121,7 +121,7 @@ describe('POST /api/webhooks/stripe', () => {
       event_id: 'evt_test_123',
       event_type: 'invoice.paid',
       livemode: false,
-      api_version: '2026-03-25.dahlia',
+      api_version: '2026-04-22.dahlia',
       received_at: '__SERVER_TIMESTAMP__',
     })
     // Guard the Anti-Pattern from the story: tx.set would silently overwrite duplicates.

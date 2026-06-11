@@ -118,11 +118,7 @@ describe('Session API Route Handler', () => {
     it('clears the session cookie', async () => {
       const { DELETE } = await import('./route')
 
-      const request = new Request('http://localhost/api/auth/session', {
-        method: 'DELETE',
-      })
-
-      const response = await DELETE(request)
+      const response = await DELETE()
       const body = await response.json()
 
       expect(response.status).toBe(200)

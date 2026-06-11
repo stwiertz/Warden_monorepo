@@ -4,7 +4,7 @@ import Stripe from 'stripe'
 
 import type { Plan } from '@/lib/pricing/plans'
 
-const STRIPE_API_VERSION = '2026-03-25.dahlia'
+const STRIPE_API_VERSION = '2026-04-22.dahlia'
 
 let _stripe: Stripe | null = null
 

@@ -26,7 +26,7 @@ const mocks = vi.hoisted(() => {
   const mockRunTransaction = vi.fn()
   const mockDocRef = { __ref: true } as unknown
   const mockDoc = vi.fn(() => mockDocRef)
-  const mockCollection = vi.fn(() => ({ doc: mockDoc }))
+  const mockCollection = vi.fn((..._args: unknown[]) => ({ doc: mockDoc }))
   return {
     FakeTimestamp,
     mockSubRetrieve,
