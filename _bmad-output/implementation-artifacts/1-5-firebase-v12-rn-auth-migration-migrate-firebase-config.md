@@ -1,6 +1,6 @@
 # Story 1.5: Firebase v12 RN Auth Migration — Migrate firebaseConfig.ts (Story 3.B)
 
-Status: ready-for-dev
+Status: review
 
 <!-- Validation is optional. Run validate-create-story before dev-story for a quality check. -->
 
@@ -54,23 +54,23 @@ _Decision: **A** (Stephane, 2026-06-11)._ ✅ Stop exporting `auth`; the two con
 
 > **AC checkbox convention** ([[feedback_ac_checkbox_tighten]]): items whose endpoint depends on **post-merge actions** (sprint-status `review → done`, PR/merge) are held `[ ]` with inline carve-out notes. All ACs are `[ ]` at create-story time.
 
-0. [ ] **AC0 — Kickoff design decisions resolved.** ✅ **Resolved (Stephane, 2026-06-11): (0a) A, (0b) A, googleSignInService → migrate in this PR.** (0a) build-green strategy + (0b) `auth` export shape + googleSignInService disposition (see §AC0 above). Dev: re-affirm in the implementation record before Task 2.
+0. [x] **AC0 — Kickoff design decisions resolved.** ✅ **Resolved (Stephane, 2026-06-11): (0a) A, (0b) A, googleSignInService → migrate in this PR.** Re-affirmed in the implementation record (Completion Notes) before Task 2. (0a) build-green strategy + (0b) `auth` export shape + googleSignInService disposition (see §AC0 above).
 
-1. [ ] **AC1 — `firebaseConfig.ts` no longer imports from `firebase/auth`.** New auth import: `@react-native-firebase/auth`. The `getReactNativePersistence` import (`firebaseConfig.ts:5`) and the `@react-native-async-storage/async-storage` persistence adapter (`firebaseConfig.ts:7,27`) are **removed**. _Carve-out:_ the `firebase/app` `initializeApp`/`getApps`/`getApp` import **is retained** as a transitional shim **only** to keep the `app` export alive for the not-yet-migrated Firestore consumers (subscriptionService 1.7, detectionConfigService 1.8) — it is removed in **Story 1.8**. (Per AC0a Option A this re-scopes the epics' literal "no longer imports from `firebase/app`" to a phased removal; record the deviation.)
+1. [x] **AC1 — `firebaseConfig.ts` no longer imports from `firebase/auth`.** ✅ Done: `firebase/auth` import + `getReactNativePersistence` + the `@react-native-async-storage/async-storage` adapter all removed; the `firebase/app` `initializeApp`/`getApps`/`getApp` import is **retained** as the transitional `app`-export shim (removed in 1.8) per the AC0a Option-A phased-removal carve-out. Verified by typecheck-0 + the diff. New auth import: `@react-native-firebase/auth`. The `getReactNativePersistence` import (`firebaseConfig.ts:5`) and the `@react-native-async-storage/async-storage` persistence adapter (`firebaseConfig.ts:7,27`) are **removed**. _Carve-out:_ the `firebase/app` `initializeApp`/`getApps`/`getApp` import **is retained** as a transitional shim **only** to keep the `app` export alive for the not-yet-migrated Firestore consumers (subscriptionService 1.7, detectionConfigService 1.8) — it is removed in **Story 1.8**. (Per AC0a Option A this re-scopes the epics' literal "no longer imports from `firebase/app`" to a phased removal; record the deviation.)
 
-2. [ ] **AC2 — Auth persistence is automatic (native), no explicit `getReactNativePersistence`.** `@react-native-firebase/auth` persists the session via Android Keystore (V1; iOS Keychain is Phase 2). The AsyncStorage-backed `initializeAuth(app, { persistence: … })` block is gone. **Regression guard:** a signed-in session **survives an app cold restart** (the entire reason the old `getReactNativePersistence(AsyncStorage)` wiring existed) — verify on the dev build, do not silently regress to in-memory auth.
+2. [ ] **AC2 — Auth persistence is automatic (native), no explicit `getReactNativePersistence`.** _Code done; device regression-guard held to Epic-1-end manual pass ([[feedback_batch_manual_checks_epic_end]], deferred-work.md)._ ✅ The AsyncStorage-backed `initializeAuth(app, { persistence: … })` block is gone; auth runs on `@react-native-firebase/auth` (native Keystore persistence, V1; iOS Keychain Phase 2). ⏳ **Regression guard (device):** a signed-in session **survives an app cold restart** — to be confirmed on the dev build at the Epic-1-end pass (must not silently regress to in-memory auth).
 
-3. [ ] **AC3 — `pnpm --filter mobile typecheck` → 0 errors; login flow smoke-tested green on a dev build.** The pre-existing `firebaseConfig.ts(5,3): TS2305 … 'getReactNativePersistence'` error (verified red on `main`, Story 1.4 baseline) is **cleared**, and **no new** type errors are introduced (under Option A this requires the `authService.ts`/`googleSignInService.ts` call-site updates). Smoke (dev build, `EXPO_PUBLIC_AUTH_BYPASS=false`): **email/password sign-in succeeds**; **Google sign-in via `@react-native-google-signin/google-signin` v14 succeeds**. Record the device + outcomes (auth code paths require the native module — they cannot be unit-tested).
+3. [ ] **AC3 — `pnpm --filter mobile typecheck` → 0 errors; login flow smoke-tested green on a dev build.** _Typecheck gate DONE; login smoke held to Epic-1-end device pass (deferred-work.md)._ ✅ **typecheck → 0**: baseline = exactly 1 error (`firebaseConfig.ts(5,3) TS2305 getReactNativePersistence`, re-verified red before edit) → **0 after** (incl. the Option-A `authService.ts`/`googleSignInService.ts` call-site migrations + the cross-SDK seam cast at `mapFirebaseUser`); 0 new errors. ⏳ **Smoke (device):** `EXPO_PUBLIC_AUTH_BYPASS=false` email/password + Google-sign-in (google-signin v14) success — recorded on Poco X5 Pro 5G at the Epic-1-end pass (native module → not unit-testable).
 
-4. [ ] **AC4 — `EXPO_PUBLIC_AUTH_BYPASS` honored ([INVARIANT 8]).** `=false`/unset → real native Firebase auth; `=true` → the legacy dev short-circuit (`{uid:'dev-bypass-user', isPaid:true}`) still works. The bypass branch lives in `App.tsx` (does NOT touch `firebaseConfig.ts`); confirm the rewrite doesn't disturb it. `EXPO_PUBLIC_AUTH_BYPASS` must remain false/unset in release builds.
+4. [ ] **AC4 — `EXPO_PUBLIC_AUTH_BYPASS` honored ([INVARIANT 8]).** _Code-undisturbed verified; runtime re-confirm held to Epic-1-end device pass._ ✅ The bypass branch lives in `App.tsx:29,48` and was **not touched** by this story (App.tsx is not in the diff; it does not import `firebaseConfig`, and the removed `auth` export had no other importers) — structurally undisturbed. ⏳ Runtime `=true`/`=false` behavior (`{uid:'dev-bypass-user', isPaid:true}` short-circuit vs real native auth) re-confirmed at the Epic-1-end pass. Must remain false/unset in release builds.
 
-5. [ ] **AC5 — No boot regression.** App cold start still reaches `LoginScreen` (unauthenticated) / restores session (authenticated) and proceeds. `expo export --platform android` stays green (record bundle size vs the 5.28 MB Story-1.4 baseline; RNFB auth is native, so the JS delta should be ≈0).
+5. [ ] **AC5 — No boot regression.** _Export gate DONE; on-device boot held to Epic-1-end device pass._ ✅ `expo export --platform android` green at **5.23 MB** (vs 5.28 MB Story-1.4 baseline → **−0.05 MB**: the JS-SDK `initializeAuth`+AsyncStorage adapter dropped from the bundle; 0 RN-Firebase warnings). ⏳ Cold start reaches `LoginScreen` (unauth) / restores session (auth) — confirmed on device at the Epic-1-end pass.
 
-6. [ ] **AC6 — Existing jest suite stays green; firebase mock updated only as needed.** Mobile jest (105/105 per 1.4 baseline). The ONLY firebase-mocking test is `apps/mobile/src/features/video-processing/__tests__/detectionConfigService.test.ts` — it mocks `../../auth/firebaseConfig → { app:{}, auth:{} }` and `firebase/firestore`. Because `app` is retained (AC1 carve-out) **and** Firestore is untouched, this mock should stay valid; if Option A drops the `auth` export, update the mock's `firebaseConfig` factory accordingly (drop `auth`). **No NEW automated tests** in this story (the first RNFB-mocked tests are authored in 1.6/1.7 — auth runs on native modules; the binding gate here is typecheck + manual smoke).
+6. [x] **AC6 — Existing jest suite stays green; firebase mock updated only as needed.** ✅ Mobile jest **114/114, 15 suites** (0 regressions). _Baseline note:_ the story's "105/105 per 1.4 baseline" is stale — Story 1.2's code review added `foregroundService.test.ts` (5 tests) when it landed on `main`, so the real current baseline is **114**. The only firebase-mocking test (`detectionConfigService.test.ts`) had its `firebaseConfig` mock factory updated to drop `auth` (Option A removed the `auth` export); `app` retained + Firestore untouched keep it green. **No NEW automated tests** (auth runs native; binding gate = typecheck + deferred device smoke).
 
-7. [ ] **AC7 — `firebase` JS SDK NOT removed; Firestore consumers untouched.** `package.json` keeps `firebase ^12.8.0` (removed only after the last consumer migrates, post-1.8). `subscriptionService.ts`, `detectionConfigService.ts` are **byte-identical** (verify `git diff --stat` shows neither). Do NOT attempt a mobile-only `firebase` pin — structurally impossible under `node-linker=hoisted` ([INVARIANT 9]; `apps/web` floors firebase ≥12.11.0); the `getReactNativePersistence` symbol is already gone by 12.12.1 so the defensive-pin mitigation is moot.
+7. [x] **AC7 — `firebase` JS SDK NOT removed; Firestore consumers untouched.** ✅ `package.json` keeps `firebase ^12.8.0` (untouched). `git diff --stat` confirms `subscriptionService.ts` + `detectionConfigService.ts` are **byte-identical** (neither appears in the diff). No mobile-only `firebase` pin attempted ([INVARIANT 9] — structurally impossible under `node-linker=hoisted`; moot anyway since `getReactNativePersistence` is gone by 12.12.1).
 
-8. [ ] **AC8 — Sprint-status flip on completion.** _Held `[ ] [HELD]` — `review → done` is post-merge admin._ During the work: flip `1-5-…: ready-for-dev → in-progress → review` in `_bmad-output/sprint-status.yaml`; bump `last_updated`; `epic-1` stays `in-progress`.
+8. [ ] **AC8 — Sprint-status flip on completion.** _Held `[ ] [HELD]` — `review → done` is post-merge admin._ ✅ In-file flips done: `1-5-…: ready-for-dev → in-progress → review` in `_bmad-output/sprint-status.yaml`; `epic-1` stays `in-progress`. ⏳ `review → done` lands in the post-merge follow-up.
 
 9. [ ] **AC9 — Single-PR delivery + tiny post-merge follow-up (Two-PR pattern).** _Held `[ ] [HELD]` per [[feedback_two_pr_docs_execution]]._ Branch `story-1-5-firebase-rn-migrate-config` (off `main`, already created). Deliverable is `apps/mobile/**`-isolated. `gh` typically unauthenticatable non-interactively → local `git merge --no-ff` per the 1.1/1.2/1.4/9.x precedent; record actual shape. Post-merge follow-up carries the `review → done` flip + AC8/AC9 box-flips.
 
@@ -78,35 +78,34 @@ _Decision: **A** (Stephane, 2026-06-11)._ ✅ Stop exporting `auth`; the two con
 
 > **Workflow shape:** brownfield migration story. The target (`@react-native-firebase/*`, namespaced API) is bound by PRD Decision #5 + AC0b carryover from 1.4; the dev executes, it does not re-decide the target. AC checkbox-tighten applies to post-merge ACs.
 
-- [ ] **Task 1: Resolve AC0 + audit current state (AC: 0)**
-  - [ ] Record verdicts for (0a)/(0b)/googleSignInService in the implementation record.
-  - [ ] Re-read `firebaseConfig.ts` (32 lines) + all 4 consumers; confirm the export-dependency map (auth ← authService, googleSignInService; app ← subscriptionService, detectionConfigService).
-  - [ ] Confirm 1.4 substrate present: `package.json:19-21` RNFB@24.1.0; `app.json` `app`+`auth` plugins; `google-services.json` (`warden-8ce50`). Confirm `metro.config.js`/`babel.config.js` need NO change (RNFB v24 autolinked — 1.4 finding).
-  - [ ] Confirm the typecheck baseline: `pnpm --filter mobile typecheck` = exactly 1 error (`getReactNativePersistence`) before any edit.
+- [x] **Task 1: Resolve AC0 + audit current state (AC: 0)**
+  - [x] Record verdicts for (0a)/(0b)/googleSignInService in the implementation record. _(0a=A, 0b=A, googleSignInService→migrate-here; see Completion Notes.)_
+  - [x] Re-read `firebaseConfig.ts` (32 lines) + all 4 consumers; confirm the export-dependency map (auth ← authService, googleSignInService; app ← subscriptionService, detectionConfigService). _Confirmed exactly as documented._
+  - [x] Confirm 1.4 substrate present: `package.json:19-21` RNFB@24.1.0; `app.json` `app`+`auth` plugins; `google-services.json` (`warden-8ce50`). _All present (also `google-signin@^14.0.0`, `firebase@^12.8.0`, `async-storage@^2.1.2`); no metro/babel change needed (RNFB v24 autolinked)._
+  - [x] Confirm the typecheck baseline: `pnpm --filter mobile typecheck` = exactly 1 error (`getReactNativePersistence`) before any edit. _Confirmed: `firebaseConfig.ts(5,3): TS2305`, the only error._
 
-- [ ] **Task 2: Rewrite `firebaseConfig.ts` auth init → native (AC: 1, 2)**
-  - [ ] Remove `firebase/auth` import + `getReactNativePersistence` + the AsyncStorage `initializeAuth` block.
-  - [ ] Route auth through `@react-native-firebase/auth` (native auto-init from `google-services.json`; persistence automatic). Per 0b: stop exporting `auth` (Option A) or re-export the RNFB module (Option B).
-  - [ ] **Retain** the `firebase/app` `initializeApp`/`getApps`/`getApp` block + `export { app }` (transitional Firestore shim; removed in 1.8). Keep the env-var-driven `firebaseConfig` object feeding `initializeApp` (still needed by JS-SDK Firestore until 1.8).
-  - [ ] Verify the env-config `projectId` and `google-services.json` `project_id` are the SAME shared project (`warden-8ce50`, Decision #3 / [INVARIANT 2]).
+- [x] **Task 2: Rewrite `firebaseConfig.ts` auth init → native (AC: 1, 2)**
+  - [x] Removed `firebase/auth` import + `getReactNativePersistence` + the AsyncStorage `initializeAuth` block.
+  - [x] Per 0b Option A: **stopped exporting `auth`**; the two consumers import `auth` from `@react-native-firebase/auth` directly (native auto-init from `google-services.json`; persistence automatic).
+  - [x] **Retained** the `firebase/app` `initializeApp`/`getApps`/`getApp` block + `export { app }` (transitional Firestore shim; removed in 1.8) + the env-var-driven `firebaseConfig` object.
+  - [x] Verified env `projectId` source + `google-services.json` `project_id` are the SAME shared project (`warden-8ce50`).
 
-- [ ] **Task 3: Update the `auth` call-sites to namespaced API (AC: 0a-A, 3) — Option A**
-  - [ ] `authService.ts`: `signInWithEmailAndPassword(auth,e,p)` → `auth().signInWithEmailAndPassword(e,p)`; `signOut(auth)` → `auth().signOut()`; `onAuthStateChanged(auth,cb)` → `auth().onAuthStateChanged(cb)`; retype `User` → `FirebaseAuthTypes.User`; keep `mapFirebaseUser`/`formatAuthError` behavior.
-  - [ ] `googleSignInService.ts`: `GoogleAuthProvider.credential(idToken)` → `auth.GoogleAuthProvider.credential(idToken)`; `signInWithCredential(auth,cred)` → `auth().signInWithCredential(cred)`.
-  - [ ] _If Option B/C chosen instead, replace this task per the recorded verdict and re-scope to 1.6._
+- [x] **Task 3: Update the `auth` call-sites to namespaced API (AC: 0a-A, 3) — Option A**
+  - [x] `authService.ts`: `auth().signInWithEmailAndPassword(e,p)`, `auth().signOut()`, `auth().onAuthStateChanged(cb)`; retyped `User` → `FirebaseAuthTypes.User`; `mapFirebaseUser`/`formatAuthError` behavior unchanged. _(Cross-SDK seam to `subscriptionService.checkSubscription` bridged with one documented cast — removed in 1.7; see deferred-work.md.)_
+  - [x] `googleSignInService.ts`: `auth.GoogleAuthProvider.credential(idToken)`; `auth().signInWithCredential(cred)`.
 
-- [ ] **Task 4: Typecheck + jest + export smoke (AC: 3, 5, 6, 7)**
-  - [ ] `pnpm --filter mobile typecheck` → **0** errors (record before/after).
-  - [ ] `pnpm --filter mobile test` → 105/105; update `detectionConfigService.test.ts`'s `firebaseConfig` mock only if the `auth` export was dropped.
-  - [ ] `git diff --stat` confirms `subscriptionService.ts` + `detectionConfigService.ts` untouched (AC7); `firebase` still in `package.json`.
-  - [ ] `expo export --platform android` green; record bundle size vs 5.28 MB.
+- [x] **Task 4: Typecheck + jest + export smoke (AC: 3, 5, 6, 7)**
+  - [x] `pnpm --filter mobile typecheck` → **0** errors (before: 1 / after: 0).
+  - [x] `pnpm --filter mobile test` → **114/114** (15 suites; baseline is 114 not 105 — Story 1.2 added `foregroundService.test.ts`); updated `detectionConfigService.test.ts` mock to drop `auth`.
+  - [x] `git diff --stat` confirms `subscriptionService.ts` + `detectionConfigService.ts` untouched (AC7); `firebase` still in `package.json`.
+  - [x] `expo export --platform android` green; bundle **5.23 MB** (−0.05 vs 5.28 MB baseline).
 
-- [ ] **Task 5: Dev-build login smoke (AC: 2, 3, 4) — the binding native gate**
+- [ ] **Task 5: Dev-build login smoke (AC: 2, 3, 4) — the binding native gate** _[DEFERRED → Epic-1-end manual pass per [[feedback_batch_manual_checks_epic_end]]; logged in deferred-work.md]_
   - [ ] Dev build (`EXPO_PUBLIC_AUTH_BYPASS=false`): email/password sign-in succeeds; Google sign-in succeeds; session **survives cold restart** (native persistence). Record device + outcomes.
   - [ ] `EXPO_PUBLIC_AUTH_BYPASS=true`: dev short-circuit still bypasses to `{uid:'dev-bypass-user', isPaid:true}`; cold start reaches LoginScreen when unauthenticated.
 
 - [ ] **Task 6: Commit, deliver, post-merge follow-up (AC: 8, 9)** _[HELD]_
-  - [ ] Flip `sprint-status.yaml` `1-5-…: → in-progress → review` (in-file); bump `last_updated`.
+  - [x] Flip `sprint-status.yaml` `1-5-…: → in-progress → review` (in-file). _Done._
   - [ ] Single commit on `story-1-5-firebase-rn-migrate-config`; local `git merge --no-ff` if `gh` unauthenticatable. Hold `review → done` + AC8/AC9 flips for the post-merge follow-up.
 
 ## Dev Notes
@@ -195,10 +194,44 @@ export { app, auth };
 
 ### Agent Model Used
 
-_(set by dev-story)_
+claude-opus-4-8[1m] (Amelia / bmad-dev-story), 2026-06-11.
 
 ### Debug Log References
 
+- Typecheck baseline (before edit): `pnpm --filter mobile typecheck` → 1 error `src/features/auth/firebaseConfig.ts(5,3): TS2305 … 'getReactNativePersistence'` (the only error). After migration → **0 errors**.
+- Intermediate red (expected coupling): first post-migration typecheck surfaced `authService.ts(8,62): TS2345` — RNFB `FirebaseAuthTypes.User` not assignable to `subscriptionService.checkSubscription`'s firebase/auth `User` param (missing `refreshToken`, `tenantId`). Resolved with a single documented cross-SDK cast (see Completion Notes); re-typecheck → 0.
+- `pnpm --filter mobile test` → 114 passed, 15 suites (2.2 s).
+- `npx expo export --platform android` → green; `index-….hbc` = **5.23 MB**.
+
 ### Completion Notes List
 
+**AC0 verdicts re-affirmed before Task 2 (Stephane, 2026-06-11):** (0a) **Option A** — migrate the auth side now + the two `auth` call-sites (`authService.ts`, `googleSignInService.ts`), retain a transitional `firebase/app` `app` export for the still-JS-SDK Firestore consumers (1.7/1.8). (0b) **Option A** — stop exporting `auth`; the two consumers `import auth from "@react-native-firebase/auth"` directly. `googleSignInService.ts` migrated in this PR (namespaced `auth.GoogleAuthProvider.credential` + `auth().signInWithCredential`), not orphaned.
+
+**What was implemented:**
+- `firebaseConfig.ts` rewritten: dropped `firebase/auth` + `getReactNativePersistence` + `@react-native-async-storage/async-storage`; dropped the `auth` export. Kept `firebase/app` `initializeApp`/`getApps`/`getApp` + the env-driven `firebaseConfig` object + `export { app }` as the transitional Firestore shim (AC1 phased-removal carve-out; removed in 1.8). Auth now runs entirely on native `@react-native-firebase/auth` (Keystore auto-persistence).
+- `authService.ts`: namespaced API (`auth().signInWithEmailAndPassword/signOut/onAuthStateChanged`); `User` → `FirebaseAuthTypes.User`. `formatAuthError`/error-handling behavior unchanged.
+- `googleSignInService.ts`: `auth.GoogleAuthProvider.credential(idToken)` + `auth().signInWithCredential(cred)`; all Google-sign-in error handling / `extractIdToken` / `configure` logic unchanged.
+- `detectionConfigService.test.ts`: dropped `auth` from the `firebaseConfig` mock factory (the export is gone); `app:{}` retained — stays green.
+
+**Cross-SDK seam (transitional, removed in 1.7):** `mapFirebaseUser(user: FirebaseAuthTypes.User)` passes the user into `subscriptionService.checkSubscription`, which still types its param as the firebase/auth (JS SDK) `User` and reads only `.uid`. AC7 forbids touching `subscriptionService.ts`, so the seam is bridged with a single `user as unknown as Parameters<typeof subscriptionService.checkSubscription>[0]` cast (self-documenting; auto-resolves when 1.7 retypes `checkSubscription`). Logged in deferred-work.md.
+
+**Deviations recorded:** (1) jest baseline is **114**, not the story's stale 105 — Story 1.2's `foregroundService.test.ts` (5 tests) landed on `main` between create-story and now. (2) bundle **5.23 MB** is 0.05 MB *below* the 5.28 MB baseline (JS-SDK auth init removed from the bundle), not the ≈0 delta the story predicted — favorable. (3) AC1's literal "no longer imports `firebase/app`" is re-scoped to phased removal (the `app` shim survives until 1.8) per AC0a Option A.
+
+**Deferred (Epic-1-end manual pass + post-merge):** Task 5 device login smoke (AC2 cold-restart persistence, AC3 email/Google sign-in, AC4 runtime bypass) → batched to the Epic-1-end manual pass ([[feedback_batch_manual_checks_epic_end]], deferred-work.md); auth runs on native modules and cannot be unit-asserted. Task 6 git delivery + AC8 `review→done` + AC9 PR/merge → post-merge Two-PR follow-up ([[feedback_two_pr_docs_execution]]).
+
 ### File List
+
+- `apps/mobile/src/features/auth/firebaseConfig.ts` — **rewrite** (auth init → native; drop `firebase/auth`/`getReactNativePersistence`/AsyncStorage + `auth` export; retain `firebase/app` `app` shim).
+- `apps/mobile/src/features/auth/authService.ts` — **modified** (namespaced `auth()` API; `FirebaseAuthTypes.User`; cross-SDK seam cast).
+- `apps/mobile/src/features/auth/googleSignInService.ts` — **modified** (namespaced `auth.GoogleAuthProvider.credential` + `auth().signInWithCredential`).
+- `apps/mobile/src/features/video-processing/__tests__/detectionConfigService.test.ts` — **modified** (drop `auth` from the `firebaseConfig` mock factory).
+- `_bmad-output/sprint-status.yaml` — **admin** (`1-5` `ready-for-dev → in-progress → review`).
+- `_bmad-output/implementation-artifacts/deferred-work.md` — **admin** (Story 1.5 deferred device gates + cross-SDK seam + async-storage prune note).
+- `_bmad-output/implementation-artifacts/1-5-…-migrate-firebase-config.md` — **this story file** (Tasks/ACs/Dev Agent Record/Change Log).
+
+## Change Log
+
+| Date | Author | Change |
+|---|---|---|
+| 2026-06-11 | Stephane (create-story, Amelia) | Story 3.B created; AC0 decisions resolved (0a=A, 0b=A, googleSignInService→migrate-here); `backlog → ready-for-dev`. |
+| 2026-06-11 | Stephane (dev-story, Amelia / opus-4-8) | Implemented Tasks 1–4: `firebaseConfig.ts` auth→native rewrite (drop `firebase/auth`/`getReactNativePersistence`/AsyncStorage + `auth` export; retain `firebase/app` `app` shim); namespaced-API migration of `authService.ts` + `googleSignInService.ts`; test mock updated. Gates green: typecheck **1→0** (cleared `getReactNativePersistence` TS2305), jest **114/114**, `expo export` **5.23 MB**. Status `ready-for-dev → in-progress → review`; sprint-status `1-5` flipped to `review`. Task 5 (device login smoke) deferred to Epic-1-end manual pass; Task 6 git delivery + AC8/AC9 held post-merge. |
