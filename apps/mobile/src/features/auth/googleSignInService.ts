@@ -2,8 +2,7 @@ import {
   GoogleSignin,
   statusCodes,
 } from "@react-native-google-signin/google-signin";
-import { GoogleAuthProvider, signInWithCredential } from "firebase/auth";
-import { auth } from "./firebaseConfig";
+import auth from "@react-native-firebase/auth";
 import { useAuthStore } from "./useAuthStore";
 import { mapFirebaseUser } from "./authService";
 
@@ -39,8 +38,8 @@ export const googleSignInService = {
         setError("Google sign-in did not return an ID token. Please try again.");
         return;
       }
-      const credential = GoogleAuthProvider.credential(idToken);
-      const firebaseCredential = await signInWithCredential(auth, credential);
+      const credential = auth.GoogleAuthProvider.credential(idToken);
+      const firebaseCredential = await auth().signInWithCredential(credential);
       const authUser = await mapFirebaseUser(firebaseCredential.user);
       setUser(authUser);
       if (!authUser.isPaid) {

@@ -1,11 +1,17 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import {
-  initializeAuth,
-  getAuth,
-  getReactNativePersistence,
-} from "firebase/auth";
-import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 
+// Auth runs on @react-native-firebase/auth (native session persistence via the
+// Android Keystore — no JS-side init needed). The native [DEFAULT] app
+// auto-initializes from google-services.json, so auth consumers import `auth`
+// from "@react-native-firebase/auth" directly (see authService.ts /
+// googleSignInService.ts). The old firebase/auth `initializeAuth` +
+// `getReactNativePersistence(AsyncStorage)` wiring is gone (Story 1.5).
+//
+// This firebase/app (JS SDK) initialization is retained ONLY as a transitional
+// shim to keep the `app` export alive for the still-JS-SDK Firestore consumers
+// (subscriptionService → Story 1.7, detectionConfigService → Story 1.8). It is
+// removed in Story 1.8 once the last Firestore consumer migrates to
+// @react-native-firebase/firestore.
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? "",
   authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? "",
@@ -17,15 +23,4 @@ const firebaseConfig = {
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-// Use AsyncStorage for auth persistence on React Native.
-// The default web SDK persistence (indexedDB/localStorage) does not exist in RN.
-// TODO: Consider migrating to @react-native-firebase/* native SDK for better
-// performance, native token refresh, and full offline auth support.
-const auth =
-  getApps().length === 1
-    ? initializeAuth(app, {
-        persistence: getReactNativePersistence(ReactNativeAsyncStorage),
-      })
-    : getAuth(app);
-
-export { app, auth };
+export { app };

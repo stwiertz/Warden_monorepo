@@ -11,7 +11,6 @@ jest.mock("firebase/firestore", () => ({
 
 jest.mock("../../auth/firebaseConfig", () => ({
   app: {},
-  auth: {},
 }));
 
 import {

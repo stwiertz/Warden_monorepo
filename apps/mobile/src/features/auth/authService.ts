@@ -1,15 +1,20 @@
-import {
-  signInWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged,
-  type User,
-} from "firebase/auth";
-import { auth } from "./firebaseConfig";
+import auth, { type FirebaseAuthTypes } from "@react-native-firebase/auth";
 import { useAuthStore, type AuthUser } from "./useAuthStore";
 import { subscriptionService } from "./subscriptionService";
 
-export async function mapFirebaseUser(user: User): Promise<AuthUser> {
-  const isPaid = await subscriptionService.checkSubscription(user);
+export async function mapFirebaseUser(
+  user: FirebaseAuthTypes.User
+): Promise<AuthUser> {
+  // Cross-SDK seam (transitional): subscriptionService still types its param as
+  // the firebase/auth (JS SDK) `User` and reads only `.uid`. The RNFB user is
+  // structurally compatible for that read but is nominally a different SDK type
+  // (missing refreshToken/tenantId). This bridge is removed in Story 1.7 when
+  // subscriptionService migrates to @react-native-firebase/firestore + RNFB user.
+  const isPaid = await subscriptionService.checkSubscription(
+    user as unknown as Parameters<
+      typeof subscriptionService.checkSubscription
+    >[0]
+  );
   return {
     uid: user.uid,
     email: user.email ?? "",
@@ -22,8 +27,7 @@ export const authService = {
     const { setLoading, setUser, setError } = useAuthStore.getState();
     setLoading(true);
     try {
-      const credential = await signInWithEmailAndPassword(
-        auth,
+      const credential = await auth().signInWithEmailAndPassword(
         email,
         password
       );
@@ -41,12 +45,12 @@ export const authService = {
 
   async logout(): Promise<void> {
     const { logout } = useAuthStore.getState();
-    await signOut(auth);
+    await auth().signOut();
     logout();
   },
 
   listenToAuthChanges(): () => void {
-    return onAuthStateChanged(auth, async (user) => {
+    return auth().onAuthStateChanged(async (user) => {
       const { setUser } = useAuthStore.getState();
       if (user) {
         const authUser = await mapFirebaseUser(user);
