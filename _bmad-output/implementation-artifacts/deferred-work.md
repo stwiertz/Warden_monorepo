@@ -6,6 +6,16 @@ Each entry: bullet with the finding + brief reason.
 
 ---
 
+## Deferred from: code review of 1-4-firebase-v12-rn-auth-migration-add-deps-prebuild (2026-06-11)
+
+- **iOS Firebase config (Phase 2)** (`apps/mobile/app.json`) — `@react-native-firebase/{app,auth}` plugins are registered platform-agnostically, but only `android.googleServicesFile` is set; no `GoogleService-Info.plist` / `ios.googleServicesFile`. An iOS prebuild (`expo run:ios` script exists) would fail at Firebase pod link. Accepted as Phase 2 per `architecture.md:630` (1.4 is explicitly Android-only). Phase 2 should add the iOS plist + `ios.googleServicesFile` and a guard against accidental iOS prebuild while the plugins are globally registered.
+- **App Check absent** (`apps/mobile/google-services.json`) — the committed `api_key` + OAuth client IDs are safe for Firestore (rules gate reads on `request.auth.uid`), but the Auth/Identity-Toolkit surface is unattested. The "not a secret" posture holds for Firestore, not for Auth abuse. Add Firebase App Check in a security-hardening story (out of 1.4 plumbing scope).
+- **Two physical `firebase` copies under hoisting** (`pnpm-lock.yaml`) — app-direct `firebase 12.12.1` vs `@react-native-firebase/app@24`'s transitive `firebase 12.14.0`; under `node-linker=hoisted` only one hoists and Metro binds it non-deterministically. The defensive pin was deliberately dropped (ineffective under the shared-firebase floor). Resolve in **Story 1.5** (firebaseConfig migration), optionally via a root `pnpm.overrides` if a single firebase must be pinned.
+- **`firestore.rules` deploy binding** (`apps/web/firestore.rules`) — rules live only under `apps/web/` with no deploy target tying them to the shared `warden-8ce50` project, yet mobile's `users/{uid}` reads depend on them. Web and mobile can drift. Bind the rules deploy to the shared project (cross-app, pre-existing).
+- **`apps/web/.env.example` bucket placeholder** — shows the old `…appspot.com` convention while the committed `google-services.json` uses Firebase's current `…firebasestorage.app` default. A future operator copying the placeholder literally would misconfigure the web bucket. Update the placeholder (optional doc fix, out of 1.4's `apps/mobile`-only scope).
+
+---
+
 ## Deferred from: code review of 9-14-roi-detection-tester-refit-for-unified-schema (2026-05-17)
 
 - **Aspect/coord-frame mismatch warning deleted with no replacement** (`apps/tooling/tools/roi_detection_tester.py` — `main`) — the old tool's `coord_frame_shape`/`aspect_warning_emitted` block was removed in the refit; a ref-height divergence (or a large `--ref-height` operator typo) can now silently clip every zone to zero area with no diagnostic. No AC mandates the warning and the unified schema's `reference_resolution` + `_resize_to_ref` partially supersede it, so this is a diagnostic regression, not a spec violation. Revisit if the 9.9b loop produces a "silent 0% accuracy" incident traced to a ref-height/aspect mismatch.
