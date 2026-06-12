@@ -1,6 +1,6 @@
 # Story 1.8: Firebase v12 RN Auth Migration — Migrate detectionConfigService.ts (Story 3.E)
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -80,9 +80,9 @@ Dependency **Story 1.7 is satisfied** (merged to main: `a8c179c` feat + `141f6e3
   - [x] `pnpm --filter mobile test` → **18 suites / 158 (148 passed + 10 todo)**, 0 regressions vs the baseline.
   - [x] `pnpm --filter mobile exec expo export --platform android` → clean build, no `firebase` (JS SDK) module in the graph, bundle **4.44 MB** (down from the 5.23 MB baseline — the JS-SDK firestore code left the bundle).
 
-- [ ] **Task 6 — Git delivery (`[HELD]` — post-merge Two-PR per [[feedback_two_pr_docs_execution]])**
+- [x] **Task 6 — Git delivery (post-merge Two-PR per [[feedback_two_pr_docs_execution]])**
   - [x] Commit on the session branch `claude/hopeful-sagan-estln9` (this remote-exec session; NOT a new `story-1-8-*` branch — same precedent as 1.6/1.7). Push `-u origin claude/hopeful-sagan-estln9`.
-  - [ ] [HELD] PR open + `--no-ff` merge to main; flip Status `review → done` and sprint-status entry post-review.
+  - [x] PR opened + merged to main (PR #18, merge `a98e980`); Status `review → done` + sprint-status entry flipped post-review.
 
 - [ ] **Task 7 — Manual smoke (`[HELD]` → Story 1.9) (AC: 9)**
   - [ ] Folded into Story 1.9's J1–J10 consolidated Epic-1-end manual pass on the Android dev build.
@@ -210,3 +210,4 @@ claude-opus-4-8 (Amelia / dev-story)
 | Date | Version | Description |
 | --- | --- | --- |
 | 2026-06-12 | 1.0 | Story 3.E implemented — migrated `detectionConfigService.ts` `fetchRemoteConfig()` to `@react-native-firebase/firestore`, deleted the orphaned `firebaseConfig.ts` `app` shim, and dropped the `firebase@^12.8.0` JS-SDK dependency from the mobile app. Gates green (typecheck 0; jest 18/158; android bundle 4.44 MB). Status → review. |
+| 2026-06-12 | 1.1 | Code review (Stephane, claude-opus-4-8) — AC1–AC8 verified, gates re-run green in a clean container (typecheck 0; jest 18 suites / 158 = 148 passed + 10 todo). Confirmed: no `firebase/*` JS-SDK import remains in `apps/mobile/src`; `firebaseConfig.ts` deleted; `firebase` dep gone (`pnpm install --frozen-lockfile` consistent); RNFB v24.1.0 `DocumentSnapshot.exists(): boolean` is a METHOD (`namespaced.d.ts:500`), `snap.exists()` correct. No defects. AC9 manual smoke confirmed deferred to the Epic-1-end consolidated device pass (Story 1.9) per the user. Status `review → done`. |
