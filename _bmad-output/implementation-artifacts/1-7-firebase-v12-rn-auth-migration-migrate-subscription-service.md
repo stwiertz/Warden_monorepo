@@ -1,6 +1,6 @@
 # Story 1.7: Firebase v12 RN Auth Migration — Migrate subscriptionService.ts (Story 3.D)
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -226,8 +226,8 @@ Amelia (dev-story) — claude-opus-4-8, 2026-06-12.
 
 ### Patch (actionable in this story's changed code)
 
-- [ ] [Review][Patch] Top-level `expect()` runs at jest collection time, not inside a test [`apps/mobile/src/features/auth/__tests__/deriveEntitlementState.test.ts:23`] — `expect(typeof deriveEntitlementState).toBe("function")` sits outside any `it()/describe()`, so it executes during suite collection and is attributed to no test (a failure would surface as a suite-load error, not a named test). Wrap it in `it("exports deriveEntitlementState", () => { ... })`. (blind+edge)
-- [ ] [Review][Patch] Duck-typed Timestamp guard doesn't validate `toMillis()` return is a finite number [`apps/mobile/src/features/auth/subscriptionService.ts:26-29`] — the new guard checks `typeof toMillis === "function"` but not the return type; a malformed `current_period_end` (e.g. `{ toMillis: () => NaN }` or a non-number) yields `NaN > Date.now()` → silently `false`, and the broadening vs the old `instanceof Timestamp` means any object exposing a `toMillis` function now passes the type gate. Capture `const ms = toMillis.call(periodEnd); return typeof ms === "number" && Number.isFinite(ms) && ms > Date.now();`. Spec-sanctioned approach (Gotcha #2) — this is hardening only, low priority. (blind+edge)
+- [x] [Review][Patch] Top-level `expect()` runs at jest collection time, not inside a test [`apps/mobile/src/features/auth/__tests__/deriveEntitlementState.test.ts:23`] — FIXED: wrapped in `describe("deriveEntitlementState — stub contract") → it("is exported as a function")` so it runs as a named test (jest now 158/18, +1 vs 157). (blind+edge)
+- [x] [Review][Patch] Duck-typed Timestamp guard doesn't validate `toMillis()` return is a finite number [`apps/mobile/src/features/auth/subscriptionService.ts:26-29`] — FIXED: capture `const ms = toMillis.call(periodEnd)` and gate on `typeof ms === "number" && Number.isFinite(ms)` before `ms > Date.now()`, restoring the tightness lost vs the old `instanceof Timestamp` and rejecting NaN/non-number returns. typecheck 0; jest green. (blind+edge)
 
 ### Deferred (real but pre-existing — not introduced by this migration; structure unchanged from the JS-SDK original)
 
