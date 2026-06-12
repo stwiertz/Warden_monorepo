@@ -1,17 +1,32 @@
-// Mocks Firebase to keep these tests offline + deterministic.
-// The service module is required after each jest.doMock so the mocks bind.
+// Mocks @react-native-firebase/firestore to keep these tests offline +
+// deterministic (Story 1.8 — Firebase v12 RN migration, Story 3.E).
+//
+// HOIST NOTE (reused from subscriptionService.test.ts / authService.test.ts):
+// jest hoists jest.mock() factories above the file's imports, AND Babel's
+// ES-module compilation hoists `import` → `require()` above the module-scope
+// `const mockX = jest.fn()` declarations. So factories run BEFORE those consts
+// initialize — a direct `default: mockFn` ref dereferences `undefined`. The
+// factory reference is wrapped in a lazy thunk that defers the deref to call time.
 
-const mockGetDoc = jest.fn();
-
-jest.mock("firebase/firestore", () => ({
-  getFirestore: jest.fn(() => ({})),
-  doc: jest.fn((_db: unknown, path: string) => ({ path })),
-  getDoc: (...args: unknown[]) => mockGetDoc(...args),
+const mockGet: jest.Mock = jest.fn();
+const mockDoc: jest.Mock = jest.fn(() => ({
+  get: (...a: unknown[]) => mockGet(...a),
+}));
+const mockCollection: jest.Mock = jest.fn(() => ({
+  doc: (...a: unknown[]) => mockDoc(...a),
+}));
+const mockFirestoreFn: jest.Mock = jest.fn(() => ({
+  collection: (...a: unknown[]) => mockCollection(...a),
 }));
 
-jest.mock("../../auth/firebaseConfig", () => ({
-  app: {},
-}));
+jest.mock("@react-native-firebase/firestore", () => {
+  // Lazy thunk — see HOIST NOTE. At factory-eval time mockFirestoreFn is
+  // undefined; the thunk defers the deref to call time.
+  function lazyFirestore(...args: unknown[]): unknown {
+    return mockFirestoreFn(...args);
+  }
+  return { __esModule: true, default: lazyFirestore };
+});
 
 import {
   getDetectionConfig,
@@ -64,7 +79,9 @@ let warnSpy: jest.SpyInstance;
 
 beforeEach(() => {
   __clearDetectionConfigCacheForTests();
-  mockGetDoc.mockReset();
+  // Reset only the chain leaf — the collection/doc/firestore() stubs are stable
+  // closures that don't carry per-test queues, so they need no re-arming.
+  mockGet.mockReset();
   // The service intentionally logs on failure paths; silence to keep test
   // output clean while still letting tests assert thrown/returned behaviour.
   errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
@@ -78,7 +95,7 @@ afterEach(() => {
 
 describe("detectionConfigService — fetch + cache", () => {
   it("AC 1 — first launch with no cache fetches and writes to MMKV", async () => {
-    mockGetDoc.mockResolvedValueOnce(mockSnapshot(validRemotePayload(1)));
+    mockGet.mockResolvedValueOnce(mockSnapshot(validRemotePayload(1)));
 
     const config = await getDetectionConfig();
 
@@ -91,7 +108,7 @@ describe("detectionConfigService — fetch + cache", () => {
   });
 
   it("AC 2 — version-based refresh: cached version equal to remote keeps cache untouched", async () => {
-    mockGetDoc.mockResolvedValue(mockSnapshot(validRemotePayload(2)));
+    mockGet.mockResolvedValue(mockSnapshot(validRemotePayload(2)));
 
     // Seed cache at version 2
     storage.setObject(DETECTION_CONFIG_STORAGE_KEY, {
@@ -110,7 +127,7 @@ describe("detectionConfigService — fetch + cache", () => {
   });
 
   it("AC 2 — version-based refresh: remote > cached triggers rewrite", async () => {
-    mockGetDoc.mockResolvedValue(mockSnapshot(validRemotePayload(5)));
+    mockGet.mockResolvedValue(mockSnapshot(validRemotePayload(5)));
 
     storage.setObject(DETECTION_CONFIG_STORAGE_KEY, {
       config: { ...validRemotePayload(2) },
@@ -124,7 +141,7 @@ describe("detectionConfigService — fetch + cache", () => {
   });
 
   it("AC 3 — offline + cache present: returns cached config without throwing", async () => {
-    mockGetDoc.mockRejectedValue(new Error("network unreachable"));
+    mockGet.mockRejectedValue(new Error("network unreachable"));
 
     storage.setObject(DETECTION_CONFIG_STORAGE_KEY, {
       config: { ...validRemotePayload(3) },
@@ -136,7 +153,7 @@ describe("detectionConfigService — fetch + cache", () => {
   });
 
   it("AC 4 — offline + no cache: throws OfflineFirstLaunchError", async () => {
-    mockGetDoc.mockRejectedValue(new Error("network unreachable"));
+    mockGet.mockRejectedValue(new Error("network unreachable"));
 
     await expect(getDetectionConfig()).rejects.toBeInstanceOf(
       OfflineFirstLaunchError
@@ -151,7 +168,7 @@ describe("detectionConfigService — fetch + cache", () => {
     });
 
     // Remote returns garbage
-    mockGetDoc.mockResolvedValue(mockSnapshot({ version: -1, broken: true }));
+    mockGet.mockResolvedValue(mockSnapshot({ version: -1, broken: true }));
 
     const updated = await refreshDetectionConfig();
     expect(updated).toBe(false);
@@ -161,7 +178,7 @@ describe("detectionConfigService — fetch + cache", () => {
   });
 
   it("AC 6 — Firestore document missing is rejected without writing the cache", async () => {
-    mockGetDoc.mockResolvedValue(mockSnapshot(undefined));
+    mockGet.mockResolvedValue(mockSnapshot(undefined));
 
     await expect(getDetectionConfig()).rejects.toBeInstanceOf(
       OfflineFirstLaunchError
@@ -170,7 +187,7 @@ describe("detectionConfigService — fetch + cache", () => {
   });
 
   it("AC 6 — malformed remote on no-cache path throws MalformedRemoteConfigError (not OfflineFirstLaunchError)", async () => {
-    mockGetDoc.mockResolvedValue(mockSnapshot({ version: -1, broken: true }));
+    mockGet.mockResolvedValue(mockSnapshot({ version: -1, broken: true }));
 
     await expect(getDetectionConfig()).rejects.toBeInstanceOf(
       MalformedRemoteConfigError
@@ -179,7 +196,7 @@ describe("detectionConfigService — fetch + cache", () => {
   });
 
   it("singleflight: concurrent first-launch fetches share a single Firestore round-trip", async () => {
-    mockGetDoc.mockImplementation(
+    mockGet.mockImplementation(
       () =>
         new Promise((resolve) =>
           setTimeout(
@@ -198,11 +215,11 @@ describe("detectionConfigService — fetch + cache", () => {
     expect(a.version).toBe(1);
     expect(b.version).toBe(1);
     expect(c.version).toBe(1);
-    expect(mockGetDoc).toHaveBeenCalledTimes(1);
+    expect(mockGet).toHaveBeenCalledTimes(1);
   });
 
   it("singleflight: concurrent refreshDetectionConfig calls share a single fetch", async () => {
-    mockGetDoc.mockImplementation(
+    mockGet.mockImplementation(
       () =>
         new Promise((resolve) =>
           setTimeout(
@@ -218,7 +235,7 @@ describe("detectionConfigService — fetch + cache", () => {
     ]);
 
     expect(results).toEqual([true, true]);
-    expect(mockGetDoc).toHaveBeenCalledTimes(1);
+    expect(mockGet).toHaveBeenCalledTimes(1);
     expect(getCachedDetectionConfig()?.version).toBe(7);
   });
 

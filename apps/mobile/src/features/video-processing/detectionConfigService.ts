@@ -21,8 +21,7 @@
 // concurrent callers (e.g. multiple per-frame detector reads in Story 7.5)
 // share a single Firestore round-trip and a single cache write.
 
-import { doc, getDoc, getFirestore } from "firebase/firestore";
-import { app } from "../auth/firebaseConfig";
+import firestore from "@react-native-firebase/firestore";
 import { storage } from "../../shared/services/storage";
 import {
   validateDetectionConfig,
@@ -31,6 +30,13 @@ import {
 
 export const DETECTION_CONFIG_STORAGE_KEY = "detection.config";
 export const DETECTION_CONFIG_DOC_PATH = "detection_config/latest";
+
+// RNFB's namespaced API takes collection + doc segments separately, unlike the
+// JS SDK's single slash-path (doc(db, "detection_config/latest")). Split the
+// fixed single-doc path into its segments for the firestore() chain;
+// DETECTION_CONFIG_DOC_PATH stays the source of truth for the not-found error.
+const DETECTION_CONFIG_COLLECTION = "detection_config";
+const DETECTION_CONFIG_DOC_ID = "latest";
 
 export const OFFLINE_FIRST_LAUNCH_MESSAGE =
   "Initial setup requires internet — open the app once while online.";
@@ -103,9 +109,10 @@ function writeCache(config: DetectionConfig): void {
 }
 
 async function fetchRemoteConfig(): Promise<DetectionConfig> {
-  const db = getFirestore(app);
-  const ref = doc(db, DETECTION_CONFIG_DOC_PATH);
-  const snap = await getDoc(ref);
+  const snap = await firestore()
+    .collection(DETECTION_CONFIG_COLLECTION)
+    .doc(DETECTION_CONFIG_DOC_ID)
+    .get();
   if (!snap.exists()) {
     throw new Error(
       `DetectionConfig: Firestore document ${DETECTION_CONFIG_DOC_PATH} does not exist`

@@ -1,6 +1,6 @@
 # Story 1.8: Firebase v12 RN Auth Migration — Migrate detectionConfigService.ts (Story 3.E)
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -40,9 +40,9 @@ Dependency **Story 1.7 is satisfied** (merged to main: `a8c179c` feat + `141f6e3
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Migrate the Firestore read (AC: 1, 2, 3, 4)**
-  - [ ] Replace `import { doc, getDoc, getFirestore } from "firebase/firestore"` (line 24) and `import { app } from "../auth/firebaseConfig"` (line 25) with a single `import firestore from "@react-native-firebase/firestore"`.
-  - [ ] Rewrite **only** the body of `fetchRemoteConfig()` (lines 104-120). Replace the three JS-SDK lines:
+- [x] **Task 1 — Migrate the Firestore read (AC: 1, 2, 3, 4)**
+  - [x] Replace `import { doc, getDoc, getFirestore } from "firebase/firestore"` (line 24) and `import { app } from "../auth/firebaseConfig"` (line 25) with a single `import firestore from "@react-native-firebase/firestore"`.
+  - [x] Rewrite **only** the body of `fetchRemoteConfig()` (lines 104-120). Replace the three JS-SDK lines:
     ```ts
     const db = getFirestore(app);
     const ref = doc(db, DETECTION_CONFIG_DOC_PATH);
@@ -55,33 +55,33 @@ Dependency **Story 1.7 is satisfied** (merged to main: `a8c179c` feat + `141f6e3
       .doc(DETECTION_CONFIG_DOC_ID)
       .get();
     ```
-  - [ ] Keep `DETECTION_CONFIG_DOC_PATH = "detection_config/latest"` exported (used in the not-found error message). Add module consts `DETECTION_CONFIG_COLLECTION = "detection_config"` and `DETECTION_CONFIG_DOC_ID = "latest"` for the RNFB chain (RNFB takes collection + doc segments separately, unlike the JS SDK's slash path). Do not change the exported constant's value or the error string.
-  - [ ] Leave `snap.exists()` as a method call and `snap.data()` unchanged — RNFB v24.1.0 matches the JS-SDK shape here (AC4).
-  - [ ] **Do not touch** the singleflight gates, `readCache`/`writeCache`/memoization, `getDetectionConfig`/`backgroundRefresh`/`refreshDetectionConfig`/`getCachedDetectionConfig`, the two error classes, or `validateDetectionConfig` — they are SDK-agnostic and must remain byte-stable except for the import line.
+  - [x] Keep `DETECTION_CONFIG_DOC_PATH = "detection_config/latest"` exported (used in the not-found error message). Add module consts `DETECTION_CONFIG_COLLECTION = "detection_config"` and `DETECTION_CONFIG_DOC_ID = "latest"` for the RNFB chain (RNFB takes collection + doc segments separately, unlike the JS SDK's slash path). Do not change the exported constant's value or the error string.
+  - [x] Leave `snap.exists()` as a method call and `snap.data()` unchanged — RNFB v24.1.0 matches the JS-SDK shape here (AC4).
+  - [x] **Do not touch** the singleflight gates, `readCache`/`writeCache`/memoization, `getDetectionConfig`/`backgroundRefresh`/`refreshDetectionConfig`/`getCachedDetectionConfig`, the two error classes, or `validateDetectionConfig` — they are SDK-agnostic and must remain byte-stable except for the import line.
 
-- [ ] **Task 2 — Retire the `app` shim (AC: 5)**
-  - [ ] Confirm no remaining importer of `../auth/firebaseConfig` (after Task 1, grep `firebaseConfig` across `apps/mobile/src` should hit only the file itself + the test mock you remove in Task 3).
-  - [ ] Delete `apps/mobile/src/features/auth/firebaseConfig.ts` (this removes the final `firebase/app` JS-SDK import in the app).
+- [x] **Task 2 — Retire the `app` shim (AC: 5)**
+  - [x] Confirm no remaining importer of `../auth/firebaseConfig` (after Task 1, grep `firebaseConfig` across `apps/mobile/src` should hit only the file itself + the test mock you remove in Task 3).
+  - [x] Delete `apps/mobile/src/features/auth/firebaseConfig.ts` (this removes the final `firebase/app` JS-SDK import in the app).
 
-- [ ] **Task 3 — Migrate the test (AC: 7)**
-  - [ ] In `detectionConfigService.test.ts`, replace the `jest.mock("firebase/firestore", …)` block (lines 4-10) with an RNFB firestore mock following `subscriptionService.test.ts:14-33`: module-scope `mockGet`/`mockDoc`/`mockCollection`/`mockFirestoreFn` (`jest.fn`), then `jest.mock("@react-native-firebase/firestore", () => ({ __esModule: true, default: lazyFirestore }))` where `lazyFirestore` is a thunk deferring the `mockFirestoreFn` deref to call time (HOIST NOTE).
-  - [ ] **Delete** the `jest.mock("../../auth/firebaseConfig", () => ({ app: {} }))` block (lines 12-14) — the module no longer exists.
-  - [ ] Re-point every `mockGetDoc.mockResolvedValue*`/`mockRejectedValue*`/`mockImplementation` onto the new `mockGet` (the leaf of the `firestore().collection().doc().get()` chain). The existing `mockSnapshot()` helper (`exists: () => …`, `data: () => …`) already matches RNFB — keep it.
-  - [ ] In `beforeEach`, re-arm the chain after reset if you adopt 1.7's `resetAllMocks()` pattern; or keep the existing `mockReset()` on the leaf and leave the chain stubs as stable closures (simpler — the chain functions don't carry per-test queues). Either is fine as long as `mockGet.toHaveBeenCalledTimes(1)` still holds for the singleflight tests.
-  - [ ] Keep all describe/it bodies and assertions intact — only the mock wiring changes.
+- [x] **Task 3 — Migrate the test (AC: 7)**
+  - [x] In `detectionConfigService.test.ts`, replace the `jest.mock("firebase/firestore", …)` block (lines 4-10) with an RNFB firestore mock following `subscriptionService.test.ts:14-33`: module-scope `mockGet`/`mockDoc`/`mockCollection`/`mockFirestoreFn` (`jest.fn`), then `jest.mock("@react-native-firebase/firestore", () => ({ __esModule: true, default: lazyFirestore }))` where `lazyFirestore` is a thunk deferring the `mockFirestoreFn` deref to call time (HOIST NOTE).
+  - [x] **Delete** the `jest.mock("../../auth/firebaseConfig", () => ({ app: {} }))` block (lines 12-14) — the module no longer exists.
+  - [x] Re-point every `mockGetDoc.mockResolvedValue*`/`mockRejectedValue*`/`mockImplementation` onto the new `mockGet` (the leaf of the `firestore().collection().doc().get()` chain). The existing `mockSnapshot()` helper (`exists: () => …`, `data: () => …`) already matches RNFB — keep it.
+  - [x] In `beforeEach`, re-arm the chain after reset if you adopt 1.7's `resetAllMocks()` pattern; or keep the existing `mockReset()` on the leaf and leave the chain stubs as stable closures (simpler — the chain functions don't carry per-test queues). Either is fine as long as `mockGet.toHaveBeenCalledTimes(1)` still holds for the singleflight tests. **Chose the leaf-reset path** (`mockGet.mockReset()`; chain stubs stay stable closures).
+  - [x] Keep all describe/it bodies and assertions intact — only the mock wiring changes.
 
-- [ ] **Task 4 — Drop the `firebase` dependency (AC: 6)**
-  - [ ] Remove `"firebase": "^12.8.0"` from `apps/mobile/package.json` dependencies (line 34).
-  - [ ] Optionally remove the dead `firebase|@firebase` token from the jest `transformIgnorePatterns` regex (line 59).
-  - [ ] Run the package manager install so the lockfile drops `firebase` (and its now-unused transitive deps): `pnpm install` (or the repo's lock-update command). Verify `firebase` is gone from `pnpm-lock.yaml` for the mobile workspace.
+- [x] **Task 4 — Drop the `firebase` dependency (AC: 6)**
+  - [x] Remove `"firebase": "^12.8.0"` from `apps/mobile/package.json` dependencies (line 34).
+  - [x] Optionally remove the dead `firebase|@firebase` token from the jest `transformIgnorePatterns` regex (line 59). **Done** — removed `|firebase|@firebase`.
+  - [x] Run the package manager install so the lockfile drops `firebase` (and its now-unused transitive deps): `pnpm install` (or the repo's lock-update command). Verify `firebase` is gone from `pnpm-lock.yaml` for the mobile workspace. **Verified** — mobile importer block lists only `@react-native-firebase/*`; `apps/web`'s `firebase@^12.11.0` is the only remaining JS-SDK consumer (untouched).
 
-- [ ] **Task 5 — Gates (AC: 8)**
-  - [ ] `pnpm --filter mobile typecheck` → 0 errors. (Removing `firebase` could surface a stray JS-SDK type import elsewhere; grep `from "firebase` first to be sure none remain.)
-  - [ ] `pnpm --filter mobile test` → all suites green, no regressions vs the 18-suite / 158 baseline.
-  - [ ] `pnpm --filter mobile exec expo export --platform android` → clean build, no `firebase` (JS SDK) module in the graph, bundle ≤ 5.23 MB. Record the new size.
+- [x] **Task 5 — Gates (AC: 8)**
+  - [x] `pnpm --filter mobile typecheck` → **0 errors**. `grep 'from "firebase'` over `apps/mobile/src` → no matches.
+  - [x] `pnpm --filter mobile test` → **18 suites / 158 (148 passed + 10 todo)**, 0 regressions vs the baseline.
+  - [x] `pnpm --filter mobile exec expo export --platform android` → clean build, no `firebase` (JS SDK) module in the graph, bundle **4.44 MB** (down from the 5.23 MB baseline — the JS-SDK firestore code left the bundle).
 
 - [ ] **Task 6 — Git delivery (`[HELD]` — post-merge Two-PR per [[feedback_two_pr_docs_execution]])**
-  - [ ] Commit on the session branch `claude/nice-bohr-lsdki5` (this remote-exec session; NOT a new `story-1-8-*` branch — same precedent as 1.6/1.7). Push `-u origin claude/nice-bohr-lsdki5`.
+  - [x] Commit on the session branch `claude/hopeful-sagan-estln9` (this remote-exec session; NOT a new `story-1-8-*` branch — same precedent as 1.6/1.7). Push `-u origin claude/hopeful-sagan-estln9`.
   - [ ] [HELD] PR open + `--no-ff` merge to main; flip Status `review → done` and sprint-status entry post-review.
 
 - [ ] **Task 7 — Manual smoke (`[HELD]` → Story 1.9) (AC: 9)**
@@ -175,8 +175,38 @@ The existing `mockSnapshot(payload)` helper returns `{ exists: () => …, data: 
 
 ### Agent Model Used
 
+claude-opus-4-8 (Amelia / dev-story)
+
 ### Debug Log References
+
+- `pnpm install` — updated `pnpm-lock.yaml`; mobile importer drops `firebase` JS SDK (45.4s).
+- `pnpm --filter mobile typecheck` → 0 errors.
+- `pnpm --filter mobile test` → 18 suites / 158 (148 passed + 10 todo), 0 regressions.
+- `pnpm --filter mobile exec expo export --platform android` → android bundle 4.44 MB (`index-*.hbc`), no `firebase`/`@firebase/firestore` string in the Hermes bytecode.
 
 ### Completion Notes List
 
+- **AC1 (Firestore read migrated):** `fetchRemoteConfig()` now reads via `firestore().collection("detection_config").doc("latest").get()`. Both JS-SDK imports (`firebase/firestore` + `../auth/firebaseConfig`) replaced by a single `import firestore from "@react-native-firebase/firestore"`. No `firebase/*` JS-SDK import remains anywhere in `apps/mobile/src` (grep-clean).
+- **AC2 (singleflight gates preserved):** Only `fetchRemoteConfig`'s body + the import/const lines changed; the three inflight gates, MMKV memo, SWR cache, and public API are byte-stable. The two singleflight tests still assert `mockGet` called exactly once.
+- **AC3 (error-path semantics preserved):** `validateDetectionConfig` still runs on `snap.data()`; `MalformedRemoteConfigError` / `OfflineFirstLaunchError` disambiguation unchanged. No bundled-asset fallback introduced (that stays Story 1.13/AR-4).
+- **AC4 (`exists()` stays a method):** kept `snap.exists()` — RNFB v24.1.0 `DocumentSnapshot.exists(): boolean`, inheriting the 1.7 verdict.
+- **AC5 (`app` shim removed):** deleted `apps/mobile/src/features/auth/firebaseConfig.ts` — the last `firebase/app` JS-SDK import. Confirmed its only two importers (prod service + test mock) were both eliminated this story; auth/googleSignIn import `auth` directly from RNFB.
+- **AC6 (`firebase` dep removed):** dropped `"firebase": "^12.8.0"` from `apps/mobile/package.json` and the now-dead `firebase|@firebase` token from the jest `transformIgnorePatterns`. Lockfile re-resolved; mobile workspace no longer pulls the JS SDK (`apps/web` keeps its own `firebase` — untouched).
+- **AC7 (test migrated):** swapped the `firebase/firestore` mock for an RNFB `@react-native-firebase/firestore` lazy-thunk + `__esModule`/`default` factory (1.7 pattern); dropped the `../../auth/firebaseConfig` mock; re-pointed all `mockGetDoc` → `mockGet` (chain leaf). Chose leaf-reset (`mockGet.mockReset()`), leaving the collection/doc/firestore() stubs as stable closures. All describe/it bodies unchanged.
+- **AC8 (gates green):** typecheck 0; jest 18/158 no-regression; expo android export clean at 4.44 MB ≤ 5.23 MB baseline.
+- **AC9 (manual smoke):** `[HELD]` → folded into Story 1.9's consolidated Epic-1-end Android device pass.
+- **BF-3 complete (code side):** this was the last `firebase/firestore` JS-SDK consumer; with the `app` shim deleted and the dep dropped, the Firebase v12 RN migration is code-complete pending 1.9's manual sign-off.
+
 ### File List
+
+- `apps/mobile/src/features/video-processing/detectionConfigService.ts` (modified — Firestore read migrated to RNFB; import + 2 segment consts)
+- `apps/mobile/src/features/auth/firebaseConfig.ts` (deleted — orphaned `firebase/app` shim)
+- `apps/mobile/src/features/video-processing/__tests__/detectionConfigService.test.ts` (modified — RNFB firestore mock; dropped firebaseConfig mock)
+- `apps/mobile/package.json` (modified — removed `firebase` dep + dead jest transformIgnore token)
+- `pnpm-lock.yaml` (modified — re-resolved; mobile workspace drops `firebase` JS SDK)
+
+## Change Log
+
+| Date | Version | Description |
+| --- | --- | --- |
+| 2026-06-12 | 1.0 | Story 3.E implemented — migrated `detectionConfigService.ts` `fetchRemoteConfig()` to `@react-native-firebase/firestore`, deleted the orphaned `firebaseConfig.ts` `app` shim, and dropped the `firebase@^12.8.0` JS-SDK dependency from the mobile app. Gates green (typecheck 0; jest 18/158; android bundle 4.44 MB). Status → review. |
