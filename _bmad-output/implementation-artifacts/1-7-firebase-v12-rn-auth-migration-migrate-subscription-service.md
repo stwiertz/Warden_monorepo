@@ -1,6 +1,6 @@
 # Story 1.7: Firebase v12 RN Auth Migration — Migrate subscriptionService.ts (Story 3.D)
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -219,3 +219,32 @@ Amelia (dev-story) — claude-opus-4-8, 2026-06-12.
 ### Change Log
 
 - 2026-06-12 — Story 1.7 (Story 3.D) implemented: migrated `subscriptionService.ts` Firestore reads from the `firebase/firestore` JS SDK to `@react-native-firebase/firestore`; preserved `isSubscriptionPaid` semantics via a duck-typed Timestamp guard; preserved the 60-min revalidation and offline-grace fallback; removed the cross-SDK seam cast in `authService.ts`; added the `deriveEntitlementState` stub + six-state regression scaffold and a full `subscriptionService.test.ts`. Gates: typecheck 0; jest 18 suites / 157 (147 + 10 todo). Status → review.
+
+## Review Findings
+
+> BMad adversarial code review (2026-06-12, claude-opus-4-8). 3 layers: Blind Hunter + Edge Case Hunter + Acceptance Auditor. Acceptance Auditor: **8/8 ACs PASS** (AC8 gates asserted but unverifiable in-container — no `node_modules`). 2 patch, 5 defer, 9 dismissed as noise/by-design.
+
+### Patch (actionable in this story's changed code)
+
+- [x] [Review][Patch] Top-level `expect()` runs at jest collection time, not inside a test [`apps/mobile/src/features/auth/__tests__/deriveEntitlementState.test.ts:23`] — FIXED: wrapped in `describe("deriveEntitlementState — stub contract") → it("is exported as a function")` so it runs as a named test (jest now 158/18, +1 vs 157). (blind+edge)
+- [x] [Review][Patch] Duck-typed Timestamp guard doesn't validate `toMillis()` return is a finite number [`apps/mobile/src/features/auth/subscriptionService.ts:26-29`] — FIXED: capture `const ms = toMillis.call(periodEnd)` and gate on `typeof ms === "number" && Number.isFinite(ms)` before `ms > Date.now()`, restoring the tightness lost vs the old `instanceof Timestamp` and rejecting NaN/non-number returns. typecheck 0; jest green. (blind+edge)
+
+### Deferred (real but pre-existing — not introduced by this migration; structure unchanged from the JS-SDK original)
+
+- [x] [Review][Defer] Cross-user cache contamination on the network-failure fallback [`subscriptionService.ts:47-48`] — deferred, pre-existing + **spec-pinned by AC4**. The `catch` returns `useAuthStore.getState().user?.isPaid ?? false` without comparing the cached user's `uid` to the user being checked; on a shared device / fast account switch while offline, user A could inherit user B's `isPaid`. AC4 explicitly mandates this exact fallback shape, and the correct home for uid-aware/offline-grace handling is the six-state machine in **Story 3.1** (`deriveEntitlementState`). Surface there.
+- [x] [Review][Defer] Periodic revalidation timer not stopped on logout [`authService.ts:42-46` ↔ `subscriptionService.ts:75`] — deferred, pre-existing. `logout()` never calls `stopPeriodicRevalidation()`; the interval leaks for the process lifetime (bounded by the `if (!user) return` null-guard at line 56, so no active reads after logout). Fold into auth-error-hardening.
+- [x] [Review][Defer] `this`-binding fragility in `startPeriodicRevalidation` [`subscriptionService.ts:53`] — deferred, pre-existing. `this.stopPeriodicRevalidation()` throws if the method is ever called detached (`const { startPeriodicRevalidation } = subscriptionService`). Prefer `subscriptionService.stopPeriodicRevalidation()`.
+- [x] [Review][Defer] Stale-user read-modify-write across the revalidation `await` [`subscriptionService.ts:55-67`] — deferred, pre-existing. `user` is snapshotted before the awaited `get()`; if the user logs out / switches during the in-flight read, `setUser({ ...user, isPaid })` writes back the stale snapshot. Re-read `getState().user` (or recheck `uid`) before `setUser`.
+- [x] [Review][Defer] No reentrancy guard on the revalidation interval [`subscriptionService.ts:54-72`] — deferred, pre-existing + theoretical at a 1-hour interval. If a `get()` ever exceeds the interval, overlapping async callbacks race on `setUser`. Add an in-flight flag if the interval is ever shortened.
+
+### Dismissed (9 — noise / false positive / by-design)
+
+- `mockGet` "never re-stubbed after `resetAllMocks`" (Blind, from summary only) — **false positive**: every read-path test arms `mockGet` via `mockResolvedValueOnce`/`mockRejectedValueOnce` (test:96-155); network-fail tests use genuine `mockRejectedValueOnce`, not an accidental `undefined.exists()` TypeError. Verified against the real file.
+- `deriveEntitlementState` exported stub throws unconditionally — **by design**, AC5 mandates the stub + `throw` until Story 3.1.
+- `EntitlementState` literal `"offline-grace ≤30d"` (space + Unicode `≤`) "fragile" — **by design**, the exact string is pinned in Dev Notes / architecture for Story 3.1.
+- `firestore()` called per-method vs a cached singleton — **by design**, the RNFB default-instance factory is the intended pattern; functionally equivalent.
+- `FirebaseFirestoreTypes` not imported via `import type` — type-only lint nit; typecheck is green and no project rule enforces it.
+- Hand-counted `await Promise.resolve()` ×2 microtask flush "brittle" — Edge Hunter verified it reliably drains the single-`await` chain; tests pass. `advanceTimersByTimeAsync` is a nice-to-have, not a defect.
+- "Other callers of `checkSubscription` may break on the retype" — only caller is `authService.mapFirebaseUser`, which passes `FirebaseAuthTypes.User`; typecheck 0 confirms.
+- Unresolved `serverTimestamp()` read-back returns a client estimate — theoretical; the Stripe-written doc shape doesn't use pending server timestamps for `current_period_end`.
+- Empty/undefined `user.uid` at `.doc(user.uid)` — upstream auth guarantees a non-empty uid; the seam is reached only post-authentication.

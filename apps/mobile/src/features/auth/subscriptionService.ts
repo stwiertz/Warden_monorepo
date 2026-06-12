@@ -26,7 +26,12 @@ function isSubscriptionPaid(data: Record<string, unknown> | undefined): boolean 
   const toMillis = (periodEnd as FirebaseFirestoreTypes.Timestamp | undefined)
     ?.toMillis;
   if (typeof toMillis !== "function") return false;
-  return (periodEnd as FirebaseFirestoreTypes.Timestamp).toMillis() > Date.now();
+  // Validate the return is a real epoch value before comparing — the duck-type
+  // accepts any object exposing `toMillis`, so guard against a malformed field
+  // (e.g. one returning NaN / a non-number) silently passing the `> now` check.
+  const ms = toMillis.call(periodEnd);
+  if (typeof ms !== "number" || !Number.isFinite(ms)) return false;
+  return ms > Date.now();
 }
 
 let revalidationTimer: ReturnType<typeof setInterval> | null = null;

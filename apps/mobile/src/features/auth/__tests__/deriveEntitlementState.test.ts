@@ -20,7 +20,13 @@ import { deriveEntitlementState } from "../subscriptionService";
 
 // Reference the import so the scaffold fails to compile if the stub's export is
 // removed/renamed before Story 3.1 lands (without invoking it — the stub throws).
-expect(typeof deriveEntitlementState).toBe("function");
+// Kept inside an `it` so the assertion runs as a named test rather than at
+// jest collection time.
+describe("deriveEntitlementState — stub contract", () => {
+  it("is exported as a function", () => {
+    expect(typeof deriveEntitlementState).toBe("function");
+  });
+});
 
 describe("deriveEntitlementState — paid", () => {
   it.todo("active status with current_period_end in the future → 'paid'");
