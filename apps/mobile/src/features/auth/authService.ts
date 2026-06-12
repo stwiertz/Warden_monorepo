@@ -5,16 +5,7 @@ import { subscriptionService } from "./subscriptionService";
 export async function mapFirebaseUser(
   user: FirebaseAuthTypes.User
 ): Promise<AuthUser> {
-  // Cross-SDK seam (transitional): subscriptionService still types its param as
-  // the firebase/auth (JS SDK) `User` and reads only `.uid`. The RNFB user is
-  // structurally compatible for that read but is nominally a different SDK type
-  // (missing refreshToken/tenantId). This bridge is removed in Story 1.7 when
-  // subscriptionService migrates to @react-native-firebase/firestore + RNFB user.
-  const isPaid = await subscriptionService.checkSubscription(
-    user as unknown as Parameters<
-      typeof subscriptionService.checkSubscription
-    >[0]
-  );
+  const isPaid = await subscriptionService.checkSubscription(user);
   // TODO(Story 2.3 — Epic 2 telemetry wrapper): emit T0 here when mapFirebaseUser
   // confirms isPaid === true (first paid auth-state-change in session). Payload
   // contract per epics-and-stories.md:1218-1247: { elapsed_seconds, t0_at, t1_path? }.
