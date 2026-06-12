@@ -15,6 +15,11 @@ export async function mapFirebaseUser(
       typeof subscriptionService.checkSubscription
     >[0]
   );
+  // TODO(Story 2.3 — Epic 2 telemetry wrapper): emit T0 here when mapFirebaseUser
+  // confirms isPaid === true (first paid auth-state-change in session). Payload
+  // contract per epics-and-stories.md:1218-1247: { elapsed_seconds, t0_at, t1_path? }.
+  // NO frame/audio data (PRIV-001/002). Story 2.2 lands the analytics wrapper;
+  // Story 2.3 replaces this comment with the emit call.
   return {
     uid: user.uid,
     email: user.email ?? "",
