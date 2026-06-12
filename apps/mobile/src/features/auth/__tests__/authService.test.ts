@@ -144,19 +144,65 @@ describe("authService.login (namespaced API)", () => {
     expect(mockSetUser).not.toHaveBeenCalled();
     expect(mockSetError).toHaveBeenCalledWith("Invalid email or password");
   });
+
+  it("coerces a non-Error throw to the default 'Login failed' message", async () => {
+    // login's catch does `error instanceof Error ? error.message : "Login failed"`;
+    // a non-Error rejection takes the false branch, then formatAuthError("Login
+    // failed") matches no auth/* code and falls through to the default mapping.
+    mockSignInWithEmailAndPassword.mockRejectedValueOnce("string-rejection");
+
+    await authService.login("test@example.com", "secret");
+
+    expect(mockSetUser).not.toHaveBeenCalled();
+    expect(mockSetError).toHaveBeenCalledWith("Login failed. Please try again");
+  });
+
+  // formatAuthError is module-private; drive every mapping branch through the
+  // login catch path so a regression in any string mapping fails CI.
+  it.each([
+    ["auth/invalid-email", "Invalid email address"],
+    ["auth/user-disabled", "This account has been disabled"],
+    ["auth/user-not-found", "No account found with this email"],
+    ["auth/wrong-password", "Incorrect password"],
+    ["auth/too-many-requests", "Too many attempts. Try again later"],
+    ["auth/network-request-failed", "Network error. Check your connection"],
+    ["auth/some-unmapped-code", "Login failed. Please try again"],
+  ])(
+    "maps a %s Firebase error to its user-facing message",
+    async (code, expected) => {
+      mockSignInWithEmailAndPassword.mockRejectedValueOnce(
+        new Error(`Firebase: Error (${code}).`)
+      );
+
+      await authService.login("test@example.com", "secret");
+
+      expect(mockSetUser).not.toHaveBeenCalled();
+      expect(mockSetError).toHaveBeenCalledWith(expected);
+    }
+  );
 });
 
 describe("authService.logout (namespaced API)", () => {
-  it("awaits auth().signOut() then calls the store's logout()", async () => {
-    mockSignOut.mockResolvedValueOnce(undefined);
+  it("awaits auth().signOut() before calling the store's logout()", async () => {
+    // Gate signOut's resolution so the test proves await-completion ordering, not
+    // mere invocation order: if the `await` were dropped, the store logout() would
+    // run synchronously before we resolve signOut and the assertion below fails.
+    let resolveSignOut!: () => void;
+    mockSignOut.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveSignOut = resolve;
+      })
+    );
 
-    await authService.logout();
+    const pending = authService.logout();
 
     expect(mockSignOut).toHaveBeenCalledTimes(1);
+    expect(mockStoreLogout).not.toHaveBeenCalled();
+
+    resolveSignOut();
+    await pending;
+
     expect(mockStoreLogout).toHaveBeenCalledTimes(1);
-    const signOutOrder = mockSignOut.mock.invocationCallOrder[0];
-    const logoutOrder = mockStoreLogout.mock.invocationCallOrder[0];
-    expect(signOutOrder).toBeLessThan(logoutOrder);
   });
 });
 
@@ -234,6 +280,23 @@ describe("mapFirebaseUser (cross-SDK seam — removed in Story 1.7)", () => {
       uid: "u-null-email",
       email: "",
       isPaid: false,
+    });
+  });
+
+  it("falls back to email:'' when user.email is undefined", async () => {
+    // `user.email ?? ""` fires on both null and undefined — pin the undefined arm.
+    const user = makeUser({
+      uid: "u-undef-email",
+      email: undefined as unknown as string,
+    });
+    mockCheckSubscription.mockResolvedValueOnce(true);
+
+    const result = await mapFirebaseUser(user);
+
+    expect(result).toEqual({
+      uid: "u-undef-email",
+      email: "",
+      isPaid: true,
     });
   });
 });
