@@ -1,14 +1,21 @@
 # Story 1.9: Firebase v12 RN Auth Migration — End-to-End Manual Test of All 10 PRD Journeys (Story 3.F)
 
-Status: ready-for-dev
+Status: blocked
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
+
+> **⛔ DISPOSITION — BLOCKED pending downstream epics (AC0 resolved Option B, Stephane 2026-06-12).**
+> The literal epic AC ("manually verify all 10 PRD journeys end-to-end on the dev build") was confirmed UNRUNNABLE at Epic-1-end: a feature audit of `apps/mobile/src` shows the review/clip/voice/export tail (Epics 5/6), the entitlement banners + lapsed/subscription-required screens + `deriveEntitlementState` (Epic 3), and the web cancel flow (Epic 4) are stubs or unbuilt (see Dev Notes §Feature Reachability Matrix). **Stephane chose full coverage over a partial regression sign-off.** This story therefore HOLDS — it is NOT picked up by `dev-story` until its dependencies ship.
+> - **Do not run** until **Epics 3, 4, 5, and 6 are `done`** (and the Epic-9 J10 tooling pipeline is current). At that point this story runs the **true full J1–J10 end-to-end pass** on the Android dev build.
+> - Every `[DEFERRED (feature not built)]` tag below is a **placeholder for a leg that becomes a live `[ ]` AC** once its feature lands — under Option B the final pass verifies ALL legs, not just the reachable ones.
+> - The Feature Reachability Matrix (Dev Notes) is the punch-list of exactly what must exist before this story is unblocked.
+> - The batched device-smoke checks from Stories 1.2/1.5/1.7/1.8 (AC6–AC11) are themselves reachable today, but Stephane elected to verify them inside this one consolidated full pass rather than split them out — they ride along when the journeys become runnable.
 
 ## Story
 
 As **Stephane**,
-I want **the Firebase v12 RN auth migration (BF-3, Stories 1.4→1.8) signed off on the Android dev build by manually exercising every PRD journey (J1–J10) that is reachable on the current feature surface, with every unreachable leg explicitly recorded as deferred to the V1-launch-readiness gate**,
-so that **Sprint 3 (Epic 3 — the entitlement state machine) binds on a Firebase foundation proven not to have regressed auth, entitlement reads, the processing pipeline, the foreground service, or the offline cache — the architecture's "sign-off binds Sprint 3" gate — without falsely claiming end-to-end coverage of journey legs whose UI does not yet exist.**
+I want **all 10 PRD journeys (J1–J10) manually validated end-to-end on the Android dev build once the journey feature surface exists (Epics 3/4/5/6 shipped), so the Firebase v12 RN auth migration (BF-3) is signed off against the real, complete user flows**,
+so that **V1 launch binds on a migration proven not to have regressed any journey — and Sprint 3's entitlement work, the Cinema/clip/export features, and the web cancel flow are all exercised through the migrated Firebase auth + Firestore path before release.**
 
 ## Acceptance Criteria
 
@@ -16,7 +23,7 @@ so that **Sprint 3 (Epic 3 — the entitlement state machine) binds on a Firebas
 
 ### AC0 — Scope decision (kickoff; resolve before any device run)
 
-- [ ] **AC0 — Sign-off scope confirmed.** This story's literal epic AC ("all 10 PRD journeys end-to-end on dev build") collides with the current feature surface: per the feature audit (Dev Notes §Feature Reachability Matrix), the review/clip/voice/export tail (Epics 5/6), the entitlement banners + lapsed/subscription-required screens + `deriveEntitlementState` (Epic 3 / Story 3.1), and the web cancel flow (Epic 4) are stubs or unbuilt. Confirm the scope reading before testing:
+- [x] **AC0 — Sign-off scope confirmed → Option B (RESOLVED, Stephane 2026-06-12): Hold for full coverage.** Story 1.9 stays `blocked` until Epics 3/4/5/6 ship, then runs the literal full J1–J10 end-to-end pass. The remaining ACs below are the forward spec for that pass; the `[DEFERRED]` legs convert to live `[ ]` ACs as their features land. This story's literal epic AC ("all 10 PRD journeys end-to-end on dev build") collides with the current feature surface: per the feature audit (Dev Notes §Feature Reachability Matrix), the review/clip/voice/export tail (Epics 5/6), the entitlement banners + lapsed/subscription-required screens + `deriveEntitlementState` (Epic 3 / Story 3.1), and the web cancel flow (Epic 4) are stubs or unbuilt. Confirm the scope reading before testing:
   - **Option A (RECOMMENDED) — Migration Regression Sign-off.** Story 1.9 verifies, on the current Android dev build, every journey leg that is reachable now (auth, entitlement read, import, auto-slice pipeline, foreground-service background-survival, offline auth-cache grace, tooling pipeline J10) PLUS the batched device-smoke checks deferred from Stories 1.2/1.5/1.6/1.7/1.8. Every unreachable leg is logged in the AC13 deferral ledger and carried forward to a **V1-launch-readiness gate (Epic 10)** that runs the true full J1–J10 pass once Epics 3/4/5/6 ship. This satisfies the architecture's intent — "sign-off binds Sprint 3" — because Sprint 3 (Epic 3) only needs a regression-clean Firebase foundation, not features Epic 3 itself builds. Sign-off verdict per journey is one of `PASS` / `PASS (reachable legs only)` / `DEFERRED (feature not built)`.
   - **Option B — Hold for full coverage.** Keep Story 1.9 `blocked` until Epics 3/4/5/6 ship, then run the literal full J1–J10 end-to-end pass. Faithful to the literal AC but contradicts "binds Sprint 3" (it would gate Epic 3 on features built in Epic 3+), and strands the BF-3 migration's device sign-off + 5 stories' worth of batched device-smoke checks indefinitely.
   - _Recommended default: **Option A.** Rationale + the circular-dependency argument in Dev Notes §AC0 Decision Detail. If Option B is chosen, this story flips to `blocked` and the remaining ACs become a forward spec for the Epic-10 gate._
@@ -50,8 +57,8 @@ so that **Sprint 3 (Epic 3 — the entitlement state machine) binds on a Firebas
 
 ## Tasks / Subtasks
 
-- [ ] **Task 0 — Resolve AC0 scope decision (AC: 0)**
-  - [ ] Confirm Option A vs B with Stephane (see closing question). If A, proceed; if B, flip story to `blocked` and stop.
+- [x] **Task 0 — Resolve AC0 scope decision (AC: 0)** — _RESOLVED Option B (Stephane 2026-06-12): story held `blocked` until Epics 3/4/5/6 ship. Tasks 1–6 below execute only after unblock._
+- [ ] **Unblock gate (precondition for Tasks 1–6):** Epics 3, 4, 5, 6 `done` + Epic-9 J10 tooling current. Re-confirm the Feature Reachability Matrix legs are now all built before scheduling the pass.
 - [ ] **Task 1 — Build + install the dev build (agent-controllable prep; AC: 1,2,3,6,7,8,9,10,11)**
   - [ ] `pnpm --filter mobile exec expo prebuild --platform android --clean` (regenerates the gitignored `android/` tree; emits the foreground-service Kotlin + Firebase Gradle wiring).
   - [ ] `pnpm --filter mobile exec expo run:android --device dc72b871` (dev build REQUIRED — RNFB, FFmpeg-kit, fast-opencv, and the foreground service are native modules; Expo Go cannot host them).
@@ -152,6 +159,7 @@ From Story 1.8 (`done`, BF-3 code-complete): `pnpm --filter mobile typecheck` **
 - **No code changes.** This is a manual verification + documentation story. The only file artifact produced is `_bmad-output/v1-launch-readiness-checklist.md` (AC13). Task 1 regenerates the gitignored `apps/mobile/android/` tree via prebuild (not committed).
 - **Sign-off artifact location:** the epic AC permits "`architecture-spike-perf-floor.md` OR a separate artifact in Epic 10." Chosen: a **new** `v1-launch-readiness-checklist.md` (the journeys span all epics; Epic 10 owns launch readiness; `architecture-spike-perf-floor.md` is a spike-scoped doc that must NOT be overwritten).
 - **Git:** session branch `claude/nifty-brahmagupta-d8194j` (remote-exec session directive — NOT a new `story-1-9-*` branch; 1.6/1.7/1.8 precedent).
+- **Dependencies (Option B):** the literal 1.4–1.8 deps are satisfied, but under Option B the operative unblock gate is **Epics 3, 4, 5, 6 all `done`** (+ Epic-9 J10 tooling current). Until then the story is `blocked`. Consequence: **epic-1 cannot reach `done` until this story closes**, so the BF-3 migration stays code-complete-but-device-unsigned through the rest of V1 development — an accepted trade for full-coverage sign-off.
 
 ### References
 
