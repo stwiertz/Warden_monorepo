@@ -1,6 +1,6 @@
 # Story 1.7: Firebase v12 RN Auth Migration — Migrate subscriptionService.ts (Story 3.D)
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -34,34 +34,34 @@ Dependency **Story 1.6 is satisfied** (merged to main: `c3601b7`/`010d153`; auth
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Migrate imports & module init (AC: 1, 2)**
-  - [ ] Replace `import { getFirestore, doc, getDoc, Timestamp } from "firebase/firestore"` with `import firestore, { FirebaseFirestoreTypes } from "@react-native-firebase/firestore"`.
-  - [ ] Replace `import { type User } from "firebase/auth"` with `import { type FirebaseAuthTypes } from "@react-native-firebase/auth"`.
-  - [ ] Remove `import { app } from "./firebaseConfig"` and the module-scope `const firestore = getFirestore(app)` (the RNFB `firestore()` singleton replaces it — pick a name that doesn't shadow the imported `firestore`; the default import IS the factory, call `firestore()`).
-  - [ ] Keep `import { useAuthStore } from "./useAuthStore"` and `REVALIDATION_INTERVAL_MS`, `PAID_STATUSES`, `revalidationTimer` unchanged.
-- [ ] **Task 2 — Migrate the two reads (AC: 1, 3, 4)**
-  - [ ] `checkSubscription`: `const userDoc = await firestore().collection("users").doc(user.uid).get();`
-  - [ ] Revalidation timer: same `firestore().collection("users").doc(user.uid).get()` call.
-  - [ ] Resolve the doc-existence check — see **CRITICAL GOTCHA: `exists` API** in Dev Notes. Verify against the installed type def and let `typecheck` be the gate.
-  - [ ] Retype `checkSubscription(user: FirebaseAuthTypes.User)`.
-- [ ] **Task 3 — Migrate `isSubscriptionPaid` Timestamp guard (AC: 2)**
-  - [ ] Replace `periodEnd instanceof Timestamp` — see **CRITICAL GOTCHA: Timestamp `instanceof`** in Dev Notes. Preferred: structural/duck-typed guard `typeof (periodEnd as FirebaseFirestoreTypes.Timestamp)?.toMillis === "function"`; acceptable alt: `periodEnd instanceof firestore.Timestamp`. Preserve the `> Date.now()` comparison.
-- [ ] **Task 4 — Remove the seam cast in authService.ts (AC: 6)**
-  - [ ] In `mapFirebaseUser`, change `await subscriptionService.checkSubscription(user as unknown as Parameters<...>[0])` to `await subscriptionService.checkSubscription(user)`.
-  - [ ] Delete the now-stale 8-line "Cross-SDK seam (transitional)" comment block (`authService.ts:8-17`). Keep the `TODO(Story 2.3 …)` T0-telemetry comment intact.
-  - [ ] Confirm `authService.test.ts` still passes unchanged (it mocks `../subscriptionService`, so this is type-level only).
-- [ ] **Task 5 — Add `deriveEntitlementState` stub (AC: 5)**
-  - [ ] Export a typed stub from `subscriptionService.ts` (signature + return union; throws-not / returns a documented placeholder). See Dev Notes "deriveEntitlementState contract" for the exact signature, the six string literals, and the `EntitlementState` type to declare. Add a `// Story 3.1 (AR-11) implements; stub here only so the 1.7 scaffold compiles.` comment.
-- [ ] **Task 6 — Scaffold `deriveEntitlementState.test.ts` (AC: 5)**
-  - [ ] One `describe` per state (`paid`, `lapsed`, `offline-grace ≤30d`, `payment-failed`, `multi-device`, `signed-out`) with `it.todo("…")` placeholders mirroring the Gherkin in epics:1342-1374. Do NOT write real assertions — Story 3.1 fills them. Import the stub so the file type-checks.
-- [ ] **Task 7 — Write `subscriptionService.test.ts` (AC: 7)**
-  - [ ] Mock `@react-native-firebase/firestore` per the RNFB mock pattern in Dev Notes (lazy thunks; `firestore()` callable returning a `.collection().doc().get()` chain; static `firestore.Timestamp`).
-  - [ ] Mock `../useAuthStore` (`getState` returning `{ user, setUser }`) the same way `authService.test.ts` mocks its store.
-  - [ ] Cover the AC-7 cases. Use fake timers (`jest.useFakeTimers()`) for the `startPeriodicRevalidation` interval test; assert `stopPeriodicRevalidation` clears it.
-- [ ] **Task 8 — Gates (AC: 8)**
-  - [ ] `pnpm --filter mobile typecheck` → 0 errors.
-  - [ ] `pnpm --filter mobile test` → green, no regressions; new suites counted.
-- [ ] **Task 9 — Git delivery** — commit on branch `claude/festive-hamilton-pp0jgv` per session directive (NOT a new `story-1-7-*` branch — same remote-exec rule the 1.6 entry recorded). Device-login smoke + any PR/merge bookkeeping follow the Epic-1-end batched manual pass per `[[feedback_batch_manual_checks_epic_end]]`.
+- [x] **Task 1 — Migrate imports & module init (AC: 1, 2)**
+  - [x] Replace `import { getFirestore, doc, getDoc, Timestamp } from "firebase/firestore"` with `import firestore, { FirebaseFirestoreTypes } from "@react-native-firebase/firestore"`.
+  - [x] Replace `import { type User } from "firebase/auth"` with `import { type FirebaseAuthTypes } from "@react-native-firebase/auth"`.
+  - [x] Remove `import { app } from "./firebaseConfig"` and the module-scope `const firestore = getFirestore(app)` (the RNFB `firestore()` singleton replaces it — pick a name that doesn't shadow the imported `firestore`; the default import IS the factory, call `firestore()`).
+  - [x] Keep `import { useAuthStore } from "./useAuthStore"` and `REVALIDATION_INTERVAL_MS`, `PAID_STATUSES`, `revalidationTimer` unchanged.
+- [x] **Task 2 — Migrate the two reads (AC: 1, 3, 4)**
+  - [x] `checkSubscription`: `const userDoc = await firestore().collection("users").doc(user.uid).get();`
+  - [x] Revalidation timer: same `firestore().collection("users").doc(user.uid).get()` call.
+  - [x] Resolve the doc-existence check — see **CRITICAL GOTCHA: `exists` API** in Dev Notes. Verify against the installed type def and let `typecheck` be the gate. **VERDICT: `exists()` is a METHOD in RNFB v24.1.0** (`namespaced.d.ts:500` `exists(): boolean`, `FirestoreDocumentSnapshot.ts:87`) — same shape as the JS SDK; kept `userDoc.exists()`. typecheck 0 confirms.
+  - [x] Retype `checkSubscription(user: FirebaseAuthTypes.User)`.
+- [x] **Task 3 — Migrate `isSubscriptionPaid` Timestamp guard (AC: 2)**
+  - [x] Replace `periodEnd instanceof Timestamp` — used the **preferred** duck-typed guard (`toMillis` is a function → call it; compare `> Date.now()`). Comment added explaining why not `instanceof`.
+- [x] **Task 4 — Remove the seam cast in authService.ts (AC: 6)**
+  - [x] In `mapFirebaseUser`, change `await subscriptionService.checkSubscription(user as unknown as Parameters<...>[0])` to `await subscriptionService.checkSubscription(user)`.
+  - [x] Delete the now-stale 8-line "Cross-SDK seam (transitional)" comment block (`authService.ts:8-17`). Kept the `TODO(Story 2.3 …)` T0-telemetry comment intact.
+  - [x] Confirm `authService.test.ts` still passes unchanged (it mocks `../subscriptionService`, so this is type-level only).
+- [x] **Task 5 — Add `deriveEntitlementState` stub (AC: 5)**
+  - [x] Export a typed stub from `subscriptionService.ts` (signature + return union; throws a documented placeholder). `EntitlementState` union declared; stub comment added.
+- [x] **Task 6 — Scaffold `deriveEntitlementState.test.ts` (AC: 5)**
+  - [x] One `describe` per state (`paid`, `lapsed`, `offline-grace ≤30d`, `payment-failed`, `multi-device`, `signed-out`) with `it.todo("…")` placeholders mirroring the Gherkin in epics:1342-1374. No real assertions — Story 3.1 fills them. Imports the stub (and mocks the RNFB firestore module so the native module isn't loaded).
+- [x] **Task 7 — Write `subscriptionService.test.ts` (AC: 7)**
+  - [x] Mock `@react-native-firebase/firestore` per the RNFB lazy-thunk pattern (`firestore()` callable returning a `.collection().doc().get()` chain).
+  - [x] Mock `../useAuthStore` (`getState` returning `{ user, setUser }`) the same way `authService.test.ts` mocks its store (`mock`-prefixed mutable user per babel-jest-hoist).
+  - [x] Cover the AC-7 cases. Used fake timers for the `startPeriodicRevalidation` interval test; assert `stopPeriodicRevalidation` clears it.
+- [x] **Task 8 — Gates (AC: 8)**
+  - [x] `pnpm --filter mobile typecheck` → 0 errors.
+  - [x] `pnpm --filter mobile test` → green, no regressions; 18 suites / 157 (147 passed + 10 todo), up from 16 / 133.
+- [x] **Task 9 — Git delivery** — committed on branch `claude/eloquent-keller-pactbg` per this session's directive (NOT a new `story-1-7-*` branch — same remote-exec rule the 1.6 entry recorded; the create-story placeholder `claude/festive-hamilton-pp0jgv` was superseded by the session branch). Device-login smoke + any PR/merge bookkeeping follow the Epic-1-end batched manual pass per `[[feedback_batch_manual_checks_epic_end]]`.
 
 ## Dev Notes
 
@@ -183,8 +183,39 @@ apps/mobile/src/features/auth/
 
 ### Agent Model Used
 
+Amelia (dev-story) — claude-opus-4-8, 2026-06-12.
+
 ### Debug Log References
+
+- `node_modules` was not present in the container → ran `pnpm install --frozen-lockfile` (21.9s) to make the gates runnable.
+- Baseline before changes: `pnpm --filter mobile typecheck` = 0 errors; `pnpm --filter mobile test` = 16 suites / 133 tests (story header's "124/16" predated this checkout; actual baseline recorded here).
+- Two false-starts on the new tests, both fixed:
+  1. `babel-plugin-jest-hoist` rejected the `useAuthStore` mock factory closing over `storeUser` (variable not `mock`-prefixed) → renamed to `mockStoreUser`.
+  2. The revalidation timer tests initially failed because **modern jest fake timers also fake `Date.now()`**: a `+1h` future Timestamp computed at module load was no longer `> Date.now()` after `advanceTimersByTime(1h)`, so `isSubscriptionPaid` flipped to false. Widened the fixture margins to ±100 days.
+  3. `deriveEntitlementState.test.ts` imports the real `subscriptionService`, which top-level-imports the RNFB firestore native module → added a bare `jest.mock("@react-native-firebase/firestore")` to the scaffold so the native module isn't loaded.
 
 ### Completion Notes List
 
+- **AC1** ✅ Both reads migrated to `firestore().collection("users").doc(user.uid).get()`; no `firebase/firestore` import remains in `subscriptionService.ts`.
+- **AC2** ✅ `isSubscriptionPaid` unchanged in semantics: `status ∈ {active,trialing}` AND `current_period_end.toMillis() > now`. Doc shape untouched.
+- **AC3** ✅ `startPeriodicRevalidation`/`stopPeriodicRevalidation` keep the 60-min interval and the `setUser({...user, isPaid})`-on-change behavior (test-covered with fake timers).
+- **AC4** ✅ `checkSubscription` failure falls back to `useAuthStore.getState().user?.isPaid ?? false` (does not throw / log out); the revalidation timer swallows its own errors. Both paths test-covered.
+- **AC5** ✅ `deriveEntitlementState` stub + `EntitlementState` union exported from `subscriptionService.ts`; `__tests__/deriveEntitlementState.test.ts` scaffold with one `describe`/state (6 blocks, 10 `it.todo`s; `multi-device` asserts the "paid" outcome). Assertions land in Story 3.1.
+- **AC6** ✅ Removed the `as unknown as Parameters<...>[0]` seam cast and its 8-line comment block in `authService.ts:mapFirebaseUser`; the RNFB user passes directly now that the param is `FirebaseAuthTypes.User`. T0-telemetry TODO kept intact. `authService.test.ts` passes unchanged.
+- **AC7** ✅ `__tests__/subscriptionService.test.ts` mocks `@react-native-firebase/firestore` (no live network), covering paid (active/trialing + future), not-paid (canceled / past period / missing doc / missing+non-Timestamp `current_period_end`), the network-failure→cached-`isPaid` fallback (with and without cache), and the revalidation `setUser`-on-change / no-change / error-swallow / `stop`-clears paths.
+- **AC8** ✅ typecheck 0 errors; jest 18 suites / 157 tests (147 passed + 10 todo), 0 regressions (+2 suites, +24 tests vs the 16/133 baseline).
+- **VERDICT for Story 1.8 (Gotcha #1):** in `@react-native-firebase/firestore@24.1.0`, `DocumentSnapshot.exists` is a **METHOD** (`exists(): boolean`), NOT a boolean property — verified against the installed type def (`dist/typescript/lib/types/namespaced.d.ts:500`, runtime `FirestoreDocumentSnapshot.ts:87`). Use `userDoc.exists()` (parens). 1.8's `detectionConfigService` migration inherits this.
+- **Gotcha #2 resolution:** used the preferred duck-typed Timestamp guard (`toMillis` typeof-function check) rather than `instanceof firestore.Timestamp` — robust to cross-realm `instanceof` fragility and trivially mockable with `{ toMillis: () => n }`.
+- **Untouched (regression guardrails honored):** `firebaseConfig.ts` (`app` shim stays — `detectionConfigService.ts:26` still imports it; 1.8 removes it), `package.json` (`@react-native-firebase/firestore` and `firebase` both stay). The `onAuthStateChanged` latent unhandled-rejection remains out of scope (AC4 keeps the error swallow).
+- **Deferred:** device-login smoke (Epic-1-end consolidated manual pass); any PR/merge bookkeeping per `[[feedback_batch_manual_checks_epic_end]]`.
+
 ### File List
+
+- `apps/mobile/src/features/auth/subscriptionService.ts` — MODIFIED (RNFB firestore migration; duck-typed Timestamp guard; `deriveEntitlementState` stub + `EntitlementState` union).
+- `apps/mobile/src/features/auth/authService.ts` — MODIFIED (removed cross-SDK seam cast + comment block in `mapFirebaseUser`).
+- `apps/mobile/src/features/auth/__tests__/subscriptionService.test.ts` — NEW.
+- `apps/mobile/src/features/auth/__tests__/deriveEntitlementState.test.ts` — NEW (six-state scaffold, `it.todo`).
+
+### Change Log
+
+- 2026-06-12 — Story 1.7 (Story 3.D) implemented: migrated `subscriptionService.ts` Firestore reads from the `firebase/firestore` JS SDK to `@react-native-firebase/firestore`; preserved `isSubscriptionPaid` semantics via a duck-typed Timestamp guard; preserved the 60-min revalidation and offline-grace fallback; removed the cross-SDK seam cast in `authService.ts`; added the `deriveEntitlementState` stub + six-state regression scaffold and a full `subscriptionService.test.ts`. Gates: typecheck 0; jest 18 suites / 157 (147 + 10 todo). Status → review.
