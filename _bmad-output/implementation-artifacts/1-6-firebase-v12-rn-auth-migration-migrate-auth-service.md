@@ -153,6 +153,20 @@ _Awaiting verdict from Stephane._
   - [x] Single commit on current branch `claude/relaxed-mayer-8r3f41`. Commit message: `feat(auth): T0 telemetry TODO marker + authService.test.ts jest scaffolding (Story 1.6)`. No model identifier in the message. _Hash recorded in Change Log._
   - [x] Pushed `-u origin claude/relaxed-mayer-8r3f41`. `review → done` + AC9/AC10 final box-flips held for the post-merge follow-up.
 
+### Review Findings
+
+> Appended by `/bmad-code-review` (2026-06-12). Three adversarial layers (Blind Hunter, Edge Case Hunter, Acceptance Auditor) ran against the code diff of commit `6b48634` (`authService.ts` +5-line TODO + new `__tests__/authService.test.ts`). 1 decision-needed, 1 patch, 3 deferred, 9 dismissed as noise. **Resolution:** Stephane elected to expand coverage now; both code findings fixed in `authService.test.ts` and verified (typecheck 0; jest 133/133 across 16 suites — +9 over the 124 baseline, 0 regressions).
+
+- [x] [Review][Decision→Patch] **Happy-path-heavy suite leaves error/branch paths untested.** _Resolved: expanded in 1.6 (verdict — expand now)._ Added: a `formatAuthError` `it.each` table driving all 7 previously-untested mappings + the default fallback through `login`'s catch [authService.ts:71-78]; a `login` non-`Error` throw → `"Login failed. Please try again"` test [authService.ts:44-47]; a `mapFirebaseUser` `undefined`-email boundary test [authService.ts:25]. The original 10 tests satisfied AC3's ≥7 mandate; these 9 harden the error/branch surface.
+
+- [x] [Review][Patch] **`logout` ordering assertion was misleading — proved call order, not await-completion** [apps/mobile/src/features/auth/__tests__/authService.test.ts] — _Resolved._ Rewrote the test to gate `signOut`'s resolution via a deferred promise and assert the store `logout()` is NOT invoked until `signOut` resolves; a dropped `await` now fails the test (the prior `invocationCallOrder` check would have passed it).
+
+- [x] [Review][Defer] **Unhandled rejection in `listenToAuthChanges` async callback + `mapFirebaseUser`/`checkSubscription` rejection propagation** [apps/mobile/src/features/auth/authService.ts:58-65, 13-17] — deferred, pre-existing. The `onAuthStateChanged` callback is `async` with no try/catch; a `checkSubscription` rejection surfaces as an unhandled promise rejection in the auth listener. Pre-existing 1.5 source behavior, not introduced by 1.6; flag for an auth-hardening story.
+
+- [x] [Review][Defer] **`logout` does not guard `auth().signOut()` rejection** [apps/mobile/src/features/auth/authService.ts:53-54] — deferred, pre-existing. If `signOut()` rejects, the store's `logout()` is skipped and the session stays populated while the user believes they signed out. Pre-existing 1.5 source behavior; address in the same auth-hardening pass.
+
+- [x] [Review][Defer] **`googleSignInService.ts` has zero test coverage** [apps/mobile/src/features/auth/googleSignInService.ts] — deferred, out of scope. The Google sign-in path (idToken v12/v13 extraction, no-idToken branch, 6-branch `handleGoogleSignInError`) is untested; the prebuilt `GoogleAuthProvider.credential` / `signInWithCredential` mocks in the new test file are an intentional seed for a future `googleSignInService.test.ts`. Explicitly excluded by this story's "IS NOT" list.
+
 ## Dev Notes
 
 ### What this story IS — and is NOT
