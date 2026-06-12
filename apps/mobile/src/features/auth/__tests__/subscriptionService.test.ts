@@ -136,6 +136,18 @@ describe("checkSubscription — read path (namespaced firestore API)", () => {
     );
     expect(await subscriptionService.checkSubscription(USER)).toBe(false);
   });
+
+  // Story 1.10 (AR-1 / Decision #1): `isPaid` was dropped from the wire contract
+  // (contracts/user-doc.schema.json). Paid-ness is derived locally from
+  // `status` + `current_period_end`; the service must IGNORE any stray `isPaid`
+  // that appears on a Firestore doc. A doc carrying `isPaid:false` but otherwise
+  // active+in-period still resolves to paid (true) — proving derivation, not read.
+  it("ignores a stray wire `isPaid` — derives paid-ness from status + period, not the field", async () => {
+    mockGet.mockResolvedValueOnce(
+      snap(true, { status: "active", current_period_end: FUTURE, isPaid: false })
+    );
+    expect(await subscriptionService.checkSubscription(USER)).toBe(true);
+  });
 });
 
 describe("checkSubscription — network-failure fallback (mobile-AUTH-004)", () => {
