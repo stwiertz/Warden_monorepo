@@ -2,7 +2,47 @@
 
 **Status:** scaffolded by the dev-story pre-flight (2026-05-17). The agent-doable surface
 is done; everything below this line is the **manual human campaign** (interactive Tk +
-video calibration + visual iteration). Story stays `ready-for-dev` until the human loop runs.
+video calibration + visual iteration).
+
+> ## ⚠️ UPDATED 2026-07-16 (Story 9.15 — salvage) — READ BEFORE USING THIS FILE
+>
+> **The 4 fragments now EXIST and are COMMITTED.** `manifest.json`,
+> `hud_version_detection.json`, `in_match_detection.json` and `minimap_identification.json`
+> are in git and are the **source of truth**. They were reconstructed from the already-tuned
+> `output/map_configs/map_config.v2.json` and proven byte-identical through the unchanged
+> emitter (Story 9.15 AC2). `map_config.*` stays gitignored — it is now genuinely regenerable:
+> ```bash
+> uv run python tools/map_config_emitter.py --zones-dir output/zones/v2
+> ```
+> Populated content: **13 maps / 121 map zones + 10 hud + 3 in_match = 134 rules.**
+> Measured (Story 9.15 AC6, reproduced exactly): HUD-version **0.9805** · in_match **1.0** · map-ID **1.0**.
+>
+> **🔴 The two `.bak` files are SUPERSEDED PRE-TUNING data. NEVER restore them.**
+> `minimap_identification.json.bak` (mtime Jun 11) and `map_configs/map_config.v2.json.bak`
+> (May 21) are **content-identical to each other** — the former was split out of the latter,
+> so its *newer mtime is recency-of-write, not recency-of-content*. They carry **0** zones at
+> `h_tol=180` where the live fragment carries **65** — i.e. they predate the accepted
+> low-saturation decision (white/grey zones set `h_tol=180`, hue unconstrained) that moved
+> map-ID **0.973 → 1.000**. Restoring either **regresses accuracy**. They are kept committed
+> for the audit trail only.
+>
+> **🔴 Do NOT rename `manifest.template.json`.** The "rename" instruction below is wrong —
+> the template is a **tracked file** and renaming deletes it. `manifest.json` is derived
+> *alongside* it. The template's `score_screen_duration_ms` sentinel is resolved: the live
+> value is **15000** (accepted as-is; recorded as unverified — the ≥5-capture median in AC3
+> was never performed, and only **4** captures exist).
+>
+> **Corrections to the stale text below:**
+> - *"No .mp4 in repo / AC8 BLOCKED: no real EVA .mp4"* → **FALSE.** Four real EVA captures
+>   live at **monorepo-root `videos/V2/`** (12.7 GB, 6h13m), not `apps/tooling/source/`.
+> - The AC2 frame census below is **stale** (it predates corpus drift). The live corpus is
+>   **2666 PNGs / 16 classes**: artefact 418, atlantis 336, helios 316, engine 219, horizon 183,
+>   silva 165, the_cliff 156, outlaw 141, lunar_outpost 93, ceres 85, polaris 75, coliseum 61,
+>   the_rock 38, + lobby 296 / score 41 / transition 43. Five maps now sit under 100 frames
+>   (`the_rock` 98→38, `artefact` 432→418). This census **matches the 2026-05-30 Tool 9 report
+>   exactly** — the corpus has not moved since. Re-cutting the cohort split is a
+>   `/bmad-correct-course`, not a dev-story change (see the note under AC2).
+> - `bastion` is in `MAP_LABELS` but has **no corpus and no config entry** — 13 maps in practice.
 
 ## Verified pre-flight facts (AC1 — all deps `done` on `main`)
 
