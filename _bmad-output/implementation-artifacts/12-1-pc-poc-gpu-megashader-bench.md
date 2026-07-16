@@ -132,11 +132,15 @@ Two consequences the brief's arithmetic misses:
 - [ ] **AC11 — Report `ms/keyframe` AND accuracy vs the CPU baseline.** Both numbers, or the story has not delivered. Breakdown: decode / upload / shader+readback, separately — the pivot's whole thesis is that this is **decode-bound**.
 - [ ] **AC12 — Re-establish + confirm the CPU baseline before benching.** A baseline **already exists** — **39** Tool 9 reports are on disk under `output/roi_detection_tests/v2/`. The latest, [`2026-05-30T135106/report.json`](../../apps/tooling/output/roi_detection_tests/v2/2026-05-30T135106/report.json), run against `map_config.v2.json` over the 2666-PNG corpus:
 
-  | classifier | accuracy | n_evaluated | n_correct |
+  | classifier | accuracy **(in-sample)** | n_evaluated | n_correct |
   |---|---|---|---|
   | `hud_version_classifier` | **0.9805** | 2666 | 2614 |
   | `in_match_classifier` | **1.0** | 2666 | 2666 |
   | `map_id_classifier` | **1.0** | 2286 | 2286 |
+
+  🔴 **These are IN-SAMPLE numbers — a frame-for-frame PARITY TARGET, not a generalization claim.** *(Label added 2026-07-16 by the Story 9.15 code review, decision D3.)* The zones were tuned against this exact corpus (the low-saturation decision moved map-ID **0.973 → 1.000** via `h_tol=180` on 65 of 121 zones); there is **no holdout**. Two classifiers at exactly **1.000** is a fit to its own training data, not proof detection generalizes.
+
+  **For this story that is fine, and you must not "improve" it.** 12.1's question is *"does the GPU reproduce what the CPU does on these frames"* — in-sample-ness is irrelevant to parity, and these are exactly the right numbers to match. **But phrase them as parity in the AC11 report**, never as accuracy-in-the-world: **AC14 already forbids** claiming to bind PERF-002/PERF-010, and this is the accuracy-side analogue. **REL-006's ≥95% floor is NOT gated by 12.1** — measuring generalization is 9.9b's job (its AC2 certitude + zero-train/test-overlap gate). **Story 9.15 pins these same three numbers**, with the same label, as the only durable record ([9-15 AC6](9-15-pilot-zone-set-for-engine-poc.md)) — and its `tests/test_zone_fragments_v2.py` guard now fails if the config drifts out from under them.
 
   Do **not** treat these as given: the directory is gitignored and its provenance is a same-day artifact. **Re-run Tool 9 unmodified and confirm the numbers reproduce**, then pin that run as *the* baseline:
   `uv run python tools/roi_detection_tester.py --config output/map_configs/map_config.v2.json --save-frame-predictions`
@@ -150,12 +154,26 @@ Two consequences the brief's arithmetic misses:
   | map-ID | `Σ effective_weight × fired` — **raw, unnormalized** | [roi_detection_tester.py:742-748](../../apps/tooling/tools/roi_detection_tester.py#L742-L748) |
 
   Tool 10's live preview normalizes weight-aware (`Σeff_fired/Σeff_total`, [zone_picker/app.py:316-324](../../apps/tooling/tools/zone_picker/app.py#L316-L324)); Tool 11 uses a **fourth** formula (`Σ(ratio×w if fired)/Σw`). **Tool 9 is the gate → reproduce Tool 9's per-classifier forms exactly.** Document the divergence; do not silently reconcile it.
+- [ ] **AC13b — 🔴 The shader MUST IGNORE `minimap_identification.roi`. It is dead in the CPU reference, and honouring it invalidates the whole bench.** Zone rects are **absolute reference-resolution coordinates** — evaluate them against the full 1920×1080 frame. Do **not** crop to `roi`, do **not** treat zone coords as roi-relative.
+
+  This is not a style note. `roi` **looks** authoritative and is not:
+
+  | fact | evidence |
+  |---|---|
+  | `roi` = `{"name":"minimap","x":63,"y":922,"width":3,"height":5}` — a **3×5-px** box | `output/zones/v2/minimap_identification.json` |
+  | It is **byte-identical to `atlantis_z10`'s rect** — a stray zone pick that leaked into the field | verified, Story 9.15 code review |
+  | **120 of 121 map zones fall entirely outside it** (zones span x 8–606, y 741–1061; roi spans x 63–66, y 922–927). The only zone inside is the one it was copied from | verified, Story 9.15 code review |
+  | Tool 9 parses it into `ScoringConfig.minimap_roi` and **never reads it again** — `extract_roi`/`scale_roi` are called from nowhere in the tool path | [roi_detection_tester.py:440](../../apps/tooling/tools/roi_detection_tester.py#L440), `minimap_roi` has exactly 3 references: field decl, construction, kwarg |
+
+  **That dead field is why the pinned baseline reads `map_id 1.0`.** A shader that "correctly" honours `roi` would crop away 120/121 zones, score ≈0, and diverge catastrophically from a CPU reference that silently ignores it — and the failure presents as *"the GPU port is broken"*, not *"the config is odd"*. Under AC13 **Tool 9 is the gate**: reproduce what Tool 9 *does*, not what the config *appears to say*. Same bucket: `minimap_identification.id` is the literal string `"test"` — also inert, also not a defect to fix here.
+
+  🔴 **Do not "fix" the data to make this cleaner.** Zone fragments are fenced by AC18, and any zone-value edit breaks Story 9.15's byte-identity guard (`tests/test_zone_fragments_v2.py`) and un-pins the baseline AC12 depends on. Report both anomalies in the AC11 report as **known data defects with zero runtime effect today**, and leave the fix to 9.9b.
 - [ ] **AC14 — 🔴 A PC number is NEVER a mobile number (E6).** Rated **High** risk ([SCP:146](../sprint-change-proposal-2026-07-16.md#L146)); *"written into 12.1's scope"*. The report MUST phrase every number as **feasibility / relative speedup**, and MUST NOT claim to bind **PERF-002** or **PERF-010**. Only 12.2 on the Poco X5 Pro 5G binds those; 12.3 re-baselines ([architecture.md:842](../architecture.md#L842)). The `<10 s` target is *"the aspiration, not an AC"* ([SCP:246](../sprint-change-proposal-2026-07-16.md#L246)). Include the reference-device note verbatim in the report.
 - [ ] **AC15 — Record the new-dep decision explicitly (E5).** `moderngl>=5.12,<6` into **both** `apps/tooling/pyproject.toml` and `apps/tooling/requirements.txt`. Recorded decision in the story's Dev Agent Record, **not a silent drift**. Two notes: (i) the manifests are **already out of sync** — `requirements.txt` is missing `jsonschema`, which `map_config_emitter.py:25` hard-imports; fixing it is in scope for this story. (ii) `moderngl` needs only `glcontext` and declares no numpy pin — the `numpy>=1.24,<2` pin is **not** a conflict. (iii) **`moderngl` in `apps/tooling` does NOT trip SEC-007** — that allowlist is scoped to the mobile artifact ([architecture.md:2190](../architecture.md#L2190), verbatim carve-out). FFmpeg is a system-PATH dep, already documented — it lands in no manifest (Finding 1).
 
 ### Gates
 
-- [ ] **AC16 — pytest.** New `apps/tooling/tests/test_<name>.py`. Pure-logic only: **no GL context, no real video decode, no Tk, no PIL** in tests — the GL context is the analogue of Tk here. Mock the decoder (synthetic BGR frames, 9.13 precedent). Cover: LUT packing, result decoding, all three hue branches (incl. `h_tol=180` full-circle and a 0/1-crossing case), `min_ratio` quantization at 1×1 and 2×2 rects, phase state machine, circular buffer N-2 emission, doubt outcome. Baseline **204 tests collected** — 0 regressions.
+- [ ] **AC16 — pytest.** New `apps/tooling/tests/test_<name>.py`. Pure-logic only: **no GL context, no real video decode, no Tk, no PIL** in tests — the GL context is the analogue of Tk here. Mock the decoder (synthetic BGR frames, 9.13 precedent). Cover: LUT packing, result decoding, all three hue branches (incl. `h_tol=180` full-circle and a 0/1-crossing case), `min_ratio` quantization at 1×1 and 2×2 rects, phase state machine, circular buffer N-2 emission, doubt outcome. Baseline **208 tests collected** — 0 regressions. ⚠️ **Was 204**; the Story 9.15 code review added `tests/test_zone_fragments_v2.py` (+4) — the fragments→config regression guard AC12's pinned baseline now rests on.
 - [ ] **AC17 — `wardentooling.py` registration.** Tool 12 registered: `flow_*` fn + `_TOOL_MAP` entry + `choices_main` label + `menu_main` branch + `_reprompt_source` branch. **⚠️ `-m` package + positional video is a first** — video sits at `last_args` index **2** (`["-m", "tools.X", <video>, ...]`), not index 1 as in the `video_test` pattern. `run_tool` needs **no** change (it already does `[sys.executable] + args`).
 - [ ] **AC18 — Scope fence.** Touch **nothing** outside `apps/tooling/tools/<name>/`, `apps/tooling/tests/test_<name>.py`, the two manifests, `wardentooling.py`, and (AC0a) `utils/video.py`. **Do NOT touch:** `contracts/map-config.schema.json` (E1 — no `schema_version` bump; [INVARIANT 1] makes `contracts/` master), Tool 9, Tool 10, Tool 11, the emitter, zone fragments, or any zone data. No mobile/web files.
 - [ ] **AC19 — [HELD] `review → done` flip** + post-merge sprint-status update. Two-PR pattern.
@@ -231,6 +249,8 @@ The human campaign 9.15 was invented to pilot **already ran past 9.15's finish l
 Both belong to 9.15 — which likely needs re-scoping from "greenfield picker campaign" to **"salvage, reconstruct fragments, commit, and baseline"**. Raised for Stephane at the end of this file. **12.1 is read-only w.r.t. zone data and is not blocked by either.**
 
 Two data-quality caveats to note in the report (not to fix): `minimap_identification.roi` is a **3×5-pixel** box with `id: "test"` — placeholder-looking; and `bastion` is in `MAP_LABELS` but has neither corpus nor config entry (13 maps in practice, not 14).
+
+> ⚠️ **Updated 2026-07-16 (Story 9.15 code review) — the `roi` caveat was underrated and is now binding as [AC13b](#acceptance-criteria).** It is not merely "placeholder-looking": `roi` is **byte-identical to `atlantis_z10`'s rect**, **120 of 121 zones fall outside it**, and Tool 9 **parses it and never reads it**. A shader that honours it scores ≈0 and the bench reads as a broken GPU port rather than a dead config field. `id: "test"` stays a report-only note. **Neither is fixable here** — zone data is fenced by AC18 and guarded by `tests/test_zone_fragments_v2.py`.
 
 ### The 150×3 LUT — AC0c Option A (RECOMMENDED)
 
