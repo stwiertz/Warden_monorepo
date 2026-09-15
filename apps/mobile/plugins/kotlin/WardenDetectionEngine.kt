@@ -92,8 +92,6 @@ class WardenDetectionEngine(
     /** Path P textures: [0] = Y as R8, [1] = chroma as RG8 (.r = Cb, .g = Cr). */
     private var planeTex = IntArray(2)
 
-    /** Path P plane textures get their storage once, at the first upload. */
-    private var planeStorageReady = false
     /** Path Z external texture name; owned by the caller's SurfaceTexture. */
     var externalTexId = 0
         private set
@@ -200,13 +198,12 @@ class WardenDetectionEngine(
             WardenColorPath.BIT_PARITY -> {
                 // planeTex[0] = Y (R8), planeTex[1] = chroma (RG8, .r=Cb .g=Cr).
                 GLES30.glGenTextures(2, planeTex, 0)
-                // Y is full-res; U and V are half-res for 4:2:0. Storage is
-                // allocated lazily by ensurePlaneStorage() on the first upload,
-                // where the ACTUAL chroma geometry is known — MediaCodec row/pixel
-                // strides are device-specific and assuming width == rowStride is a
-                // classic silent corruption. (Before the 2026-09-15 review this
-                // comment described behaviour the code did not have: the upload
-                // path re-specified storage on EVERY frame.)
+                // Y is full-res; U and V are half-res for 4:2:0. Only the sampler
+                // state is set here: STORAGE IS RE-SPECIFIED ON EVERY UPLOAD, on
+                // purpose — see the orphaning note above uploadYuvPlanes before
+                // changing it. MediaCodec row/pixel strides are device-specific,
+                // so the geometry is only truly known at upload time, and
+                // assuming width == rowStride is a classic silent corruption.
                 for (t in planeTex) {
                     GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, t)
                     setNearestClamp()
@@ -524,7 +521,6 @@ class WardenDetectionEngine(
         val t0 = System.nanoTime()
         val cw = (w + 1) / 2
         val ch = (h + 1) / 2
-        ensurePlaneStorage(cw, ch)
         GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 1)
 
         // Row stride via GL_UNPACK_ROW_LENGTH (ES 3.0 core). Uploading `width`
@@ -533,20 +529,45 @@ class WardenDetectionEngine(
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, planeTex[0])
         GLES30.glPixelStorei(GLES30.GL_UNPACK_ROW_LENGTH, yStride)
         y.position(0)
-        GLES30.glTexSubImage2D(
-            GLES30.GL_TEXTURE_2D, 0, 0, 0, w, h,
+        GLES30.glTexImage2D(
+            GLES30.GL_TEXTURE_2D, 0, GLES30.GL_R8, w, h, 0,
             GLES30.GL_RED, GLES30.GL_UNSIGNED_BYTE, y
         )
 
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, planeTex[1])
-        if (isSemiPlanarNv12(u, uStride, uPixelStride, v, vPixelStride, cw, ch)) {
+        if (isSemiPlanarNv12(u, uStride, uPixelStride, v, vStride, vPixelStride, cw, ch)) {
             // NV12 proper: upload the decoder's interleaved buffer directly as RG8.
             // ROW_LENGTH is in PIXELS and an RG8 pixel is 2 bytes, so the byte
             // stride divides exactly — asserted above, not assumed.
+            //
+            // 🔴 ONE upload, and the final byte is safe BECAUSE of the guard,
+            // not in spite of it. Read this before "fixing" it again.
+            //
+            // The review flagged that `MediaImage`'s semi-planar U plane ends at
+            // the last *U* byte — `remaining() == (ch-1)*rowStride + (cw-1)*2 + 1`
+            // — while a verbatim RG8 upload of `ch` rows reads ONE BYTE MORE, and
+            // `glTexSubImage2D` does not bounds-check a direct buffer. That
+            // observation is correct. The conclusion drawn from it was not.
+            //
+            // In an NV12 layout that byte is not "past the allocation": it is the
+            // frame's last **Cr**, and it belongs to the V plane, which starts at
+            // U+1 in the SAME buffer. [isSemiPlanarNv12] now proves exactly that
+            // (`u.get(1) == v.get(0)`, plus both planes spanning the frame)
+            // before this branch is taken — so the read lands on the right value,
+            // in mapped memory the decoder owns. The guard is what converts an
+            // unchecked read into a proven one.
+            //
+            // MEASURED, 2026-09-15, three smoke runs on the reference device:
+            //   verbatim single upload (this code) ........ ~1.7 ms
+            //   reject NV12, fall to the CPU interleave ... 43.4 ms  (25x)
+            //   split into ch-1 rows + a composed last row . 3.5 ms  (2x)
+            // The split costs a second glTexSubImage2D, and a partial one-row
+            // update on a tiled GPU is not free. Neither alternative buys any
+            // correctness the guard does not already provide.
             GLES30.glPixelStorei(GLES30.GL_UNPACK_ROW_LENGTH, uStride / 2)
             u.position(0)
-            GLES30.glTexSubImage2D(
-                GLES30.GL_TEXTURE_2D, 0, 0, 0, cw, ch,
+            GLES30.glTexImage2D(
+                GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RG8, cw, ch, 0,
                 GLES30.GL_RG, GLES30.GL_UNSIGNED_BYTE, u
             )
         } else {
@@ -564,8 +585,8 @@ class WardenDetectionEngine(
             }
             packed.position(0)
             GLES30.glPixelStorei(GLES30.GL_UNPACK_ROW_LENGTH, 0)
-            GLES30.glTexSubImage2D(
-                GLES30.GL_TEXTURE_2D, 0, 0, 0, cw, ch,
+            GLES30.glTexImage2D(
+                GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RG8, cw, ch, 0,
                 GLES30.GL_RG, GLES30.GL_UNSIGNED_BYTE, packed
             )
         }
@@ -604,7 +625,7 @@ class WardenDetectionEngine(
      */
     private fun isSemiPlanarNv12(
         u: ByteBuffer, uStride: Int, uPixelStride: Int,
-        v: ByteBuffer, vPixelStride: Int,
+        v: ByteBuffer, vStride: Int, vPixelStride: Int,
         cw: Int, ch: Int,
     ): Boolean {
         if (uPixelStride != 2 || vPixelStride != 2) return false
@@ -614,35 +635,39 @@ class WardenDetectionEngine(
         // NV12-interleaved; on NV21 the ordering is reversed and this fails.
         if (u.remaining() < 2 || v.remaining() < 1) return false
         if (u.get(1) != v.get(0)) return false
-        // A verbatim RG8 upload reads through the LAST Cr byte of the last row.
-        if (u.remaining() < (ch - 1) * uStride + cw * 2) return false
+        // Both planes must actually span the frame. These are the bounds
+        // `MediaImage` guarantees for semi-planar 4:2:0 — the U plane ends at
+        // the last U byte and the V plane at the last V byte, which is exactly
+        // why the caller composes the final row from BOTH rather than reading
+        // one byte past U. Requiring `(ch-1)*uStride + cw*2` here instead (as a
+        // first version of this guard did) is off by one byte and rejects every
+        // real NV12 frame, falling to the CPU interleave at 25x the cost.
+        if (u.remaining() < (ch - 1) * uStride + (cw - 1) * 2 + 1) return false
+        if (v.remaining() < (ch - 1) * vStride + (cw - 1) * 2 + 1) return false
         return true
     }
 
-    /**
-     * Allocate the Y and chroma plane textures ONCE, at the first upload, where
-     * the real chroma geometry is known.
-     *
-     * 🔴 REVIEW 2026-09-15: [uploadYuvPlanes] used to call `glTexImage2D`, which
-     * re-specifies STORAGE, on every one of 1061 keyframes — for a 1920x1080 R8
-     * plus a 960x540 RG8. Every other texture in this class uses
-     * `glTexStorage2D` + `glTexSubImage2D`, and `buildTargets()`'s own comment
-     * already claimed these two were "allocated lazily on the first upload".
-     * They were not. Path P's measured **1.720 ms** upload therefore carries a
-     * driver-side storage re-spec that a steady state does not pay, which is one
-     * half of AC13(a)'s "4.7x cheaper than a bind" comparison.
-     */
-    private fun ensurePlaneStorage(cw: Int, ch: Int) {
-        if (planeStorageReady) return
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, planeTex[0])
-        GLES30.glTexStorage2D(GLES30.GL_TEXTURE_2D, 1, GLES30.GL_R8, frameWidth, frameHeight)
-        setNearestClamp()
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, planeTex[1])
-        GLES30.glTexStorage2D(GLES30.GL_TEXTURE_2D, 1, GLES30.GL_RG8, cw, ch)
-        setNearestClamp()
-        WardenGlUtil.checkGl("ensurePlaneStorage")
-        planeStorageReady = true
-    }
+    // 🔴 DO NOT "OPTIMISE" THE PLANE UPLOADS TO glTexStorage2D + glTexSubImage2D.
+    //
+    // The 2026-09-15 review did exactly that, on the reasoning that re-specifying
+    // storage every frame is waste and that buildTargets()' comment already
+    // claimed these textures were allocated lazily. Both observations were true
+    // and the conclusion was still wrong. MEASURED on the reference device, full
+    // 1061-keyframe runs:
+    //
+    //   glTexImage2D per frame (this code) .... upload 1.72 ms, Path P wall 42.3
+    //   glTexStorage2D + glTexSubImage2D ...... upload 2.81 ms, Path P wall 51.6
+    //
+    // Re-specifying storage IS the orphaning idiom: the driver may hand back
+    // fresh backing and DMA into it without waiting for the previous frame's
+    // draw to release the texture. Immutable storage forces glTexSubImage2D to
+    // synchronise against that pending read, and the stall lands squarely in the
+    // number AC13(a) reports. An earlier A/B missed it because it was run cold
+    // and under the forced-completion profile, whose per-stage glFinish hides
+    // precisely this effect.
+    //
+    // Path Z is unaffected either way (bind 0.367 -> 0.371 across every variant),
+    // which is what isolates the cause to this call.
 
     /**
      * Resolve whatever the path just ingested into the shared BGR RGBA8 frame
