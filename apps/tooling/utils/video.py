@@ -205,22 +205,12 @@ def _stderr_timestamp_reader(stderr_pipe, ts_queue):
         ts_queue.put(None)
 
 
-def extract_iframes_scaled(video_path, target_height, profile_stats=None):
-    """Yield (numpy_array, timestamp_seconds) for each I-frame, scaled to target_height.
+def _extract_iframes(video_path, target_height=None, profile_stats=None):
+    """Shared I-frame pipe. ``target_height=None`` decodes at native resolution
+    (no ``scale`` filter at all); otherwise frames are scaled to ``target_height``.
 
-    Single-pass architecture: uses ffmpeg's showinfo filter to extract timestamps
-    from stderr while piping scaled frames from stdout. No separate ffprobe
-    keyframe scan is needed.
-
-    Args:
-        video_path: Path to the input video file.
-        target_height: Desired output height in pixels (e.g. 360).
-        profile_stats: Optional dict to accumulate timing data into.
-
-    Yields:
-        tuple: (frame, timestamp) where frame is a numpy array of shape
-               (scaled_h, scaled_w, 3) in BGR color order, and timestamp is
-               the frame's PTS position in seconds.
+    Both callers get identical decode semantics — the only difference is the
+    ``-vf`` chain and the expected frame geometry.
     """
     check_ffmpeg()
 
@@ -230,19 +220,35 @@ def extract_iframes_scaled(video_path, target_height, profile_stats=None):
     if profile_stats is not None:
         profile_stats["ffprobe_info"] = time.perf_counter() - t0
 
-    # Compute scaled dimensions matching ffmpeg's even-number rounding
-    scaled_w = round(src_w * target_height / src_h / 2) * 2
-    scaled_h = target_height
+    if target_height is None:
+        # Native resolution — do NOT insert a scale filter. Story 12.1 AC5:
+        # swscale here and Tool 9's _resize_to_ref would be two different
+        # resamplers; running both (or either, when the source is already at
+        # reference height) perturbs pixels and confounds the accuracy
+        # comparison. Decode native, resize on exactly one path.
+        scaled_w, scaled_h = src_w, src_h
+        vf = "showinfo"
+    else:
+        # Compute scaled dimensions matching ffmpeg's even-number rounding
+        scaled_w = round(src_w * target_height / src_h / 2) * 2
+        scaled_h = target_height
+        vf = f"showinfo,scale={scaled_w}:{scaled_h}"
     frame_size = scaled_w * scaled_h * 3  # BGR24
 
     cmd = [
         "ffmpeg",
-        "-skip_frame", "nokey",
+        "-skip_frame", "nokey",   # MUST precede -i: after -i it is misrouted to
+                                  # the encoder, warns, exits 0, and full-decodes.
         "-v", "info",
         "-nostats",
         "-i", str(video_path),
-        "-vf", f"showinfo,scale={scaled_w}:{scaled_h}",
-        "-vsync", "0",
+        "-vf", vf,
+        # `-fps_mode passthrough` is the current spelling of the deprecated
+        # `-vsync 0` (removed in FFmpeg 9.x). NOT cosmetic: the rawvideo muxer
+        # sets AVFMT_NOTIMESTAMPS but not AVFMT_VARIABLE_FPS, so the default
+        # `auto` resolves to CFR and silently duplicates each keyframe ~250x
+        # (a 30 s segment yields 1999 frames instead of 8).
+        "-fps_mode", "passthrough",
         "-f", "rawvideo",
         "-pix_fmt", "bgr24",
         "pipe:1",
@@ -297,6 +303,50 @@ def extract_iframes_scaled(video_path, target_height, profile_stats=None):
 
         if proc.returncode and proc.returncode not in (0, -15, 255):
             print(f"Warning: ffmpeg exited with code {proc.returncode}", file=sys.stderr)
+
+
+def extract_iframes_scaled(video_path, target_height, profile_stats=None):
+    """Yield (numpy_array, timestamp_seconds) for each I-frame, scaled to target_height.
+
+    Single-pass architecture: uses ffmpeg's showinfo filter to extract timestamps
+    from stderr while piping scaled frames from stdout. No separate ffprobe
+    keyframe scan is needed.
+
+    Args:
+        video_path: Path to the input video file.
+        target_height: Desired output height in pixels (e.g. 360).
+        profile_stats: Optional dict to accumulate timing data into.
+
+    Yields:
+        tuple: (frame, timestamp) where frame is a numpy array of shape
+               (scaled_h, scaled_w, 3) in BGR color order, and timestamp is
+               the frame's PTS position in seconds.
+    """
+    yield from _extract_iframes(
+        video_path, target_height=target_height, profile_stats=profile_stats
+    )
+
+
+def extract_iframes_native(video_path, profile_stats=None):
+    """Yield (numpy_array, timestamp_seconds) for each I-frame at native resolution.
+
+    Same decode path as :func:`extract_iframes_scaled` minus the ``scale``
+    filter. Added for Story 12.1 AC5 (reference-resolution parity): when the
+    source is already at the config's ``reference_resolution.height``, scaling
+    must not happen at all — not even a nominal no-op through swscale.
+
+    Args:
+        video_path: Path to the input video file.
+        profile_stats: Optional dict to accumulate timing data into.
+
+    Yields:
+        tuple: (frame, timestamp) where frame is a numpy array of shape
+               (src_h, src_w, 3) in BGR color order, and timestamp is the
+               frame's PTS position in seconds.
+    """
+    yield from _extract_iframes(
+        video_path, target_height=None, profile_stats=profile_stats
+    )
 
 
 def extract_frame_at_timestamp(video_path, timestamp, width, height):

@@ -117,7 +117,7 @@ The FRs that drive the most architectural surface area:
 - **PERF-005** — clip export ≤ 2× clip duration (Mobile-tier) sets the FFmpeg encode ceiling and constrains the export pipeline.
 - **PERF-008** — webhook handler ≤ 1 s p95 is already met by the current implementation but architecture inherits the regression-coverage requirement.
 - **REL-002** — 30-day offline functionality drives the SQLite (durable rows) + MMKV (cache + checkpoints) split-storage pattern.
-- **REL-006** — map ID ≥ 95% on an unseen test set drives a regression-suite gate before any new `map_config.json` ships (`tooling-VALIDATE-001` is the implementation hook).
+- **REL-006** — map ID ≥ 95% on an unseen test set drives a regression-suite gate before any new `map_config.json` ships (`tooling-VALIDATE-001` is the implementation hook). **The instrument is Tool 9 (`apps/tooling/tools/roi_detection_tester.py`), NOT `hash_validator.py`** — amended 2026-07-16 (correct-course). `hash_validator.py` measures **Hamming distance between perceptual hashes** and cannot measure a zone/HSV-scoring engine at all, yet it was the named gate here. Tool 9 is the **sole live per-classifier enforcement** of this floor (Stories 9.2/9.3 cancelled; Story 1.1.1's measurement cancelled; Story 9.9b unstarted). **Story 9.16 re-points Tool 9 at whichever engine Story 12.3 binds — without it this gate has no instrument.**
 - **SEC-002/003** — server-only `users/{uid}` writes (firebase-admin bypasses rules); rules deployed to production before V1 launch (V1-blocking; brownfield item 2).
 - **SEC-007** — third-party SDK allowlist asserts the on-device-only contract at the dependency level; architecture maintains the allowlist.
 - **PRIV-001/002** — the on-device-only contract is architecturally structural, not a configuration toggle that can be flipped under load.
@@ -380,10 +380,10 @@ There is no Python starter analog to `create-expo-app` or `create-next-app` for 
 
 **Rationale:**
 
-- **Honest moat framing.** The on-device-only privacy contract (PRD PRIV-001) covers VIDEO frames, audio frames, voice annotations, and derived video data. Map fingerprints (per-map hashes computed from training videos by the tooling pipeline) are NOT video data. Firestore-fetching the config does not violate the locked privacy contract.
+- **Honest moat framing.** The on-device-only privacy contract (PRD PRIV-001) covers VIDEO frames, audio frames, voice annotations, and derived video data. Detection zones (per-map ROI rectangles + HSV bands, calibrated from training videos by the tooling pipeline) are NOT video data. Firestore-fetching the config does not violate the locked privacy contract. *(Amended 2026-07-16: this bullet said "map fingerprints (per-map hashes)" — pHash language already stale from the 2026-05-14 ROI+HSV pivot. The delivery decision and the privacy argument are both unchanged; only the mechanism named is corrected.)*
 - **First-launch offline works.** Today the legacy mobile architecture throws `OfflineFirstLaunchError` when no MMKV cache + offline. Hybrid eliminates this — the bundled config is always available. The legacy distillate already mentioned a "bundled default config shipped with app as final fallback"; `docs/architecture-mobile.md` had fallen out of sync. Architecture closes the gap by formalizing the bundled-default.
 - **V3 expansion lever preserved.** Adding a 15th map post-V1 is an OTA via Firestore overlay — no Play Store release required. The brief's "tooling expansion moat" claim survives.
-- **Fully-closed-device claim is dimmed but architecture is honest about it.** The PRD-locked privacy claim is "no video frames or derived video data on any wire." Architecture publicly positions the hybrid: "Map fingerprints (the config that says 'this hash means horizon') ship with the app and update via Firestore when online; videos never leave the phone." This is what the PRD actually says — the moat that's "dimmed" is one the PRD never asserted.
+- **Fully-closed-device claim is dimmed but architecture is honest about it.** The PRD-locked privacy claim is "no video frames or derived video data on any wire." Architecture publicly positions the hybrid: "Detection zones (the config that says 'these pixels, in this colour range, mean horizon') ship with the app and update via Firestore when online; videos never leave the phone." *(Amended 2026-07-16 — this is the sentence that publicly defends the privacy contract, and it literally named the hash mechanism; corrected to zone/HSV terms. The claim itself is unchanged and survives the Epic 12 pivot intact: a GPU shader is on-device.)* This is what the PRD actually says — the moat that's "dimmed" is one the PRD never asserted.
 
 **Implementation:**
 
@@ -809,6 +809,10 @@ PRD locks state semantics; architecture specifies transitions and triggers:
 
 - The processing pipeline is JS-based (`processingPipeline.ts` orchestrates FFmpeg subprocess + OpenCV JSI calls). It must run in the **main JS context**.
 - `expo-task-manager` runs JS in a separate headless context — but the FFmpeg/OpenCV JSI bindings cannot be shared across the headless context boundary. Cross-context state is fragile and would require a fundamental redesign of the processing pipeline.
+
+> **RATIONALE RE-DERIVATION REQUIRED 2026-07-16** (Stephane, /bmad-correct-course — engine-first pivot). **The decision (custom `expo-config-plugin`) is not reversed; its rationale is.** The bullets here rest entirely on **JSI-context affinity** — "the JSI bindings cannot be shared across the headless context boundary", and below, "the service hosts the main JS context where the JSI binding lives". Under an Epic 12 engine there may be no JSI binding at all, and a **GLES context has a different affinity constraint: EGL contexts are THREAD-bound** (an EGL context cannot be current on two threads simultaneously), not JS-context-bound. The conclusion will very likely survive — a foreground service still hosts the work — but **it must be re-derived from EGL/MediaCodec thread affinity rather than inherited**, because an argument that is right for the wrong reason will mislead the next reader.
+>
+> Note this bullet's warning that cross-context work "would require a fundamental redesign of the processing pipeline" — **that redesign is precisely what Epic 12 proposes.** Owner: Story 12.2 (which discovers the real threading model) feeding Story 12.3. See [`sprint-change-proposal-2026-07-16.md`](sprint-change-proposal-2026-07-16.md).
 - Custom `expo-config-plugin` injects native Android service-launching code into the prebuild output (`AndroidManifest.xml` foreground-service permissions + a foreground service class). The service hosts the main JS context for processing duration with a sticky notification.
 - This matches the legacy mobile distillate's "Foreground Service Android keeps UI responsive while processing in background."
 
@@ -829,9 +833,13 @@ PRD locks state semantics; architecture specifies transitions and triggers:
 
 ### Infrastructure & Deployment
 
-#### Pre-PRD performance spike [SPIKE BOUND]
+#### Pre-PRD performance spike [SPIKE BOUND] [SUPERSEDED IN PART 2026-07-16]
 
 Architecture's load-bearing first deliverable. Binds NFR PERF-010; gates V1 launch.
+
+> **AMENDED 2026-07-16** (Stephane, /bmad-correct-course — engine-first pivot). **This spike's scope is superseded by Epic 12 for the shader engine.** The scope below is written as "build a real OpenCV JSI binding using `react-native-fast-opencv`" — if the detection engine is a keyframe-only FFmpeg -> GPU mega-shader, this spike measures the wrong mechanism. **PERF-010's binding gate re-points from Story 1.1 to Story 12.3**, which publishes `_bmad-output/architecture-spike-gpu-megashader.md` and re-baselines PERF-002 from measured numbers.
+>
+> **The JSI verdict below is preserved, not deleted** — it remains the authoritative record for the JSI path (rung-0, ship-and-observe accepted 2026-05-09 when Story 1.1.1's measurement was cancelled). **The reference-device constraint is unchanged and binding: only a run on the Poco X5 Pro 5G can bind PERF-010** — a PC POC proves feasibility, never the mobile number. See [`sprint-change-proposal-2026-07-16.md`](sprint-change-proposal-2026-07-16.md).
 
 **Spike scope:**
 
@@ -851,11 +859,11 @@ Architecture's load-bearing first deliverable. Binds NFR PERF-010; gates V1 laun
 
 | Outcome | Ladder rung | Implication |
 |---------|-------------|-------------|
-| **Pass** — all 4 PERF NFRs met on reference device with real JSI binding | None — V1 launches with auto-slice on | PRD inherits the measured PERF-010 number; round-boundary accuracy floor binds as measured. |
+| **Pass** — all 4 PERF NFRs met on reference device with a real engine binding *(engine-agnostic per 2026-07-16; was "with real JSI binding")* | None — V1 launches with auto-slice on | PRD inherits the measured PERF-010 number; round-boundary accuracy floor binds as measured. |
 | **Partial fail** — PERF-002 or PERF-005 over budget by < 50% | Rung 1: lower auto-slice frame-sampling rate | Re-measure; if pass, V1 launches with reduced sampling rate documented as architectural constraint. PRD `mobile-AUTO-SLICE-001` adds a "with reduced sampling on weak hardware" clause. |
 | **Partial fail** — PERF-003 or PERF-004 over budget | Rung 2: drop Minimap+HUD overlay rendering on weak hardware (gated by device profile) | View modes degrade to Full + Minimap (no HUD overlay). PRD `mobile-CINEMA-002` adds a graceful-degradation clause: device-profile-gated. |
-| **Hard fail** — JSI binding does not ship as real binding within V1 timeline | Rung 3: defer auto-slice to V2; V1 ships manual-clip-only | `mobile-AUTO-SLICE-*` FRs become V2; `mobile-CARD-*` graceful-degradation: card view hides auto-sliced rounds, exposes timeline-only manual-clip flow. PRD activation timer T1-coach via manual-clip path becomes the only path. **V1 launches.** |
-| **FORBIDDEN** — fall back to cloud CV | NEVER | Breaks Innovation #1 (privacy + lower marginal cost). Architecture asserts this is forbidden regardless of spike outcome. |
+| **Hard fail** — the on-device detection engine does not ship as a real binding within V1 timeline *(re-armed 2026-07-16: this rung previously triggered only on "JSI binding does not ship", which is **unreachable** under a GPU-shader engine — the trigger is now engine-agnostic and fires on whichever engine Story 12.3 binds)* | Rung 3: defer auto-slice to V2; V1 ships manual-clip-only | `mobile-AUTO-SLICE-*` FRs become V2; `mobile-CARD-*` graceful-degradation: card view hides auto-sliced rounds, exposes timeline-only manual-clip flow. PRD activation timer T1-coach via manual-clip path becomes the only path. **V1 launches.** |
+| **FORBIDDEN** — fall back to cloud CV | NEVER | Breaks Innovation #1 (privacy + lower marginal cost). Architecture asserts this is forbidden regardless of spike outcome. *(Unchanged 2026-07-16 and verified against the Epic 12 pivot: a GPU shader is on-device, so [INVARIANT 3] holds and this prohibition is not tripped. It is the ONLY absolute prohibition in this ladder — every other rung was re-armed.)* |
 
 **Spike deliverable artifact:** `_bmad-output/architecture-spike-perf-floor.md` — a separate file (not in this overview architecture document; the spike report is detailed enough to warrant its own artifact). Carries the measured numbers, the device profile, the ladder-rung verdict, and the regression-test fixtures used.
 
@@ -882,6 +890,10 @@ PRD-locked: V1 is Android-only. iOS gates:
 - App Review submission rehearsal.
 
 **V1 architecture asserts:** all mobile decisions (codebase, data layer, native module choice, Foreground Service plugin, JSI binding) are **cross-platform-ready**. No Android-only patterns introduced. iOS Phase 2 work is glue — not refactor.
+
+> **AMENDED 2026-07-16** (Stephane, /bmad-correct-course — engine-first pivot). **The assertion above becomes FALSE the day Story 12.2 lands, and is retained only as the pre-pivot record.** The Epic 12 Android POC is **Kotlin + MediaCodec + GLES 3.0** — Android-only *by construction* (the iOS equivalents are VideoToolbox for decode and Metal for compute; GLES is deprecated on iOS). **This flips iOS Phase 2 from "glue" to "refactor" for the detection-engine slice.**
+>
+> **Cost, stated rather than hidden:** iOS is already V3 in the PRD, so the cost is deferred, not incurred. Every *other* mobile decision (codebase, data layer, MMKV/SQLite, Foreground Service plugin) remains cross-platform-ready — the Android-only surface is bounded to the engine. Any future iOS Phase-2 estimate MUST carry a decode+compute port line item; it is not glue. If Story 12.3 rejects the shader engine, this amendment lapses and the original assertion stands unmodified. See [`sprint-change-proposal-2026-07-16.md`](sprint-change-proposal-2026-07-16.md).
 
 #### CI/CD additions [PHASE-7 BACKLOG, V1-ENABLEMENT]
 
@@ -2175,7 +2187,7 @@ Every one of the 55 FRs has a primary owner file mapped in the FR-to-structure s
 - **Read first:** PRD (`_bmad-output/prd.md`), this architecture doc, and the surface-relevant `docs/architecture-<surface>.md`. The 12 cross-surface invariants are mandatory; the surface-local conventions are surface-specific.
 - **FR-to-structure mapping** (step 6) is the lookup table — given an FR, find the primary owner file. Add new files only when an FR has no existing owner.
 - **Stripe webhook handler** (`apps/web/src/lib/stripe/webhooks.ts`) requires the self-namespace import pattern — DO NOT refactor away ([INVARIANT 4]).
-- **Mobile native modules** (FFmpeg, OpenCV, MMKV, SQLite) are accessed ONLY via `apps/mobile/src/shared/services/*.ts`. NO feature directly imports these.
+- **Mobile native modules** (FFmpeg, OpenCV, MMKV, SQLite) are accessed ONLY via `apps/mobile/src/shared/services/*.ts`. NO feature directly imports these. **[AMENDED 2026-07-16 — a FIFTH native module is pending.]** Story 12.2 introduces a **GLES 3.0 + MediaCodec** engine module. It MUST obey this invariant (sole access via `shared/services/*.ts`) and MUST be added to the **SEC-007 third-party SDK allowlist**, which asserts the on-device-only contract at the dependency level. This is a **greenfield architectural surface** — GPU / GLES / OpenGL / shader / GLSL / ModernGL / EGL / FBO / MediaCodec appear **nowhere else in this document** (the sole "GPU" token is a rejected-alternative footnote about the *Dear PyGui* GUI toolkit, which is unrelated and must not be cited as prior art either way). No prior decision authorizes it; the decision entry lands with Story 12.3. Note the tooling-side POC (`moderngl`, Story 12.1) does **not** trip SEC-007 — that allowlist is scoped to the mobile artifact via the Reader-App transitive-dep scan. See [`sprint-change-proposal-2026-07-16.md`](sprint-change-proposal-2026-07-16.md).
 - **Schema edits** go through `contracts/<schema>.schema.json` only; re-run `pnpm --filter @warden/contracts build` and commit both schema + regenerated TS.
 - **Run before push:** `pnpm typecheck && pnpm test && pnpm format:check`. Mobile changes also run `apps/mobile/scripts/reader-app-gate.sh`.
 

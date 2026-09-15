@@ -1,0 +1,8 @@
+{
+  "hud_version": "v2",
+  "reference_resolution": {
+    "width": 1920,
+    "height": 1080
+  },
+  "score_screen_duration_ms": 15000
+}
