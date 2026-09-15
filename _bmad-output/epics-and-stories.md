@@ -673,6 +673,8 @@ This map traces every FR, NFR, architecture work item (AR), brownfield dispositi
 >
 > **Sequencing change:** **Epics 5, 6 and 7 are HELD behind Story 12.3 (engine verdict) + Story 12.4 (mobile consumer rewrite).** They remain `backlog` — no status change, since `blocked` is a story-level status only (precedent: Story 1.9). Order, not state, is what changed.
 >
+> > **UPDATE 2026-09-15 — Story 12.3 HAS LANDED. Only Story 12.4 remains between Epics 5/6/7 and start.** The engine verdict is published: [`architecture-spike-gpu-megashader.md`](architecture-spike-gpu-megashader.md), recorded as `architecture.md` **Decision #13** — **the GPU mega-shader is REJECTED**; the bound engine is **Kotlin CPU rule evaluation on the MediaCodec keyframe-decode path** (the GPU measured **6.4× slower** for **bit-identical** output, and the engine is only **6–7% of the wall** either way). PERF-002 is re-baselined from measurement and is **MET by ~4.9×**; the Innovation #1 fallback ladder is **re-armed across all five rungs**, so the auto-slice FRs have a V1 safety net again. **The hold on Epics 5/6/7 is now single-gated on Story 12.4**, whose content the rejection changed: it is a CPU-arm wiring + decode-loop optimisation + GLES-removal story, not a shader-integration story.
+>
 > **This is a dev-focus decision, not a dependency-driven one — stated plainly so a future reader who checks the dependency graph is not misled.** Epics 5/6/7 do not *strictly* require the engine: the app supports manual clips and J3 explicitly designs for graceful degradation. The hold is deliberate: it prevents ~20 stories of mobile review UI being built on top of an engine that is today a stub (`architecture.md:102`) plus an unenumerated hole (:2750), and it stops V1 shipping :2748's *"auto-slice produces `unknown` map labels on HUD 2.0 sessions."*
 >
 > **Epics 2, 3, 4 and 8 are UNAFFECTED and float in parallel** — they are engine-independent (telemetry, entitlement, web funnel, i18n). Note Epic 4 is *web* UI and never touches the engine. Epic 10 remains last.
@@ -3276,15 +3278,27 @@ The 12 cross-surface invariants from architecture are honored across stories:
 
 ---
 
-## Epic 12: Detection Engine — GPU Mega-Shader POC (V1-GATING)
+## Epic 12: Detection Engine — GPU Mega-Shader POC (V1-GATING) — *verdict 2026-09-15: shader REJECTED, CPU arm bound*
 
-**Status:** backlog · V1-GATING · engine-first
+**Status:** in-progress · V1-GATING · engine-first — **12.1 `done` · 12.2 `done` · 12.3 `done` (THE GATE, closed 2026-09-15) · 12.4 remaining**
+
+> ### 🔴 EPIC VERDICT — 2026-09-15 (Story 12.3)
+>
+> **The GPU mega-shader is REJECTED. The bound engine is Kotlin CPU rule evaluation on the MediaCodec keyframe-decode path** (`architecture.md` **Decision #13**; evidence: [`architecture-spike-gpu-megashader.md`](architecture-spike-gpu-megashader.md)).
+>
+> **Measured on the reference device (Poco X5 Pro 5G / Adreno 642L / Android 14):** the GPU is **6.4× slower** than the device CPU at rule evaluation (2.389 vs 0.376 ms/frame) for **bit-identical output** (0 disagreements across **357,244** rule-frame decisions). Zero-copy worked exactly as 12.1 hoped — the upload fell 1.72 → 0.37 ms — and it was nowhere near enough.
+>
+> **The epic's founding premise is falsified, and that is its most valuable product.** The chain was *PERF-002 is unacceptable → the per-frame CPU `cv2.inRange` path is the ceiling → a GPU mega-shader removes it.* **Rule evaluation was never the ceiling:** it is **6.0–7.3% of the wall** on the GPU and ~1% on the CPU, so choosing CPU over GPU moves a 35–45 s run by **~2.7 s**. The real cost is a **per-keyframe pipeline teardown-and-restart** — `flush()` 14.5 ms plus 10.6 ms sleeping in a `TIMEOUT_US` we chose — **~25 ms/keyframe, ours to fix, re-homed to Story 12.4** and worth ~26 s.
+>
+> **And PERF-002 as literally written was already met.** 5% of the **4419.633 s** capture is **220.98 s**; the bound configuration measures **44.879 s = 1.02%** — **MET by ~4.9×**, covering the detection pass only. The missed **`< 10 s`** is an **aspiration, not an acceptance criterion**, and is not recorded as a failed NFR.
+>
+> **What Epic 12 refutes is a mechanism, not the decision to ask.** The engine question had to be answered before ~20 stories of Epics 5/6/7 were built on it. Everything the epic built survives the rejection: the measured decode decomposition, the bit-exact integer HSV evaluator (which is what makes the CPU arm trustworthy — the two arms check each other), `WardenRulePacker`, the working MediaCodec decode path with the count assertion that caught a silent 2-vs-1061 failure, and a ~2.5× decode-loop speedup target with two cheap fixes.
 **Added:** 2026-07-16 (Stephane, /bmad-correct-course) — see [sprint-change-proposal-2026-07-16.md](sprint-change-proposal-2026-07-16.md)
 
 **Type:** Architecture spike → engine binding (gates Epics 5/6/7 and Epic 9's zone-population work)
 **User outcome:** Stephane knows, from measured evidence, whether a keyframe-only FFmpeg → GPU mega-shader engine can replace the CPU OpenCV/pHash/`cv2.inRange` detection path — **before** any further zone-population or mobile-UI investment is made.
 **FRs covered:** `cross-AUTO-SLICE-001/002` (engine-gated; gate re-points here from Story 1.1), `mobile-AUTO-SLICE-001/002/003/004` (Story 12.4)
-**NFRs covered:** PERF-002 (re-baselined by 12.3), PERF-010 (bound by 12.2 on the reference device), REL-006 (enforcement preserved via Story 9.16)
+**NFRs covered:** PERF-002 (**RE-BASELINED 2026-09-15 by 12.3 — MET at ≤ 1.02% of source duration against a 5% budget, detection pass only**), PERF-010 (**NOT bound — stays a soft target**; *corrected 2026-09-15: this line said "bound by 12.2 on the reference device", which was never true. A single-device run measures throughput; a minimum-supported-device floor is a claim about the device population*), REL-006 (enforcement preserved via Story 9.16 — **without it the floor has no instrument**)
 
 **Rationale.** Three problems converge on the CPU detection path: (1) PERF-002's ≤5%-of-source budget (4 min for 1h20) is unacceptable UX and the per-frame CPU `cv2.inRange` path is itself the ceiling; (2) V1 currently plans to ship auto-slice that does not fire on current-HUD footage (:2748), and the story that would close that hole is "not yet enumerated in any epic" (:2750); (3) ~20 stories of mobile review UI (Epics 5/6/7) are scheduled ahead of the engine that produces their input. This epic gates the engine question so the expensive, irreversible bets are placed *after* the evidence, not before.
 
@@ -3318,15 +3332,16 @@ The 12 cross-surface invariants from architecture are honored across stories:
 
 ### Story 12.3: Engine Verdict + PERF-002 Re-baseline + Fallback-Ladder Re-arm
 
-**Sprint fit:** `fits-in-one-sprint`
+**Sprint fit:** `fits-in-one-sprint` · **Status: `done` 2026-09-15 — THE GATE IS CLOSED.**
+**Verdict:** **Option A — GPU mega-shader REJECTED; Kotlin CPU rule evaluation on the MediaCodec keyframe-decode path is BOUND** (`architecture.md` Decision #13). Rung-0 is **provisional pending Story 12.4** (12.2 shipped a bench, not a pipeline binding). Colour path **N/A** — the Path Z / Path P fork dissolves with the shader. Decode-loop fixes **re-homed to Story 12.4**, headroom quantified.
 **Scope:** **THE GATE.** Publishes `_bmad-output/architecture-spike-gpu-megashader.md` (per the `architecture.md:1040` / `:860` spike-report convention). Binds the engine. Re-baselines PERF-002 from 12.2's measured numbers. **Re-arms the Innovation #1 fallback ladder** with engine-agnostic triggers.
 **Why the ladder re-arm is not cosmetic:** `architecture.md:857`'s hard-fail rung triggers on *"JSI binding does not ship"* — **unreachable** under a shader engine. Until this story lands, the auto-slice FRs have **no V1 safety net**. `architecture.md:858`'s FORBIDDEN cloud fallback stays verbatim.
 **Dependencies:** Story 12.2.
 
 ### Story 12.4: Mobile Detection Consumer Rewrite
 
-**Sprint fit:** TBD at create-story (conditional on the 12.3 verdict)
-**Scope:** Closes the :2750 hole — the TS rewrite of `gameDetector.ts` / `mapIdentifier.ts` / `blackScreenDetector.ts` off v1 pHash data onto the bound engine. Unblocks Epics 5/6/7.
+**Sprint fit:** **`needs-spike-or-split`** — set 2026-09-15 by the Story 12.3 verdict, which the epic left as *"TBD at create-story (conditional on the 12.3 verdict)"*. **Rationale:** the rejection *grew* this story rather than shrinking it. It now carries four separable workstreams, three of which touch device-measured Kotlin: (1) the **TS consumer rewrite** off v1 pHash data; (2) **wiring the bound engine** into `processingPipeline.ts` behind `detectionEngine.ts`; (3) the **decode-loop optimisation** re-homed from 12.3 (`TIMEOUT_US` + per-keyframe `flush()` + replacing the 62 s `countSyncSamplesByScan()`), each needing an on-device re-measurement loop; (4) **removing the GLES/EGL surface** from the plugin and the `Warden*.kt` sources, after which SEC-007 entry 5 narrows and entry 5a is dropped. Plus an **end-to-end PERF-002 re-measurement** over the real pipeline, which 12.3's re-baseline explicitly does not cover. **Split at create-story.**
+**Scope:** Closes the :2750 hole — the TS rewrite of `gameDetector.ts` / `mapIdentifier.ts` / `blackScreenDetector.ts` off v1 pHash data onto the bound engine. Unblocks Epics 5/6/7. **Re-scoped 2026-09-15 by the verdict: this is a CPU-arm wiring + decode-loop optimisation + GLES-removal story, NOT a shader-integration story.** It also **retires ladder rung 3** (which does not fire today but stays live until a real binding ships) and **resolves provisional rung-0**.
 **Dependencies:** Story 12.3.
 
 **Downstream:** Epic 9 (9.9b resume-or-re-scope, 9.10 unblock, 9.16 re-point), Story 1.13 (create-story), Epics 5/6/7 (via 12.4).
