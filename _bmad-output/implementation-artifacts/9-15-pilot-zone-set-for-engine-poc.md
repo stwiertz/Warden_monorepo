@@ -1,6 +1,6 @@
 # Story 9.15: Pilot Zone Set for Engine POC — Salvage, Commit, Baseline
 
-Status: review
+Status: done
 
 Sprint fit: `fits-in-one-sprint` — **hours, not weeks**. Re-scoped 2026-07-16: this is a mechanical salvage, not the manual picker campaign the SCP describes. See "Why This Story Changed Shape".
 
@@ -190,7 +190,7 @@ zones/v2/minimap_identification.json.bak (Jun 11)
   Also **out of scope:** the Volet-B residue ([:2842](../epics-and-stories.md#L2842) — `ColorPickerMode` wiring, `min_ratio` in `read_band`, single-frame input) — it was folded in *"optional, only if the POC needs it"*, and a salvage story does not need it. Leave it to 12.1.
 - [x] **AC9 — No regressions.** `cd apps/tooling && uv run pytest` → **204** collected, 0 failures (baseline unchanged; under AC0b Option A this story adds no test file because it adds no code). `pnpm --filter tooling test` parity.
   ⚠️ **AMENDED 2026-07-16 by code review — the baseline is now 208, and the parenthetical's reasoning was wrong.** *"Adds no test because it adds no code"* is true about code and false about **invariants**: this story made fragments→config load-bearing and guarded it with nothing. `tests/test_zone_fragments_v2.py` (+4) closes that. **New gate: 208 passed, 0 regressions** — verified on both `uv run pytest` and `pnpm --filter tooling test`. This also **reverses AC0b Option A** ("throwaway, no test file") and **breaches AC8's `apps/tooling/tests/` fence** — both accepted deliberately by Stephane at review, as a post-merge follow-up commit rather than a re-opening of `e4b9c29`.
-- [ ] **AC10 — [HELD] `review → done` flip** + post-merge sprint-status update. Two-PR pattern. *(Confirmed still genuinely open at code review 2026-07-16: `Status:` and `sprint-status.yaml` both read `review`.)*
+- [x] **AC10 — ~~[HELD]~~ DONE 2026-09-15.** `review → done` flip + post-merge sprint-status update. *(Was confirmed genuinely open at code review 2026-07-16, and remained so through the 12.1 delivery — the deferral cause was [[project_warden_shared_doc_commit_boundary]]: 12.1's flips were co-mingled in `sprint-status.yaml`.)* **Unblocked by the `main` merge `fbd4fef` (2026-09-15)**, which landed 9.15 and 12.1 together — both stories' flips are now made in one pass, so the co-mingling is no longer a boundary problem but the intended content of a single commit. `Status:` and the `9-15-pilot-zone-set-for-engine-poc` key both read `done`.
 - [x] **AC11 — ~~[HELD]~~ DONE (corrected 2026-07-16 by code review — was executed while still marked HELD).** Local `git merge --no-ff` per Epic 9 precedent (`gh` unauthenticatable non-interactively). Conventional Commits, scope **`tooling`** ([INVARIANT 12]). **Delivered:** feature `e4b9c29` *"feat(tooling): commit v2 zone fragments as source of truth (Story 9.15)"* → merged `be0292b` *"chore(tooling): merge Story 9.15 salvage — zone fragments source of truth"* into `correct-course-engine-first-pivot`. All three requirements (Conventional Commits, scope `tooling`, local `--no-ff`) verified met.
 
 ---
@@ -220,7 +220,7 @@ zones/v2/minimap_identification.json.bak (Jun 11)
 - [x] **Task 7 — Gates** (AC9)
   - [x] `uv run pytest` → 204, 0 regressions. `pnpm --filter tooling test` parity.
   - [x] *(Post-review 2026-07-16)* `uv run pytest` → **208**, 0 regressions. `pnpm --filter tooling test` parity → **208**.
-- [x] **Task 8 — ~~[HELD]~~ Delivery PARTIALLY DONE** (AC10, AC11) — **AC11 done**: `e4b9c29` committed + local `--no-ff` merge `be0292b`. **AC10 still held**: the post-merge `review → done` + sprint-status pass is deferred per [[project_warden_shared_doc_commit_boundary]] (12.1's flips are co-mingled in `sprint-status.yaml`).
+- [x] **Task 8 — ~~[HELD]~~ ~~PARTIALLY~~ Delivery DONE** (AC10, AC11) — **AC11 done**: `e4b9c29` committed + local `--no-ff` merge `be0292b`. **AC10 done 2026-09-15**: the post-merge `review → done` + sprint-status pass, deferred per [[project_warden_shared_doc_commit_boundary]] because 12.1's flips were co-mingled in `sprint-status.yaml`, is made now that `fbd4fef` has landed both stories on `main` and the two flips belong in one commit.
 
 ---
 

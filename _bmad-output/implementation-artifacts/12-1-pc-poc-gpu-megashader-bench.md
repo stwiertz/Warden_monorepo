@@ -1,6 +1,6 @@
 # Story 12.1: PC POC — Python + ModernGL + FFmpeg Keyframe Bench
 
-Status: review
+Status: done
 
 Sprint fit: `needs-spike-or-split` — deliberate, citable exception to Decision #ES-9 ("Story 1.1 is the only one by design"), recorded as the second ([epics-and-stories.md:3306](../epics-and-stories.md#L3306)). **The spike IS the unknowable — "took multiple focused days" is not a failure mode** (precedent: [1-1-pre-prd-performance-spike-ar-spike.md:19](1-1-pre-prd-performance-spike-ar-spike.md#L19)).
 
@@ -176,8 +176,8 @@ Two consequences the brief's arithmetic misses:
 - [x] **AC16 — pytest.** New `apps/tooling/tests/test_<name>.py`. Pure-logic only: **no GL context, no real video decode, no Tk, no PIL** in tests — the GL context is the analogue of Tk here. Mock the decoder (synthetic BGR frames, 9.13 precedent). Cover: LUT packing, result decoding, all three hue branches (incl. `h_tol=180` full-circle and a 0/1-crossing case), `min_ratio` quantization at 1×1 and 2×2 rects, phase state machine, circular buffer N-2 emission, doubt outcome. Baseline **208 tests collected** — 0 regressions. ⚠️ **Was 204**; the Story 9.15 code review added `tests/test_zone_fragments_v2.py` (+4) — the fragments→config regression guard AC12's pinned baseline now rests on.
 - [x] **AC17 — `wardentooling.py` registration.** Tool 12 registered: `flow_*` fn + `_TOOL_MAP` entry + `choices_main` label + `menu_main` branch + `_reprompt_source` branch. **⚠️ `-m` package + positional video is a first** — video sits at `last_args` index **2** (`["-m", "tools.X", <video>, ...]`), not index 1 as in the `video_test` pattern. `run_tool` needs **no** change (it already does `[sys.executable] + args`).
 - [x] **AC18 — Scope fence.** Touch **nothing** outside `apps/tooling/tools/<name>/`, `apps/tooling/tests/test_<name>.py`, the two manifests, `wardentooling.py`, and (AC0a) `utils/video.py`. **Do NOT touch:** `contracts/map-config.schema.json` (E1 — no `schema_version` bump; [INVARIANT 1] makes `contracts/` master), Tool 9, Tool 10, Tool 11, the emitter, zone fragments, or any zone data. No mobile/web files.
-- [ ] **AC19 — [HELD] `review → done` flip** + post-merge sprint-status update. Two-PR pattern.
-- [ ] **AC20 — [HELD] PR / merge.** Local `git merge --no-ff` per Epic 9 precedent (`gh` is unauthenticatable non-interactively). Conventional Commits, scope **`tooling`** ([INVARIANT 12]).
+- [x] **AC19 — ~~[HELD]~~ DONE 2026-09-15.** `review → done` flip + post-merge sprint-status update. Two-PR pattern collapsed to a single pass: AC20's merge landed on `main` in the same session, so the chicken-and-egg the pattern exists to avoid does not arise. Both this file's `Status:` and the `12-1-pc-poc-gpu-megashader-bench` key in `sprint-status.yaml` now read `done`.
+- [x] **AC20 — ~~[HELD]~~ DONE 2026-09-15.** Local `git merge --no-ff` per Epic 9 precedent (`gh` is unauthenticatable non-interactively). Conventional Commits, scope **`tooling`** ([INVARIANT 12]). **Delivered:** feature `6254833` *"feat(tooling): add tool 12 keyframe engine bench — GPU mega-shader POC (Story 12.1)"* + record `f0b91a7`, both on `correct-course-engine-first-pivot`, then the whole engine-first package merged `--no-ff` into **`main`** as `fbd4fef` *"chore: merge engine-first pivot — Epic 12 + Story 9.15 + Story 12.1"*. Merged locally rather than via PR — sole developer, working directly on `main` from here (Stephane, 2026-09-15). Gates re-verified on the merge result: `uv run pytest` → **305 passed**.
 
 ---
 
