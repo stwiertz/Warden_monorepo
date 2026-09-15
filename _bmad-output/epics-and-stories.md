@@ -3312,7 +3312,7 @@ The 12 cross-surface invariants from architecture are honored across stories:
 ### Story 12.2: Android POC — Kotlin + MediaCodec + GLES 3.0 Port
 
 **Sprint fit:** `needs-spike-or-split`
-**Scope:** Port 12.1's validated architecture. Same GLSL source of truth (per E2). Runs on the **Poco X5 Pro 5G** (SM7325/A14, Adreno 619, GLES 3.2-capable) per [[project_warden_reference_device]].
+**Scope:** Port 12.1's validated architecture. Same GLSL source of truth (per E2). Runs on the **Poco X5 Pro 5G** (SM7325/A14, **Adreno 642L**, GLES 3.2-capable) per [[project_warden_reference_device]]. *(Story 12.2 AC1, MEASURED 2026-09-15 on the device: `GL_VENDOR=Qualcomm`, `GL_RENDERER=Adreno (TM) 642L`, `GL_VERSION=OpenGL ES 3.2 V@0530.57`, Android 14 / API 34. The earlier "Adreno 619" was the pre-re-anchor SD695 and is corrected here.)*
 **Note:** contradicts `architecture.md:884` ("No Android-only patterns introduced; iOS Phase 2 is glue — not refactor"). MediaCodec + GLES 3.0 is Android-only by construction; iOS = VideoToolbox + Metal. Amendment 5c makes the cost explicit and defers it to V3 rather than letting a false assertion rot.
 **Dependencies:** Story 12.1.
 

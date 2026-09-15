@@ -1,0 +1,98 @@
+{
+ "story": "12.2",
+ "generated_at": 1789477497514,
+ "mode": "flushprobe",
+ "reference_device_note": "Measured on the Poco X5 Pro 5G (SM7325 \/ Android 14 \/ Adreno 642L). AC15: these are REAL reference-device numbers but they bind NEITHER PERF-002 NOR PERF-010 — both re-baseline with Story 12.3, and PERF-010 is a SOFT target, not a measured floor. The engine brief's <10 s is the aspiration, not an acceptance criterion. Parity figures are an IN-SAMPLE parity target, never accuracy-in-the-world; REL-006's >=95% floor is 9.9b's, instrumented by Tool 9 via 9.16.",
+ "ac1_device_profile": {
+  "android_release": "14",
+  "android_sdk_int": 34,
+  "model": "22101320G",
+  "manufacturer": "Xiaomi",
+  "board": "redwood",
+  "hardware": "qcom",
+  "soc_model": "SM7325",
+  "supported_abis": [
+   "arm64-v8a",
+   "armeabi-v7a",
+   "armeabi"
+  ],
+  "gl": {
+   "GL_VENDOR": "Qualcomm",
+   "GL_RENDERER": "Adreno (TM) 642L",
+   "GL_VERSION": "OpenGL ES 3.2 V@0530.57 (GIT@4bbe300fc3, Ie69fc1c69b, 1747652194) (Date:05\/19\/25)",
+   "GL_SHADING_LANGUAGE_VERSION": "OpenGL ES GLSL ES 3.20",
+   "GL_EXTENSIONS": "GL_OES_EGL_image GL_OES_EGL_image_external GL_OES_EGL_sync GL_OES_vertex_half_float GL_OES_framebuffer_object GL_OES_rgb8_rgba8 GL_OES_compressed_ETC1_RGB8_texture GL_AMD_compressed_ATC_texture GL_KHR_texture_compression_astc_ldr GL_KHR_texture_compression_astc_hdr GL_OES_texture_compression_astc GL_OES_texture_npot GL_EXT_texture_filter_anisotropic GL_EXT_texture_format_BGRA8888 GL_EXT_read_format_bgra GL_OES_texture_3D GL_EXT_color_buffer_float GL_EXT_color_buffer_half_float GL_QCOM_alpha_test GL_OES_depth24 GL_OES_packed_depth_stencil GL_OES_depth_texture GL_OES_depth_texture_cube_map GL_EXT_sRGB GL_OES_texture_float GL_OES_texture_float_linear GL_OES_texture_half_float GL_OES_texture_half_float_linear GL_EXT_texture_type_2_10_10_10_REV GL_EXT_texture_sRGB_decode GL_EXT_texture_format_sRGB_override GL_OES_element_index_uint GL_EXT_copy_image GL_EXT_geometry_shader GL_EXT_tessellation_shader GL_OES_texture_stencil8 GL_EXT_shader_io_blocks GL_OES_shader_image_atomic GL_OES_sample_variables GL_EXT_texture_border_clamp GL_EXT_EGL_image_external_wrap_modes GL_EXT_multisampled_render_to_texture GL_EXT_multisampled_render_to_texture2 GL_OES_shader_multisample_interpolation GL_EXT_texture_cube_map_array GL_EXT_draw_buffers_indexed GL_EXT_gpu_shader5 GL_EXT_robustness GL_EXT_texture_buffer GL_EXT_shader_framebuffer_fetch GL_ARM_shader_framebuffer_fetch_depth_stencil GL_OES_texture_storage_multisample_2d_array GL_OES_sample_shading GL_OES_get_program_binary GL_EXT_debug_label GL_KHR_blend_equation_advanced GL_KHR_blend_equation_advanced_coherent GL_QCOM_tiled_rendering GL_ANDROID_extension_pack_es31a GL_EXT_primitive_bounding_box GL_OES_standard_derivatives GL_OES_vertex_array_object GL_EXT_disjoint_timer_query GL_KHR_debug GL_EXT_YUV_target GL_EXT_sRGB_write_control GL_EXT_texture_norm16 GL_EXT_discard_framebuffer GL_OES_surfaceless_context GL_OVR_multiview GL_OVR_multiview2 GL_EXT_texture_sRGB_R8 GL_KHR_no_error GL_EXT_debug_marker GL_OES_EGL_image_external_essl3 GL_OVR_multiview_multisampled_render_to_texture GL_EXT_buffer_storage GL_EXT_external_buffer GL_EXT_blit_framebuffer_params GL_EXT_clip_cull_distance GL_EXT_protected_textures GL_EXT_shader_non_constant_global_initializers GL_QCOM_texture_foveated GL_QCOM_texture_foveated_subsampled_layout GL_QCOM_shader_framebuffer_fetch_noncoherent GL_QCOM_shader_framebuffer_fetch_rate GL_EXT_memory_object GL_EXT_memory_object_fd GL_EXT_EGL_image_array GL_NV_shader_noperspective_interpolation GL_KHR_robust_buffer_access_behavior GL_EXT_EGL_image_storage GL_EXT_blend_func_extended GL_EXT_clip_control GL_OES_texture_view GL_EXT_fragment_invocation_density GL_QCOM_motion_estimation GL_QCOM_validate_shader_binary GL_QCOM_YUV_texture_gather GL_QCOM_shading_rate "
+  },
+  "ac2_oes_essl3": {
+   "extension_advertised": true,
+   "extension_name": "GL_OES_EGL_image_external_essl3",
+   "compiles": true,
+   "consequence_if_absent": "Path Z is UNAVAILABLE under ESSL 3.00. Do NOT fall back to #version 100 + GL_OES_EGL_image_external — that breaks E2 (one GLSL source of truth) and turns the port into a rewrite. Fall to AC0c Path P and say so."
+  },
+  "mediacodec": {
+   "codec_name": "c2.qti.avc.decoder",
+   "is_hardware_accelerated": true,
+   "mime": "video\/avc",
+   "width": 1920,
+   "height": 1080,
+   "duration_us": 4419633333,
+   "sync_sample_count": 1061,
+   "supported_color_formats": [
+    2130708361,
+    2135033992,
+    19,
+    21,
+    20,
+    39
+   ]
+  }
+ },
+ "ac16_threading_model": {
+  "egl_owner_thread": "warden-bench",
+  "egl_owner_thread_id": 646,
+  "bench_thread": "warden-bench",
+  "is_main_thread": false,
+  "finding": "EGL contexts are THREAD-bound, not JS-context-bound. This context was created and made current on a plain worker thread with a pbuffer surface: no Activity, no SurfaceView, no UI thread. GL calls, SurfaceTexture.updateTexImage() and the MediaCodec output handling all run on that same thread. architecture.md:2047's rationale (\"the foreground service hosts the main JS context where the JSI binding lives\") is therefore NOT the constraint that governs this engine — thread affinity is. The CONCLUSION survives (a foreground service still hosts the work, because the process must stay alive), but it is now re-derived rather than inherited. 12.3 rewrites the architecture prose."
+ },
+ "ac5_lut_cross_check": {
+  "n_rules": 134,
+  "bytes": 7200,
+  "sha256": "b8287e084937dff08ee9a36bdb144e7d09b4bb414bab88d5fee6ee1b2b7f62c5",
+  "mode_distribution": {
+   "normal": 57,
+   "wrap": 9,
+   "full_circle": 68
+  },
+  "reference_sha256_from_lut_py": "b8287e084937dff08ee9a36bdb144e7d09b4bb414bab88d5fee6ee1b2b7f62c5",
+  "matches_reference": true
+ },
+ "ac0c_paths_measured": [
+  "ZERO_COPY",
+  "BIT_PARITY"
+ ],
+ "decode_probe": {
+  "keyframes": 100,
+  "wall_ms_per_keyframe": 41.60816301,
+  "seek_ms_median": 4.298047,
+  "seek_ms_mean": 4.2187167,
+  "flush_ms_median": 14.553099,
+  "flush_ms_mean": 14.291264100000001,
+  "flush_ms_max": 15.295938,
+  "queue_to_first_output_ms_median": 21.8861195,
+  "queue_to_first_output_ms_mean": 21.998057210000002,
+  "try_again_count_total": 102,
+  "try_again_per_keyframe": 1.02,
+  "try_again_ms_total": 1061.190724,
+  "try_again_ms_per_keyframe": 10.61190724,
+  "timeout_us_used": 10000,
+  "read_bytes_delta": 4096,
+  "read_mb_per_keyframe": 3.90625E-5,
+  "prediction_under_test": "research §2 derives flush+drain ~= 25.7 ms\/kf and real decode ~= 4.3 ms. If flush_ms_median is NOT in 15-25 ms, the decomposition is refuted."
+ },
+ "idle_flush_probe": {
+  "reps": 100,
+  "idle_flush_ms_median": 1.786459,
+  "idle_flush_ms_mean": 1.89130212,
+  "idle_flush_ms_max": 8.287552
+ }
+}

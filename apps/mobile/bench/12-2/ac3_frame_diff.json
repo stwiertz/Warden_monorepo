@@ -1,0 +1,74 @@
+{
+ "framediff_bit_parity.png": {
+  "whole_frame": {
+   "n_px": 2073600,
+   "dH_mean": 4.066523919753086,
+   "dH_max": 90,
+   "dH_mean_S_gt_40": 3.1095846499061226,
+   "dS_mean": 8.052470100308643,
+   "dS_max": 255,
+   "dV_mean": 0.8180372299382717,
+   "dV_max": 69,
+   "identical": false
+  },
+  "rule_regions": {
+   "n_px": 691,
+   "dH_mean": 4.772793053545586,
+   "dH_max": 15,
+   "dH_mean_S_gt_40": 3.0699588477366255,
+   "dS_mean": 2.4616497829232995,
+   "dS_max": 50,
+   "dV_mean": 0.7279305354558611,
+   "dV_max": 2,
+   "identical": false
+  },
+  "low_sat_rule_regions": {
+   "n_px": 253,
+   "dH_mean": 4.830039525691699,
+   "dH_max": 15,
+   "dH_mean_S_gt_40": 4.071428571428571,
+   "dS_mean": 2.8616600790513833,
+   "dS_max": 50,
+   "dV_mean": 0.7312252964426877,
+   "dV_max": 1,
+   "identical": false
+  },
+  "diagnosis": "MATRIX-ERROR-scale discrepancy (709 vs 601): dS 2.86 / dH 4.07 vs 12.1's measured 1.64 / 1.12. The 68 low-sat rules are IMMUNE to this one (they surrendered hue); the 57 hue-constrained rules are not."
+ },
+ "framediff_zero_copy.png": {
+  "whole_frame": {
+   "n_px": 2073600,
+   "dH_mean": 4.528929398148148,
+   "dH_max": 90,
+   "dH_mean_S_gt_40": 3.5743929508597576,
+   "dS_mean": 10.019004147376544,
+   "dS_max": 255,
+   "dV_mean": 2.651473765432099,
+   "dV_max": 255,
+   "identical": false
+  },
+  "rule_regions": {
+   "n_px": 691,
+   "dH_mean": 5.422575976845152,
+   "dH_max": 90,
+   "dH_mean_S_gt_40": 3.0699588477366255,
+   "dS_mean": 5.642547033285094,
+   "dS_max": 109,
+   "dV_mean": 2.2489146164978293,
+   "dV_max": 46,
+   "identical": false
+  },
+  "low_sat_rule_regions": {
+   "n_px": 253,
+   "dH_mean": 6.474308300395257,
+   "dH_max": 90,
+   "dH_mean_S_gt_40": 4.057142857142857,
+   "dS_mean": 5.624505928853755,
+   "dS_max": 92,
+   "dV_mean": 1.841897233201581,
+   "dV_max": 15,
+   "identical": false
+  },
+  "diagnosis": "MATRIX-ERROR-scale discrepancy (709 vs 601): dS 5.62 / dH 4.06 vs 12.1's measured 1.64 / 1.12. The 68 low-sat rules are IMMUNE to this one (they surrendered hue); the 57 hue-constrained rules are not."
+ }
+}

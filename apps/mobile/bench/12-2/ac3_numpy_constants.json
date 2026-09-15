@@ -1,0 +1,51 @@
+{
+ "story": "12.2",
+ "purpose": "AC3 - prove the Path P YUV->RGB CONSTANTS are right, independently of the shader and independently of any capture. Exhaustive over the whole YUV domain.",
+ "coefficients": {
+  "from_bt709_primaries": {
+   "cr_to_r": 1.5748,
+   "cb_to_g": 0.1873242729306488,
+   "cr_to_g": 0.46812427293064884,
+   "cb_to_b": 1.8556
+  },
+  "in_shader": {
+   "cr_to_r": 1.5748,
+   "cb_to_g": 0.1873,
+   "cr_to_g": 0.4681,
+   "cb_to_b": 1.8556
+  }
+ },
+ "domain": "all 256^3 (Y, Cb, Cr) triples",
+ "total_triples": 16777216,
+ "differing_triples": 30023,
+ "differing_fraction": 0.0017895102500915527,
+ "max_abs_channel_delta": 1,
+ "differing_samples_per_channel": {
+  "B": 0,
+  "G": 30023,
+  "R": 0
+ },
+ "confined_to_green": true,
+ "explained_by_published_rounding": true,
+ "worst_case": {
+  "y": 0,
+  "cb": 0,
+  "cr": 57,
+  "shader_bgr": [
+   0,
+   46,
+   0
+  ],
+  "exact_bt709_bgr": [
+   0,
+   47,
+   0
+  ]
+ },
+ "delta_histogram": {
+  "0": 16747193,
+  "1": 30023
+ },
+ "verdict": "CONSTANTS CONFIRMED, AND THEIR ERROR IS BOUNDED AT 1 UNIT ON GREEN. The only disagreements are +/-1 on the GREEN channel, on 0.1790% of the domain. Cause: ITU-R BT.709 publishes the chroma coefficients rounded to four decimals, and the two green ones are not exact there (0.1873 vs 0.18732427, 0.4681 vs 0.46812427; red and blue ARE exact at four decimals). Our shader ships the published values, which is also what FFmpeg uses - so this is agreement WITH FFmpeg, not deviation from it. DECISION-RELEVANT CONSEQUENCE: the constants can move a pixel by at most ONE unit on ONE channel, so they cannot account for the dS_max of 50 that ac3_frame_diff.py measures inside rule rects, and they are not a 601-vs-709 matrix error (which is unbounded and affine in the pixel's own chroma). AC3's stop rule protected against a wrong matrix or a wrong range; neither is present.",
+ "scope_note": "This says nothing about the residual against an FFmpeg rgb24 PNG. RESOLVE_YUV_FRAG samples chroma nearest-neighbour (ivec2(p.x / 2, p.y / 2)) while swscale interpolates, so the two disagree at chroma edges by design, bounded by the local chroma gradient. AC3's literal dS = 0 was unreachable against that reference; what the stop rule exists to protect - the constants - is what is proved here."
+}

@@ -119,7 +119,7 @@ The FRs that drive the most architectural surface area:
 - **REL-002** — 30-day offline functionality drives the SQLite (durable rows) + MMKV (cache + checkpoints) split-storage pattern.
 - **REL-006** — map ID ≥ 95% on an unseen test set drives a regression-suite gate before any new `map_config.json` ships (`tooling-VALIDATE-001` is the implementation hook). **The instrument is Tool 9 (`apps/tooling/tools/roi_detection_tester.py`), NOT `hash_validator.py`** — amended 2026-07-16 (correct-course). `hash_validator.py` measures **Hamming distance between perceptual hashes** and cannot measure a zone/HSV-scoring engine at all, yet it was the named gate here. Tool 9 is the **sole live per-classifier enforcement** of this floor (Stories 9.2/9.3 cancelled; Story 1.1.1's measurement cancelled; Story 9.9b unstarted). **Story 9.16 re-points Tool 9 at whichever engine Story 12.3 binds — without it this gate has no instrument.**
 - **SEC-002/003** — server-only `users/{uid}` writes (firebase-admin bypasses rules); rules deployed to production before V1 launch (V1-blocking; brownfield item 2).
-- **SEC-007** — third-party SDK allowlist asserts the on-device-only contract at the dependency level; architecture maintains the allowlist.
+- **SEC-007** — third-party SDK allowlist asserts the on-device-only contract at the dependency level; architecture maintains the allowlist. **The allowlist itself is [below](#sec-007-third-party-sdk-allowlist).**
 - **PRIV-001/002** — the on-device-only contract is architecturally structural, not a configuration toggle that can be flipped under load.
 
 **Scale & complexity:**
@@ -2053,6 +2053,23 @@ The Innovation #1 fallback ladder (spike rung 3 = manual-clip-only V1) is explic
 The naming-convention divergence between surfaces (snake_case in Firestore + Python tooling; camelCase wire boundary on web; snake_case mobile-internal because domain types ARE the persistence shape) is deliberate per step 5 and is captured in the surface-local-vs-cross-surface invariants table. Cross-surface contracts (`packages/contracts/`) are snake_case at the JSON Schema layer; auto-generated Zod preserves field names; consumers transform if they want camelCase. No naming conflicts at runtime.
 
 The privacy contract is enforced at three layers: (1) the on-device-only invariant ([INVARIANT 3]); (2) the activation telemetry payload allowlist (Decision #9 / step 5 wrapper); (3) the third-party SDK allowlist (SEC-007). Each layer reinforces the others.
+
+#### SEC-007 third-party SDK allowlist
+
+Scope: the **mobile artifact**. The tooling surface is carved out (`moderngl`, Story 12.1) and is covered instead by the Reader-App transitive-dep scan, which never sees `apps/tooling/`. Every entry states what leaves the device; the answer must be "nothing" or the entry does not belong here.
+
+| # | Module / SDK | Added by | What it is | Network egress |
+|---|---|---|---|---|
+| 1 | **FFmpeg** (`@wokcito/ffmpeg-kit-react-native`) | pre-V1 | Local video decode/transcode. | **None.** Local file I/O only. |
+| 2 | **OpenCV** (`react-native-fast-opencv`) | pre-V1 | Local frame analysis. | **None.** |
+| 3 | **MMKV** (`react-native-mmkv`) | Story 1.2 | On-device key/value cache + checkpoints. | **None.** |
+| 4 | **SQLite** (`expo-sqlite`) | pre-V1 | On-device durable rows (REL-002). | **None.** |
+| 5 | **GLES 3.0 + MediaCodec detection engine** (`team.warden.mobile.Warden*`) | **Story 12.2** | **NOT a third-party SDK** — a first-party Kotlin wrapper over AOSP **platform** APIs (`android.media.MediaCodec`, `android.media.MediaExtractor`, `android.opengl.GLES30`/`EGL14`, `SurfaceTexture`). Emitted by `apps/mobile/plugins/with-detection-engine.js`; sole JS access via `apps/mobile/src/shared/services/detectionEngine.ts` ([INVARIANT: native-modules-only-via-shared-services](#mobile-native-modules)). Listed because the invariant above requires the entry, not because a vendor SDK was introduced. | **None.** No socket, no HTTP client, no telemetry. Reads a local capture and a local `map_config`; writes JSON to the app's own `getExternalFilesDir`. |
+| 5a | ↳ `io.github.jamaismagic.ffmpeg:ffmpeg-kit-main-16kb:6.1.4` | Story 12.2 | The **same coordinate and version** already reaching the APK transitively via entry 1. `implementation` is not transitive at compile time, so `with-detection-engine.js` re-declares it purely for **compile-time visibility** of `com.arthenica.ffmpegkit` from our Kotlin (AC0b Option C's decode control). **Nothing new ships**; there is no version to resolve against. | **None** (inherits entry 1). |
+
+**Story 12.2 permission surface: unchanged.** The engine widened no Android permission. Bench fixtures live in the app's own `getExternalFilesDir` precisely because `/sdcard/<dir>` is `EACCES` at `targetSdk 36` — i.e. the constraint was respected rather than worked around.
+
+> **Status of entry 5.** This records the dependency-level facts Story 12.2 measured. It does **not** authorize the GPU engine architecturally — **Story 12.3 owns that decision**, and if 12.3 rejects the engine, entry 5 and 5a are removed along with the plugin. Added 2026-09-15 during Story 12.2's code review; AC18(c) required it and it had been closed by prose alone.
 
 The Reader-App contract is enforced at three layers: (1) build-time CI gate ([INVARIANT 7]); (2) pre-commit hook (`apps/mobile/scripts/reader-app-gate.sh`); (3) `EXPO_PUBLIC_AUTH_BYPASS` deny in release configs ([INVARIANT 8]). Defense in depth — signaling tier, not absolute prevention.
 
