@@ -469,6 +469,86 @@ def flow_video_test() -> tuple[list[str], str | None]:
 
 
 # ---------------------------------------------------------------------------
+# Tool 12 — keyframe_engine_bench (package tool via -m; positional video)
+# ---------------------------------------------------------------------------
+
+
+def flow_keyframe_engine_bench() -> tuple[list[str], str | None]:
+    """Collect arguments for Tool 12 (keyframe engine bench, Story 12.1).
+
+    First `-m` package tool with a POSITIONAL video: the args layout is
+    ["-m", "tools.keyframe_engine_bench", <video>, ...], so the video sits at
+    index 2 — not index 1 as in the video_test / video_timeline_labeler pattern.
+    `run_tool` needs no change (it already does [sys.executable] + args).
+
+    The accuracy and GLSL-gate modes take no video, so the video picker is
+    offered only for the bench mode.
+    """
+    mode = questionary.select(
+        "Tool 12 mode:",
+        choices=[
+            "Bench a video (ms/keyframe + phase timeline + thumbnails)",
+            "Accuracy vs the Tool 9 CPU baseline (labeled corpus)",
+            "Gate the GLSL on glslangValidator (ES 3.0 subset)",
+        ],
+    ).ask()
+    if mode is None:
+        return [], None
+
+    base = ["-m", "tools.keyframe_engine_bench"]
+
+    if mode.startswith("Gate"):
+        return base + ["--gate-glsl"], None
+
+    if mode.startswith("Accuracy"):
+        args = base + ["--accuracy"]
+        baseline = questionary.text(
+            "Tool 9 frame_predictions.csv (--baseline-csv)  [blank = skip per-frame parity]:"
+        ).ask()
+        if baseline is None:
+            return [], None
+        baseline = baseline.strip()
+        if baseline:
+            args += ["--baseline-csv", baseline]
+        config_path = questionary.text(
+            "Map config (--config)  [blank = output/map_configs/map_config.v2.json]:"
+        ).ask()
+        if config_path is None:
+            return [], None
+        config_path = config_path.strip()
+        if config_path:
+            args += ["--config", config_path]
+        return args, None
+
+    video_path = browse_video_file(
+        "Select video file for Tool 12 — Keyframe Engine Bench:"
+    )
+    if not video_path:
+        return [], None
+    args = base + [video_path]
+
+    config_path = questionary.text(
+        "Map config (--config)  [blank = output/map_configs/map_config.v2.json]:"
+    ).ask()
+    if config_path is None:
+        return [], None
+    config_path = config_path.strip()
+    if config_path:
+        args += ["--config", config_path]
+
+    output_path = questionary.text(
+        "Output directory (--out)  [blank = output/<video_stem>/]:"
+    ).ask()
+    if output_path is None:
+        return [], None
+    output_path = output_path.strip()
+    if output_path:
+        args += ["--out", output_path]
+
+    return args, video_path
+
+
+# ---------------------------------------------------------------------------
 # Dev tool flows
 # ---------------------------------------------------------------------------
 
@@ -527,6 +607,7 @@ _TOOL_MAP = {
     "roi_detection_tester":   ("Tool 9 — Test ROI Detection on Labeled Frames", flow_tool9),
     "zone_picker":            ("Tool 10 — Unified Zone Picker",                 flow_zone_picker),
     "video_test":             ("Tool 11 — Video Detection Tester",             flow_video_test),
+    "keyframe_engine_bench":  ("Tool 12 — Keyframe Engine Bench",              flow_keyframe_engine_bench),
 }
 
 
@@ -561,6 +642,20 @@ def _reprompt_source(
         # last_args layout: ["tools/video_test.py", <video>, ...] — video is
         # positional at index 1 (same shape as video_timeline_labeler).
         new_args = [last_args[0], new_video] + last_args[2:]
+        return new_args, new_video
+    elif tool_key == "keyframe_engine_bench":
+        # last_args layout: ["-m", "tools.keyframe_engine_bench", <video>, ...]
+        # — the FIRST `-m` package tool with a positional video, so the video is
+        # at index 2, NOT index 1 like the video_test pattern above. Splicing at
+        # index 1 here would clobber the module name.
+        # --accuracy / --gate-glsl runs carry no video: nothing to re-prompt, so
+        # fall back to the full flow rather than injecting a video they'd reject.
+        if len(last_args) < 3 or last_args[2].startswith("-"):
+            return flow_keyframe_engine_bench()
+        new_video = browse_video_file("Select new video file:")
+        if not new_video:
+            return [], None
+        new_args = last_args[:2] + [new_video] + last_args[3:]
         return new_args, new_video
     else:
         # map_config_emitter: directory-driven re-run of the full flow.
@@ -623,6 +718,7 @@ def menu_main() -> None:
         "Tool 9 — Test ROI Detection on Labeled Frames",
         "Tool 10 — Unified Zone Picker",
         "Tool 11 — Video Detection Tester",
+        "Tool 12 — Keyframe Engine Bench",
         "Dev Tools",
         "Quit",
     ]
@@ -714,6 +810,23 @@ def menu_main() -> None:
                     save_last_run(
                         "video_test",
                         "Tool 11 — Video Detection Tester",
+                        args,
+                        video_path,
+                    )
+
+        elif choice == "Tool 12 — Keyframe Engine Bench":
+            args, video_path = flow_keyframe_engine_bench()
+            if not args:
+                continue
+            confirmed = questionary.confirm(
+                f"Run: {exe_name} {' '.join(args)}?", default=True
+            ).ask()
+            if confirmed:
+                returncode = run_tool(args)
+                if returncode == 0:
+                    save_last_run(
+                        "keyframe_engine_bench",
+                        "Tool 12 — Keyframe Engine Bench",
                         args,
                         video_path,
                     )
