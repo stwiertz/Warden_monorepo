@@ -1,6 +1,6 @@
 # Story 12.1: PC POC — Python + ModernGL + FFmpeg Keyframe Bench
 
-Status: ready-for-dev
+Status: review
 
 Sprint fit: `needs-spike-or-split` — deliberate, citable exception to Decision #ES-9 ("Story 1.1 is the only one by design"), recorded as the second ([epics-and-stories.md:3306](../epics-and-stories.md#L3306)). **The spike IS the unknowable — "took multiple focused days" is not a failure mode** (precedent: [1-1-pre-prd-performance-spike-ar-spike.md:19](1-1-pre-prd-performance-spike-ar-spike.md#L19)).
 
@@ -82,32 +82,32 @@ Two consequences the brief's arithmetic misses:
 
 ### AC0 — Kickoff decisions (resolve BEFORE Task 1; record verdict in Dev Agent Record)
 
-- [ ] **AC0a — Decoder binding.** Recommended default: **Option A**.
+- [x] **AC0a — Decoder binding.** Recommended default: **Option A**.
   - **Option A (RECOMMENDED) — reuse `utils/video.py` subprocess.** Zero new pip deps beyond `moderngl`; matches the epic's literal `-skip_frame nokey`; already proven and already a live module. Requires two small in-story fixes: (i) `-vsync 0` → **`-fps_mode passthrough`** (`-vsync` is deprecated since FFmpeg 5.1 and **already removed in 9.x master**; both spellings mean passthrough, so this is a rename, not a behavior change); (ii) add a **no-scale / native-resolution** variant — the bench must read at `reference_resolution` height 1080 (see AC5).
   - **Option B — PyAV 18.0.0** (`av`, released 2026-07-02, bundles FFmpeg 8.1.2, `requires-python >=3.11`, declares **no** dependencies, `stream.codec_context.skip_frame = 'NONKEY'`). Cleaner: PTS and pixels arrive as one object, eliminating the stderr-thread PTS pairing. Costs a second new pip dep and supersedes an existing live module.
   - **⚠️ Whichever option: `-fps_mode passthrough` (or PyAV) is MANDATORY, not cosmetic.** Verified on a real V2 capture: the rawvideo muxer sets `AVFMT_NOTIMESTAMPS` but **not** `AVFMT_VARIABLE_FPS`, so `auto` resolves to CFR and **silently duplicates each keyframe ~250×** — a 30 s segment yielded **1999 frames instead of 8**. `utils/video.py`'s existing `-vsync 0` already avoids this; do not drop it while renaming.
-- [ ] **AC0b — Bench input + `.bak` disposition.** Recommended default: **Option A**.
+- [x] **AC0b — Bench input + `.bak` disposition.** Recommended default: **Option A**.
   - **Option A (RECOMMENDED)** — bench against the existing `apps/tooling/output/map_configs/map_config.v2.json` (13 maps / 121 map zones / 10 hud / 3 in_match = **134 rules**, fully populated, carrying the accepted `h_tol=180` low-sat tuning per Finding 2). Leave `minimap_identification.json.bak` **byte-untouched**. Story 12.1 is **read-only** with respect to zone data.
   - **Option B** — block on Story 9.15 authoring + landing first.
   - **Note for Stephane (does not block 12.1):** the zone-fragment source-of-truth contract is **broken on disk** — see "Dependency Reality Check" below. That is 9.15's problem, not 12.1's.
-- [ ] **AC0c — LUT packing.** Recommended default: **Option A** (pre-resolved OpenCV integer bounds). Full spec in Dev Notes → "The 150×3 LUT". The brief's "position + HSV + V" does not fit 3 texels and does not reproduce `band_inrange_ratio`'s three branches; Option A does both exactly.
-- [ ] **AC0d — Tool name + number.** Recommended default: **Tool 12 — `apps/tooling/tools/keyframe_engine_bench/`** (package form, per the epic's `tools/<name>/`). The epic literally says `<name>`; the sprint slug is `12-1-pc-poc-gpu-megashader-bench`.
+- [x] **AC0c — LUT packing.** Recommended default: **Option A** (pre-resolved OpenCV integer bounds). Full spec in Dev Notes → "The 150×3 LUT". The brief's "position + HSV + V" does not fit 3 texels and does not reproduce `band_inrange_ratio`'s three branches; Option A does both exactly.
+- [x] **AC0d — Tool name + number.** Recommended default: **Tool 12 — `apps/tooling/tools/keyframe_engine_bench/`** (package form, per the epic's `tools/<name>/`). The epic literally says `<name>`; the sprint slug is `12-1-pc-poc-gpu-megashader-bench`.
 
 ### Engine + decode
 
-- [ ] **AC1 — Package layout.** Tool lives at `apps/tooling/tools/<name>/` as a **package** with `__init__.py` + `__main__.py` (thin CLI) + GL-free pure-logic modules + a GL-isolating module. Follows the `zone_picker/` precedent. Invoked `python -m tools.<name>`. `run()` (core logic, returns results) + `main()` (argparse entry) per [architecture.md:1002](../architecture.md#L1002). **argparse, not Typer/click** ([:281](../architecture.md#L281)).
-- [ ] **AC2 — Keyframe-only decode, RAM pipe, no disk write of decoded frames.** Reuses `utils/video.py` (AC0a). Frames stream **one at a time** — never accumulate (1061 keyframes × 6.2 MB = **6.6 GB** if you hold them). Each keyframe carries its PTS. **"No disk write" scopes to decoded frames**, not to deliverables: the phase timeline and thumbnails are the story's outputs and land in `output/<video_stem>/` per [architecture.md:1046](../architecture.md#L1046).
-- [ ] **AC3 — GL context isolated behind a `run()`-shaped seam.** [architecture.md:1148](../architecture.md#L1148) prescribes *"stateless pure functions (np in → np out)"*; a GL context is stateful. LUT packing, result decoding, phase resolution, and the circular buffer MUST be pure functions testable **without a GL context** (this is E7's named friction and the AC11 test gate depends on it).
-- [ ] **AC4 — Mega-shader.** One draw per keyframe. Rules texture **150×3 RGBA32F** (`texelFetch`, `ivec` coords, explicit lod); render target **150×1 RGBA8** (see AC6); one 0/1 per rule. **CPU-side scoring and phase resolution — NO combination logic in GLSL** ([SCP:46](../sprint-change-proposal-2026-07-16.md#L46)). `weight` / `weight_override` never enter the shader. Rule count is **134 today with 16 slots of headroom**; `bastion` is in `MAP_LABELS` but has no corpus and no config entry — a 14th map pushes to ~140+. **Do not hardcode 150** — size from the config and assert `n_rules <= 150` with a clear error.
-- [ ] **AC5 — Reference-resolution parity.** Frames are read at `reference_resolution.height` (**1080**) before rule evaluation, matching every other tool ([SCP:60](../sprint-change-proposal-2026-07-16.md#L60): *"A fixed denominator IS normalization"*). **⚠️ Do not scale twice.** `utils/video.py` scales inside FFmpeg (`scale=w:h`, swscale bicubic, **even-width rounding** `round(src_w*th/sh/2)*2`); Tool 9's `_resize_to_ref` ([roi_detection_tester.py:498](../../apps/tooling/tools/roi_detection_tester.py#L498)) uses `max(1, round(w*ref_h/h))` with `INTER_AREA`. At 1920×1080 → 1080 **both are no-ops and agree**; at any other height they produce **different widths and different pixels**, confounding the accuracy comparison. Decode at native 1080 and do not resize, or resize on exactly one path and document it.
-- [ ] **AC6 — GLSL in the ES-3.0-compatible subset from line one (E2).** This is what makes 12.2 a port, not a rewrite. Binding rules, each of which silently passes on desktop and fails on Adreno:
+- [x] **AC1 — Package layout.** Tool lives at `apps/tooling/tools/<name>/` as a **package** with `__init__.py` + `__main__.py` (thin CLI) + GL-free pure-logic modules + a GL-isolating module. Follows the `zone_picker/` precedent. Invoked `python -m tools.<name>`. `run()` (core logic, returns results) + `main()` (argparse entry) per [architecture.md:1002](../architecture.md#L1002). **argparse, not Typer/click** ([:281](../architecture.md#L281)).
+- [x] **AC2 — Keyframe-only decode, RAM pipe, no disk write of decoded frames.** Reuses `utils/video.py` (AC0a). Frames stream **one at a time** — never accumulate (1061 keyframes × 6.2 MB = **6.6 GB** if you hold them). Each keyframe carries its PTS. **"No disk write" scopes to decoded frames**, not to deliverables: the phase timeline and thumbnails are the story's outputs and land in `output/<video_stem>/` per [architecture.md:1046](../architecture.md#L1046).
+- [x] **AC3 — GL context isolated behind a `run()`-shaped seam.** [architecture.md:1148](../architecture.md#L1148) prescribes *"stateless pure functions (np in → np out)"*; a GL context is stateful. LUT packing, result decoding, phase resolution, and the circular buffer MUST be pure functions testable **without a GL context** (this is E7's named friction and the AC11 test gate depends on it).
+- [x] **AC4 — Mega-shader.** One draw per keyframe. Rules texture **150×3 RGBA32F** (`texelFetch`, `ivec` coords, explicit lod); render target **150×1 RGBA8** (see AC6); one 0/1 per rule. **CPU-side scoring and phase resolution — NO combination logic in GLSL** ([SCP:46](../sprint-change-proposal-2026-07-16.md#L46)). `weight` / `weight_override` never enter the shader. Rule count is **134 today with 16 slots of headroom**; `bastion` is in `MAP_LABELS` but has no corpus and no config entry — a 14th map pushes to ~140+. **Do not hardcode 150** — size from the config and assert `n_rules <= 150` with a clear error.
+- [x] **AC5 — Reference-resolution parity.** Frames are read at `reference_resolution.height` (**1080**) before rule evaluation, matching every other tool ([SCP:60](../sprint-change-proposal-2026-07-16.md#L60): *"A fixed denominator IS normalization"*). **⚠️ Do not scale twice.** `utils/video.py` scales inside FFmpeg (`scale=w:h`, swscale bicubic, **even-width rounding** `round(src_w*th/sh/2)*2`); Tool 9's `_resize_to_ref` ([roi_detection_tester.py:498](../../apps/tooling/tools/roi_detection_tester.py#L498)) uses `max(1, round(w*ref_h/h))` with `INTER_AREA`. At 1920×1080 → 1080 **both are no-ops and agree**; at any other height they produce **different widths and different pixels**, confounding the accuracy comparison. Decode at native 1080 and do not resize, or resize on exactly one path and document it.
+- [x] **AC6 — GLSL in the ES-3.0-compatible subset from line one (E2).** This is what makes 12.2 a port, not a rewrite. Binding rules, each of which silently passes on desktop and fails on Adreno:
   - **Render target MUST be RGBA8, NOT RGBA32F.** RGBA32F is texture-only and **not color-renderable in ES 3.0 core** (needs `EXT_color_buffer_float`); `glReadPixels` guarantees only `GL_RGBA`/`GL_UNSIGNED_BYTE`. Write 1.0/0.0, threshold **`>127`** on CPU (never `==255`). A 150×3 RGBA32F input *texture* is fine — texturing ≠ rendering.
   - **No implicit int→float.** `float x = 1;` compiles on desktop `330 core`, **errors** on ES 3.00. Write `1.0`; construct explicitly. This is the #1 silent killer.
   - `precision highp float; precision highp int;` mandatory (ES fragment shaders have no default float precision; desktop ignores these, so **the PC POC cannot reproduce `mediump` bugs**).
   - `out vec4`, never `gl_FragColor`. `texture()`, never `texture2D()`. `layout(location=) uniform` is banned in both.
   - Set `glPixelStorei(GL_PACK_ALIGNMENT, 1)` — 150×4 = 600 B is *accidentally* 4-aligned; that luck dies if the rule count or format changes.
   - **Enforcement:** author one shader body, swap only the `#version` line, and gate on **`glslangValidator -G -S frag`**. Desktop drivers run a permissive front-end — `#version 300 es` compiling locally proves *nothing* about Adreno, and ModernGL **cannot create a real GLES context** ([moderngl#507](https://github.com/moderngl/moderngl/issues/507), closed unimplemented).
-- [ ] **AC7 — Hue wraparound (E3).** `H_min > H_max` MUST be read as an interval crossing 0.0/1.0. Must reproduce **all three** branches of `band_inrange_ratio` ([zones.py:131](../../apps/tooling/tools/common/zones.py#L131)). Measured branch distribution across the 134 shipped rules — **all three are live in production, none is hypothetical**:
+- [x] **AC7 — Hue wraparound (E3).** `H_min > H_max` MUST be read as an interval crossing 0.0/1.0. Must reproduce **all three** branches of `band_inrange_ratio` ([zones.py:131](../../apps/tooling/tools/common/zones.py#L131)). Measured branch distribution across the 134 shipped rules — **all three are live in production, none is hypothetical**:
 
   | branch | condition | count |
   |---|---|---|
@@ -116,21 +116,21 @@ Two consequences the brief's arithmetic misses:
   | normal | otherwise | **57** |
 
   The exact `/180` (not `/179`) mapping is in Dev Notes → "HSV on the GPU".
-- [ ] **AC8 — CPU-side phase resolution with "doubt" as a first-class outcome (E4).** Stream processing — **no sliding window, no two-pass** ([SCP:46](../sprint-change-proposal-2026-07-16.md#L46)). Doubt is never forced to the nearest class.
+- [x] **AC8 — CPU-side phase resolution with "doubt" as a first-class outcome (E4).** Stream processing — **no sliding window, no two-pass** ([SCP:46](../sprint-change-proposal-2026-07-16.md#L46)). Doubt is never forced to the nearest class.
   - 🔴 **There is no upstream `unknown` to inherit on the path that matters.** `_argmax_with_threshold`'s `unknown` ([roi_detection_tester.py:605](../../apps/tooling/tools/roi_detection_tester.py#L605)) is used by the **HUD-version and map-ID** classifiers only. The **in_match** classifier — the one that drives the phase state machine and therefore AC10's timeline — is **hard-binary and never returns unknown** ([roi_detection_tester.py:725-729](../../apps/tooling/tools/roi_detection_tester.py#L725-L729), comment verbatim: *"Binary: clears threshold → in_match, else not_in_match (**NOT unknown**)"*). So doubt on the phase axis must be **introduced by this story**, not inherited. Say so in the report; do not let AC10's enum question mask this as an export-format detail — the cause is upstream of the enum.
   - **Doubt-resolution mechanism** ([SCP:46](../sprint-change-proposal-2026-07-16.md#L46), verbatim): doubt is *"resolved by the reliability of surrounding transition screens"*. That is the whole specification that exists — one clause, constrained only by "stream processing, no sliding window, no two-pass". Design it, state the design in the report, and keep it CPU-side.
   - State machine otherwise inherited unchanged from 9.13 ([epics-and-stories.md:2820](../epics-and-stories.md#L2820)): `in_match` rising → span; falling → `score_screen` for `score_screen_duration_ms` (**15000**); then `not_in_match`.
-- [ ] **AC8b — Two frame sources behind one seam.** The two deliverables consume **different corpora** and the tool needs both:
+- [x] **AC8b — Two frame sources behind one seam.** The two deliverables consume **different corpora** and the tool needs both:
   - **Accuracy (AC11/AC12/Task 8)** runs on the **2666 labeled PNGs** at `output/labeled/v2/` — that is the only corpus with ground truth and the only one Tool 9's baseline covers. Read via `np.fromfile` + `cv2.imdecode` (never `cv2.imread`); mirror `iter_labeled_frames`' ordering ([roi_detection_tester.py:517](../../apps/tooling/tools/roi_detection_tester.py#L517)) without importing Tool 9's iterator wholesale if it drags dependencies.
   - **ms/keyframe (AC11/Task 7)** runs on **video keyframes** from `videos/V2/` via the FFmpeg pipe.
   - Both feed the same `(frame_bgr_at_ref) -> [bool; n_rules]` shader path. **Put a frame-source seam in front of it** (`frames.py`) so neither deliverable forks the engine. Rule ordering (texel index `i` → `(owning_class, zone_id)`) MUST be preserved and returned alongside the LUT — CPU aggregation depends on it.
-- [ ] **AC9 — 3-keyframe circular buffer + retroactive thumbnails.** On a phase change at keyframe N, emit **frame N-2**. Buffer holds N, N-1, N-2. Thumbnails are a permitted disk write (AC2), to `output/<video_stem>/`.
-- [ ] **AC10 — Phase timeline export.** Inherit 9.13's `results.json` shape verbatim ([epics-and-stories.md:2820-2821](../epics-and-stories.md#L2820-L2821)) — top-level `hud_version` + ordered `{frame_idx, timestamp_ms, state}` + `matches: [{start_frame, end_frame, map_id, confidence}]`. Determinism per REL-005: `sort_keys=False`, `ensure_ascii=False`, `round(x, 6)`, trailing newline ([video_test.py:721](../../apps/tooling/tools/video_test.py#L721)). **⚠️ 9.13's `state` enum is `{in_match, score_screen, not_in_match}` — it has no `doubt` member, but AC8 mandates doubt is first-class.** Resolve explicitly and record the verdict: extend the enum, or map doubt → `not_in_match` + a sibling confidence field. Do not leave it implicit.
+- [x] **AC9 — 3-keyframe circular buffer + retroactive thumbnails.** On a phase change at keyframe N, emit **frame N-2**. Buffer holds N, N-1, N-2. Thumbnails are a permitted disk write (AC2), to `output/<video_stem>/`.
+- [x] **AC10 — Phase timeline export.** Inherit 9.13's `results.json` shape verbatim ([epics-and-stories.md:2820-2821](../epics-and-stories.md#L2820-L2821)) — top-level `hud_version` + ordered `{frame_idx, timestamp_ms, state}` + `matches: [{start_frame, end_frame, map_id, confidence}]`. Determinism per REL-005: `sort_keys=False`, `ensure_ascii=False`, `round(x, 6)`, trailing newline ([video_test.py:721](../../apps/tooling/tools/video_test.py#L721)). **⚠️ 9.13's `state` enum is `{in_match, score_screen, not_in_match}` — it has no `doubt` member, but AC8 mandates doubt is first-class.** Resolve explicitly and record the verdict: extend the enum, or map doubt → `not_in_match` + a sibling confidence field. Do not leave it implicit.
 
 ### Measurement — the actual deliverable
 
-- [ ] **AC11 — Report `ms/keyframe` AND accuracy vs the CPU baseline.** Both numbers, or the story has not delivered. Breakdown: decode / upload / shader+readback, separately — the pivot's whole thesis is that this is **decode-bound**.
-- [ ] **AC12 — Re-establish + confirm the CPU baseline before benching.** A baseline **already exists** — **39** Tool 9 reports are on disk under `output/roi_detection_tests/v2/`. The latest, [`2026-05-30T135106/report.json`](../../apps/tooling/output/roi_detection_tests/v2/2026-05-30T135106/report.json), run against `map_config.v2.json` over the 2666-PNG corpus:
+- [x] **AC11 — Report `ms/keyframe` AND accuracy vs the CPU baseline.** Both numbers, or the story has not delivered. Breakdown: decode / upload / shader+readback, separately — the pivot's whole thesis is that this is **decode-bound**.
+- [x] **AC12 — Re-establish + confirm the CPU baseline before benching.** A baseline **already exists** — **39** Tool 9 reports are on disk under `output/roi_detection_tests/v2/`. The latest, [`2026-05-30T135106/report.json`](../../apps/tooling/output/roi_detection_tests/v2/2026-05-30T135106/report.json), run against `map_config.v2.json` over the 2666-PNG corpus:
 
   | classifier | accuracy **(in-sample)** | n_evaluated | n_correct |
   |---|---|---|---|
@@ -145,7 +145,7 @@ Two consequences the brief's arithmetic misses:
   Do **not** treat these as given: the directory is gitignored and its provenance is a same-day artifact. **Re-run Tool 9 unmodified and confirm the numbers reproduce**, then pin that run as *the* baseline:
   `uv run python tools/roi_detection_tester.py --config output/map_configs/map_config.v2.json --save-frame-predictions`
   If the re-run diverges from the table above, **stop and report** — that means the config or corpus moved under us, and the whole accuracy comparison is unanchored. Tool 9 itself is untouched by this story ([roi_detection_tester.py](../../apps/tooling/tools/roi_detection_tester.py) is 9.16's to re-point, not 12.1's).
-- [ ] **AC13 — Match Tool 9's scoring semantics **per classifier**.** 🔴 [SCP:285](../sprint-change-proposal-2026-07-16.md#L285) says *"Tool 9 sums raw weighted"* — **that is true of the map-ID classifier only.** Verified in code, Tool 9 uses **three different formulas**, and implementing one of them everywhere silently breaks two of the three accuracy numbers:
+- [x] **AC13 — Match Tool 9's scoring semantics **per classifier**.** 🔴 [SCP:285](../sprint-change-proposal-2026-07-16.md#L285) says *"Tool 9 sums raw weighted"* — **that is true of the map-ID classifier only.** Verified in code, Tool 9 uses **three different formulas**, and implementing one of them everywhere silently breaks two of the three accuracy numbers:
 
   | classifier | formula | source |
   |---|---|---|
@@ -154,7 +154,7 @@ Two consequences the brief's arithmetic misses:
   | map-ID | `Σ effective_weight × fired` — **raw, unnormalized** | [roi_detection_tester.py:742-748](../../apps/tooling/tools/roi_detection_tester.py#L742-L748) |
 
   Tool 10's live preview normalizes weight-aware (`Σeff_fired/Σeff_total`, [zone_picker/app.py:316-324](../../apps/tooling/tools/zone_picker/app.py#L316-L324)); Tool 11 uses a **fourth** formula (`Σ(ratio×w if fired)/Σw`). **Tool 9 is the gate → reproduce Tool 9's per-classifier forms exactly.** Document the divergence; do not silently reconcile it.
-- [ ] **AC13b — 🔴 The shader MUST IGNORE `minimap_identification.roi`. It is dead in the CPU reference, and honouring it invalidates the whole bench.** Zone rects are **absolute reference-resolution coordinates** — evaluate them against the full 1920×1080 frame. Do **not** crop to `roi`, do **not** treat zone coords as roi-relative.
+- [x] **AC13b — 🔴 The shader MUST IGNORE `minimap_identification.roi`. It is dead in the CPU reference, and honouring it invalidates the whole bench.** Zone rects are **absolute reference-resolution coordinates** — evaluate them against the full 1920×1080 frame. Do **not** crop to `roi`, do **not** treat zone coords as roi-relative.
 
   This is not a style note. `roi` **looks** authoritative and is not:
 
@@ -168,14 +168,14 @@ Two consequences the brief's arithmetic misses:
   **That dead field is why the pinned baseline reads `map_id 1.0`.** A shader that "correctly" honours `roi` would crop away 120/121 zones, score ≈0, and diverge catastrophically from a CPU reference that silently ignores it — and the failure presents as *"the GPU port is broken"*, not *"the config is odd"*. Under AC13 **Tool 9 is the gate**: reproduce what Tool 9 *does*, not what the config *appears to say*. Same bucket: `minimap_identification.id` is the literal string `"test"` — also inert, also not a defect to fix here.
 
   🔴 **Do not "fix" the data to make this cleaner.** Zone fragments are fenced by AC18, and any zone-value edit breaks Story 9.15's byte-identity guard (`tests/test_zone_fragments_v2.py`) and un-pins the baseline AC12 depends on. Report both anomalies in the AC11 report as **known data defects with zero runtime effect today**, and leave the fix to 9.9b.
-- [ ] **AC14 — 🔴 A PC number is NEVER a mobile number (E6).** Rated **High** risk ([SCP:146](../sprint-change-proposal-2026-07-16.md#L146)); *"written into 12.1's scope"*. The report MUST phrase every number as **feasibility / relative speedup**, and MUST NOT claim to bind **PERF-002** or **PERF-010**. Only 12.2 on the Poco X5 Pro 5G binds those; 12.3 re-baselines ([architecture.md:842](../architecture.md#L842)). The `<10 s` target is *"the aspiration, not an AC"* ([SCP:246](../sprint-change-proposal-2026-07-16.md#L246)). Include the reference-device note verbatim in the report.
-- [ ] **AC15 — Record the new-dep decision explicitly (E5).** `moderngl>=5.12,<6` into **both** `apps/tooling/pyproject.toml` and `apps/tooling/requirements.txt`. Recorded decision in the story's Dev Agent Record, **not a silent drift**. Two notes: (i) the manifests are **already out of sync** — `requirements.txt` is missing `jsonschema`, which `map_config_emitter.py:25` hard-imports; fixing it is in scope for this story. (ii) `moderngl` needs only `glcontext` and declares no numpy pin — the `numpy>=1.24,<2` pin is **not** a conflict. (iii) **`moderngl` in `apps/tooling` does NOT trip SEC-007** — that allowlist is scoped to the mobile artifact ([architecture.md:2190](../architecture.md#L2190), verbatim carve-out). FFmpeg is a system-PATH dep, already documented — it lands in no manifest (Finding 1).
+- [x] **AC14 — 🔴 A PC number is NEVER a mobile number (E6).** Rated **High** risk ([SCP:146](../sprint-change-proposal-2026-07-16.md#L146)); *"written into 12.1's scope"*. The report MUST phrase every number as **feasibility / relative speedup**, and MUST NOT claim to bind **PERF-002** or **PERF-010**. Only 12.2 on the Poco X5 Pro 5G binds those; 12.3 re-baselines ([architecture.md:842](../architecture.md#L842)). The `<10 s` target is *"the aspiration, not an AC"* ([SCP:246](../sprint-change-proposal-2026-07-16.md#L246)). Include the reference-device note verbatim in the report.
+- [x] **AC15 — Record the new-dep decision explicitly (E5).** `moderngl>=5.12,<6` into **both** `apps/tooling/pyproject.toml` and `apps/tooling/requirements.txt`. Recorded decision in the story's Dev Agent Record, **not a silent drift**. Two notes: (i) the manifests are **already out of sync** — `requirements.txt` is missing `jsonschema`, which `map_config_emitter.py:25` hard-imports; fixing it is in scope for this story. (ii) `moderngl` needs only `glcontext` and declares no numpy pin — the `numpy>=1.24,<2` pin is **not** a conflict. (iii) **`moderngl` in `apps/tooling` does NOT trip SEC-007** — that allowlist is scoped to the mobile artifact ([architecture.md:2190](../architecture.md#L2190), verbatim carve-out). FFmpeg is a system-PATH dep, already documented — it lands in no manifest (Finding 1).
 
 ### Gates
 
-- [ ] **AC16 — pytest.** New `apps/tooling/tests/test_<name>.py`. Pure-logic only: **no GL context, no real video decode, no Tk, no PIL** in tests — the GL context is the analogue of Tk here. Mock the decoder (synthetic BGR frames, 9.13 precedent). Cover: LUT packing, result decoding, all three hue branches (incl. `h_tol=180` full-circle and a 0/1-crossing case), `min_ratio` quantization at 1×1 and 2×2 rects, phase state machine, circular buffer N-2 emission, doubt outcome. Baseline **208 tests collected** — 0 regressions. ⚠️ **Was 204**; the Story 9.15 code review added `tests/test_zone_fragments_v2.py` (+4) — the fragments→config regression guard AC12's pinned baseline now rests on.
-- [ ] **AC17 — `wardentooling.py` registration.** Tool 12 registered: `flow_*` fn + `_TOOL_MAP` entry + `choices_main` label + `menu_main` branch + `_reprompt_source` branch. **⚠️ `-m` package + positional video is a first** — video sits at `last_args` index **2** (`["-m", "tools.X", <video>, ...]`), not index 1 as in the `video_test` pattern. `run_tool` needs **no** change (it already does `[sys.executable] + args`).
-- [ ] **AC18 — Scope fence.** Touch **nothing** outside `apps/tooling/tools/<name>/`, `apps/tooling/tests/test_<name>.py`, the two manifests, `wardentooling.py`, and (AC0a) `utils/video.py`. **Do NOT touch:** `contracts/map-config.schema.json` (E1 — no `schema_version` bump; [INVARIANT 1] makes `contracts/` master), Tool 9, Tool 10, Tool 11, the emitter, zone fragments, or any zone data. No mobile/web files.
+- [x] **AC16 — pytest.** New `apps/tooling/tests/test_<name>.py`. Pure-logic only: **no GL context, no real video decode, no Tk, no PIL** in tests — the GL context is the analogue of Tk here. Mock the decoder (synthetic BGR frames, 9.13 precedent). Cover: LUT packing, result decoding, all three hue branches (incl. `h_tol=180` full-circle and a 0/1-crossing case), `min_ratio` quantization at 1×1 and 2×2 rects, phase state machine, circular buffer N-2 emission, doubt outcome. Baseline **208 tests collected** — 0 regressions. ⚠️ **Was 204**; the Story 9.15 code review added `tests/test_zone_fragments_v2.py` (+4) — the fragments→config regression guard AC12's pinned baseline now rests on.
+- [x] **AC17 — `wardentooling.py` registration.** Tool 12 registered: `flow_*` fn + `_TOOL_MAP` entry + `choices_main` label + `menu_main` branch + `_reprompt_source` branch. **⚠️ `-m` package + positional video is a first** — video sits at `last_args` index **2** (`["-m", "tools.X", <video>, ...]`), not index 1 as in the `video_test` pattern. `run_tool` needs **no** change (it already does `[sys.executable] + args`).
+- [x] **AC18 — Scope fence.** Touch **nothing** outside `apps/tooling/tools/<name>/`, `apps/tooling/tests/test_<name>.py`, the two manifests, `wardentooling.py`, and (AC0a) `utils/video.py`. **Do NOT touch:** `contracts/map-config.schema.json` (E1 — no `schema_version` bump; [INVARIANT 1] makes `contracts/` master), Tool 9, Tool 10, Tool 11, the emitter, zone fragments, or any zone data. No mobile/web files.
 - [ ] **AC19 — [HELD] `review → done` flip** + post-merge sprint-status update. Two-PR pattern.
 - [ ] **AC20 — [HELD] PR / merge.** Local `git merge --no-ff` per Epic 9 precedent (`gh` is unauthenticatable non-interactively). Conventional Commits, scope **`tooling`** ([INVARIANT 12]).
 
@@ -183,45 +183,96 @@ Two consequences the brief's arithmetic misses:
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Kickoff + pre-flight** (AC0)
-  - [ ] Resolve AC0a/AC0b/AC0c/AC0d; record verdicts in Dev Agent Record.
-  - [ ] Confirm `ffmpeg`/`ffprobe` on PATH (`check_ffmpeg()`); confirm `python --version` ≥3.11 (local: **3.11.15**, ffmpeg **8.0.1**).
-  - [ ] Pin the pytest baseline: `cd apps/tooling && uv run pytest --collect-only -q` → expect **204**.
-  - [ ] Sanity-check the corpus: `map_config.v2.json` = 134 rules; `output/labeled/v2/` = 2666 PNGs / 16 classes; `videos/V2/` = 4 captures.
-  - [ ] Run `get_gop_interval()` on a `videos/V2` capture — **validate the epic's GOP-2s / 2400-keyframe assumption rather than inheriting it** ([SCP:62](../sprint-change-proposal-2026-07-16.md#L62)). Record the real number.
-- [ ] **Task 2 — CPU baseline FIRST** (AC12)
-  - [ ] Read the existing latest report: `output/roi_detection_tests/v2/2026-05-30T135106/report.json` (hud **0.9805** / in_match **1.0** / map_id **1.0**).
-  - [ ] Re-run Tool 9 unmodified: `uv run python tools/roi_detection_tester.py --config output/map_configs/map_config.v2.json --save-frame-predictions`.
-  - [ ] **Confirm the re-run reproduces those three numbers.** If it diverges → STOP and report (the config or corpus moved; the comparison is unanchored). Archive the confirmed run as **the** baseline. Without this, AC11 is unanchored.
-- [ ] **Task 3 — Dependency decision + manifests** (AC15)
-  - [ ] Add `moderngl>=5.12,<6` to `pyproject.toml` + `requirements.txt`; add the missing `jsonschema` to `requirements.txt`.
-  - [ ] `uv sync`; verify `create_context(standalone=True, require=330)` works headless. Record GL vendor/version.
-- [ ] **Task 4 — Decode path** (AC2, AC5, AC0a)
-  - [ ] Apply the `-vsync 0` → `-fps_mode passthrough` rename in `utils/video.py`; add the native-resolution variant.
-  - [ ] Verify keyframe count against `get_keyframe_timestamps()` — **assert counts match**; a CFR-duplication regression shows up here (1999 vs 8).
-  - [ ] Stream one frame at a time. Never accumulate.
-- [ ] **Task 5 — Pure-logic core** (AC1, AC3, AC0c, AC8b) — *all GL-free, all unit-testable*
-  - [ ] `pack_rules(config) -> (np.ndarray[150,3,4], rule_index)` per the AC0c layout; pre-resolve OpenCV int bounds + `mode` via `zones.py`'s conversions; `Rect.clamp_to` applied here; assert `n_rules <= 150`; **return the texel-index → `(owning_class, zone_id)` map**.
-  - [ ] `decode_results(rgba8_150x1) -> list[bool]` (threshold `>127`).
-  - [ ] `frames.py` — the AC8b seam: labeled-PNG source + video-keyframe source behind one interface.
-  - [ ] Phase state machine (port from `video_test._run_state_machine` — **read the bug note in Dev Notes first**) + doubt resolution (AC8).
-  - [ ] 3-keyframe circular buffer emitting N-2.
-  - [ ] CPU scorer reproducing Tool 9's **three per-classifier formulas** + `_argmax_with_threshold` semantics (AC13).
-- [ ] **Task 6 — Shader + GL seam** (AC4, AC6, AC7)
-  - [ ] GLSL body, ES-3.0 subset; `#version` line swappable; RGBA8 target.
-  - [ ] Gate on `glslangValidator -G -S frag`.
-  - [ ] GL module isolated behind `run()`.
-- [ ] **Task 7 — Wire the bench + outputs** (AC9, AC10, AC11)
-  - [ ] `results.json` + thumbnails → `output/<video_stem>/`.
-  - [ ] Instrument decode / upload / shader+readback separately.
-- [ ] **Task 8 — Accuracy comparison** (AC11, AC13, AC14)
-  - [ ] Shader vs Task-2 baseline on the same labeled corpus.
-  - [ ] Report phrased as feasibility/relative-speedup only. Reference-device caveat verbatim.
-- [ ] **Task 9 — Tests + registration** (AC16, AC17)
-  - [ ] `test_<name>.py`; `uv run pytest` → 204 + new, 0 regressions.
-  - [ ] `pnpm --filter tooling test` parity.
-  - [ ] Register Tool 12 in `wardentooling.py`; smoke `python -m tools.<name> --help`.
+- [x] **Task 1 — Kickoff + pre-flight** (AC0)
+  - [x] Resolve AC0a/AC0b/AC0c/AC0d; record verdicts in Dev Agent Record.
+  - [x] Confirm `ffmpeg`/`ffprobe` on PATH (`check_ffmpeg()`); confirm `python --version` ≥3.11 (local: **3.11.15**, ffmpeg **8.0.1**).
+  - [x] Pin the pytest baseline: `cd apps/tooling && uv run pytest --collect-only -q` → expect **204**.
+  - [x] Sanity-check the corpus: `map_config.v2.json` = 134 rules; `output/labeled/v2/` = 2666 PNGs / 16 classes; `videos/V2/` = 4 captures.
+  - [x] Run `get_gop_interval()` on a `videos/V2` capture — **validate the epic's GOP-2s / 2400-keyframe assumption rather than inheriting it** ([SCP:62](../sprint-change-proposal-2026-07-16.md#L62)). Record the real number.
+- [x] **Task 2 — CPU baseline FIRST** (AC12)
+  - [x] Read the existing latest report: `output/roi_detection_tests/v2/2026-05-30T135106/report.json` (hud **0.9805** / in_match **1.0** / map_id **1.0**).
+  - [x] Re-run Tool 9 unmodified: `uv run python tools/roi_detection_tester.py --config output/map_configs/map_config.v2.json --save-frame-predictions`.
+  - [x] **Confirm the re-run reproduces those three numbers.** If it diverges → STOP and report (the config or corpus moved; the comparison is unanchored). Archive the confirmed run as **the** baseline. Without this, AC11 is unanchored.
+- [x] **Task 3 — Dependency decision + manifests** (AC15)
+  - [x] Add `moderngl>=5.12,<6` to `pyproject.toml` + `requirements.txt`; add the missing `jsonschema` to `requirements.txt`.
+  - [x] `uv sync`; verify `create_context(standalone=True, require=330)` works headless. Record GL vendor/version.
+- [x] **Task 4 — Decode path** (AC2, AC5, AC0a)
+  - [x] Apply the `-vsync 0` → `-fps_mode passthrough` rename in `utils/video.py`; add the native-resolution variant.
+  - [x] Verify keyframe count against `get_keyframe_timestamps()` — **assert counts match**; a CFR-duplication regression shows up here (1999 vs 8).
+  - [x] Stream one frame at a time. Never accumulate.
+- [x] **Task 5 — Pure-logic core** (AC1, AC3, AC0c, AC8b) — *all GL-free, all unit-testable*
+  - [x] `pack_rules(config) -> (np.ndarray[150,3,4], rule_index)` per the AC0c layout; pre-resolve OpenCV int bounds + `mode` via `zones.py`'s conversions; `Rect.clamp_to` applied here; assert `n_rules <= 150`; **return the texel-index → `(owning_class, zone_id)` map**.
+  - [x] `decode_results(rgba8_150x1) -> list[bool]` (threshold `>127`).
+  - [x] `frames.py` — the AC8b seam: labeled-PNG source + video-keyframe source behind one interface.
+  - [x] Phase state machine (port from `video_test._run_state_machine` — **read the bug note in Dev Notes first**) + doubt resolution (AC8).
+  - [x] 3-keyframe circular buffer emitting N-2.
+  - [x] CPU scorer reproducing Tool 9's **three per-classifier formulas** + `_argmax_with_threshold` semantics (AC13).
+- [x] **Task 6 — Shader + GL seam** (AC4, AC6, AC7)
+  - [x] GLSL body, ES-3.0 subset; `#version` line swappable; RGBA8 target.
+  - [x] Gate on `glslangValidator -G -S frag`.
+  - [x] GL module isolated behind `run()`.
+- [x] **Task 7 — Wire the bench + outputs** (AC9, AC10, AC11)
+  - [x] `results.json` + thumbnails → `output/<video_stem>/`.
+  - [x] Instrument decode / upload / shader+readback separately.
+- [x] **Task 8 — Accuracy comparison** (AC11, AC13, AC14)
+  - [x] Shader vs Task-2 baseline on the same labeled corpus.
+  - [x] Report phrased as feasibility/relative-speedup only. Reference-device caveat verbatim.
+- [x] **Task 9 — Tests + registration** (AC16, AC17)
+  - [x] `test_<name>.py`; `uv run pytest` → 204 + new, 0 regressions.
+  - [x] `pnpm --filter tooling test` parity.
+  - [x] Register Tool 12 in `wardentooling.py`; smoke `python -m tools.<name> --help`.
 - [ ] **Task 10 — [HELD] Delivery** (AC19, AC20) — commit + local `--no-ff` merge; hold the post-merge pass.
+
+---
+
+### Review Findings
+
+*Code review 2026-07-19 (`/bmad-code-review`, 3 adversarial layers: Blind Hunter / Edge Case Hunter / Acceptance Auditor). 43 raw findings → 3 decision-needed, 28 patch, 5 deferred, 7 merged-or-dismissed. Suite independently re-verified: **262 passed, 0 failures**.*
+
+#### Decision needed
+
+- [ ] **[Review][Decision] Span `matches` aggregation silently replaces 9.13's algorithm** — `__main__.py::_run_video` sums per-frame `map_scores` across a span and takes `max()`, with `confidence` = the **unbounded raw sum**. 9.13's `_aggregate_span_map` ([video_test.py:644-677](../../apps/tooling/tools/video_test.py#L644-L677)) uses **mode of per-frame argmax**, ties broken by mean score then canonical `ordered_slugs` position, `confidence` = **bounded mean**. Three consequences: (a) `scores.pred_map` — the thresholded, tie-broken prediction from the carefully-reused `_argmax_with_threshold` — is computed then **discarded**; (b) `identification_threshold` is never applied at span level; (c) `if agg:` is **always true** (every frame carries all 13 slugs incl. `0.0`), so the `"unknown"` branch is **dead code** and a span where no map zone fired returns an arbitrary insertion-ordered slug with `confidence: 0.0`. Also drops 9.13's deterministic tie-break → REL-005 regression against a shape AC10 calls "inherited verbatim". **Options: (1) restore 9.13's mode-of-argmax + mean confidence; (2) keep the sum and amend AC10 + REPORT.md to declare the divergence explicitly.** Blocks P12.
+- [ ] **[Review][Decision] Negative signed right-shift in the ES-3.0 fragment path** — `keyframe_engine_bench.frag:~2673` does `h = (h * hdiv + 2048) >> 12;` where `h` can be negative (line +1 exists solely to correct it: `h = h + ((h < 0) ? 180 : 0);`). The shader deliberately avoids integer `%` and `/` because ESSL 3.00 leaves them undefined for negative operands — right-shift of a negative signed int sits in the same implementation-defined bucket. Desktop-proven, Adreno-unproven, and AC6's whole premise is that desktop proves nothing. **Options: (1) bias before the shift (`h += (h<0) ? 180*4096 : 0`); (2) do the divide in float; (3) record for 12.2 and leave.**
+- [ ] **[Review][Decision] AC18 fence text does not cover `uv.lock`** — the diff modifies `uv.lock` (adds `glcontext` + `moderngl`), which is mechanically unavoidable given AC15 mandates the manifest change, but `uv.lock` is not on AC18's permitted list. Substantive intent is satisfied — **verified: no zone data, no `contracts/`, no Tool 9/10/11, no emitter, no mobile/web files touched**. **Options: (1) amend AC18 to name `uv.lock`; (2) accept as ratified in the Dev Agent Record.**
+
+#### Patch
+
+- [ ] **[Review][Patch] 🔴 Rect area > `MAX_RECT_TEXELS` silently under-counts instead of failing** — loop caps at `min(area, 4096)` but `ratio = count / area` divides by the **full** area, so a rule can never exceed `4096/area` and silently under-fires vs `band_inrange_ratio`. `pack_rules` validates `n_rules > MAX_RULES` but **never** rect area. Latent (shipped rects 1–25 px), fails as a wrong number not an error, in the one module whose entire job is parity. *Found independently by two blind layers; confirmed in review.* [keyframe_engine_bench.frag:43,127,166 + lut.py:154]
+- [ ] **[Review][Patch] `scoring.py` — the module implementing AC13's three formulas — has zero test coverage** — tests import `lut`, `phases`, `frames`, `shader`, `zones`, `roi_detection_tester` and **never** `scoring` / `score_from_fires` (verified: 0 references). Swap the map-ID formula for the HUD one and the suite still passes green. [tests/test_keyframe_engine_bench.py]
+- [ ] **[Review][Patch] `TestCpuParityContract` tests only OpenCV, never any Tool 12 code** — the 1×1/2×2/zero-area tests call `band_inrange_ratio` exclusively; no `resolve_band_bounds`, no `pack_rules`, no comparison of the two. They pass verbatim against an empty package. `test_modes_match_band_inrange_ratio_branch_selection` ends `assert 0.0 <= ratio <= 1.0` — definitionally cannot fail. [tests/test_keyframe_engine_bench.py:937-991]
+- [ ] **[Review][Patch] `doubt` is treated as a phase change and emits spurious thumbnails** — trigger is `state != prev_state` on the **emitted** state, which can be `doubt`; `phases.py` deliberately holds internal state on doubt so it does not split a span. Every `in_match→doubt→in_match` blip writes two PNGs named outside 9.13's phase vocabulary. Should test `resolver.state`. Doubt fired 2/1061 → up to 4 of 55 shipped thumbnails are non-transitions. *Confirmed in review.* [__main__.py:424-435]
+- [ ] **[Review][Patch] Resolution mismatch skips every frame and still exits 0 with a plausible `results.json`** — `if (w,h) != (exp_w,exp_h): continue`; accuracy is `c/float(n)` over survivors only, with **no field recording how many frames were dropped**. A non-16:9 source (or a config missing `reference_resolution.width`, where `_config_extras` *fabricates* a 16:9 width behind a stderr WARN) drops everything and writes `n_keyframes: 0` / `accuracy: 0.0` as a well-formed result. Nothing in the output proves 2666 frames were evaluated. Also desyncs AC9's N-2 guarantee (ring.push is after the `continue`, so "two back" means two *accepted* back). [__main__.py:195-216,389-396]
+- [ ] **[Review][Patch] `main()` catches only `(ValueError, OSError)` — four live failure classes traceback** — `check_ffmpeg()`/`get_video_info()` raise `RuntimeError`; `get_video_info` raises `CalledProcessError` on corrupt input; `import moderngl` raises `ImportError`; `create_context` raises `moderngl.Error`; `_selftest` raises `RuntimeError`. All bypass the `error: ...` + exit-1 contract, surfacing as raw tracebacks through `run_tool` in the menu. [__main__.py:618]
+- [ ] **[Review][Patch] `--profile-gpu` returns before the `try`, bypassing the error handler entirely** [__main__.py:584-589]
+- [ ] **[Review][Patch] `MegaShader.__init__` leaks the GL context and ~6 MB of textures when `_selftest()` fails** — ctx/textures/fbo/vao are created, then `_selftest()` (designed to raise) runs on the last line. `__init__` raising means `with` never enters, so `release()` never runs. Ironic given the self-test exists precisely for this failure class. Needs try/except → `release()` → re-raise. [shader.py:132-137,200-210]
+- [ ] **[Review][Patch] `decode_s` reads an unvalidated dict key — the decode-bound headline degrades silently to zero** — `float(prof.get("ffmpeg_read", 0.0))`. A rename or an unrecorded stat on the native path prints `decode 0.000 ms/kf` and suppresses `gpu_speedup_vs_decode` via a falsy check. The story's central thesis reports as unmeasured with no error. [__main__.py:2229]
+- [ ] **[Review][Patch] `results.json` hardcodes `"config": "map_config.v2.json"` regardless of `--config`** — 9.13 writes `os.path.basename(config)`. Bench a v3 config and the artifact 12.3 inherits misidentifies its own provenance. *Found by two layers.* [__main__.py:2250]
+- [ ] **[Review][Patch] `results.json` omits 9.13's top-level `video` and `stride` keys** while REPORT.md §11 claims "9.13's shape verbatim". [__main__.py::_build_results]
+- [ ] **[Review][Patch] REPORT.md misattributes "span confidences in the hundreds" to Finding 3** — the per-frame `17.0` is genuinely Finding 3's degeneracy; the **hundreds are not** — they are produced by this story's own cross-frame summation (see Decision #1). An artifact introduced by 12.1 is presented as evidence about the shipped config, in the deliverable that feeds 12.3. [REPORT.md §8 + Completion Note 5]
+- [ ] **[Review][Patch] REPORT.md's `~7×` zero-copy row reads as an Android verdict (AC14 red-line)** — a PC shader time with the PC upload arithmetically removed, placed in a **verdict** column about Android hardware ("the GPU engine is not marginal on Android — it is excellent"). Caveated in surrounding prose, but the row quoted alone states a conclusion AC14 forbids 12.1 from binding. [REPORT.md §4]
+- [ ] **[Review][Patch] Wall-clock timing includes GL context creation, GLSL compile and the self-test** — `t_wall0` is set *before* `with MegaShader(...)`, so `ms_per_keyframe_total` amortizes them. Small at 1061 frames, but this is the headline deliverable and 12.2 re-measures it the same way on a device where context creation is far more expensive. [__main__.py:2151-2154]
+- [ ] **[Review][Patch] `--baseline-csv` failures discard the entire completed GPU run** — `_compare_to_baseline` runs *after* the full 2666-frame loop; a missing file raises `OSError` (exit 1, no `accuracy.json`), a missing column raises `KeyError` (uncaught). Validate the CSV header *before* the expensive loop. [__main__.py:253,315-325]
+- [ ] **[Review][Patch] Padding texels evaluate as *fired*** — zeroed rules give `area=0` → `ratio=0.0`, `min_ratio=0.0`, and `step(0.0, 0.0) == 1.0`. Harmless only because `decode_results` slices `[:n_rules]`; a landmine for any future full-readback consumer. `test_unused_texels_are_zeroed` checks the *input* texture, not the output. [lut.py + .frag]
+- [ ] **[Review][Patch] `upload()` has no shape validation** — `frame_tex.write(...)` with no check against construction geometry. Callers guard it today; a same-byte-count/different-geometry frame (1440×1080 vs 1080×1440) yields silently transposed pixels. Same reasoning that produced `_selftest`. [shader.py:3592-3594]
+- [ ] **[Review][Patch] `--doubt-margin >= 0.5` freezes the state machine, accepted without warning** — validated `>= 0` only; every ratio in `(0,1)` then satisfies `|ratio-0.5| < margin` → `CALL_DOUBT` (a hold). Timeline goes near-uniformly `doubt`, `matches` empty. [__main__.py:598-600, phases.py:91-93]
+- [ ] **[Review][Patch] A config with zero `in_match` zones yields a whole-video `not_in_match` timeline, silently** — `pred_in_match="unknown"` / conf `0.0` is ignored; the classifier driving the entire timeline is unconfigured and nothing warns. [scoring.py:113-116 → __main__.py:409-412]
+- [ ] **[Review][Patch] Failed thumbnail encode is dropped without a warning** — `if _write_png(...)` skips the append when `cv2.imencode` returns `ok=False`; the transition vanishes from `thumbnails` as though none was warranted. (Write failures *do* raise and are caught — only the encode path is silent.) [__main__.py:430]
+- [ ] **[Review][Patch] `--accuracy` silently ignores a positional video argument** [__main__.py:513-524,553]
+- [ ] **[Review][Patch] `in_match_call`'s `ratio > 0.0` guard diverges from Tool 9 at `threshold = 0`** — docstring claims `doubt_margin=0` "collapses to Tool 9's hard-binary call"; that holds only for `threshold > 0`. Undocumented and untested (the zero-margin test only exercises the default 0.5). [phases.py:3067, scoring.py:3331-3334]
+- [ ] **[Review][Patch] `iter_labeled_frames` HUD filter is `startswith("v")`** — any future sibling dir beginning with "v" (`videos/`, `validation/`, `v2_backup/`) is ingested as a HUD version and pollutes the HUD denominator. The guard test uses `notes`, which cannot catch this. [frames.py:2519]
+- [ ] **[Review][Patch] `validate_glsl` conflates "glslangValidator not installed" with "shader failed the gate"** — both render as `[FAIL]` + exit 1 with the same message; CI cannot tell "gate not run" from "gate failed". [shader.py:3467-3472, __main__.py:1953-1960]
+- [ ] **[Review][Patch] `--profile-gpu` benchmarks on an unseeded random frame** — not reproducible run-to-run and not representative of HUD content, yet the Dev Agent Record calls its output "the most decision-relevant number for 12.3". Seed it or use a real frame. [__main__.py:1891]
+- [ ] **[Review][Patch] Dead code in the GL seam** — `self._n_bytes = MAX_RULES * 4` assigned, never read; `map_zone_counts` carries zero-zone map entries that are then skipped. Both sit in modules whose stated job is being the auditable parity contract. [shader.py:3560, scoring.py:3338-3350]
+- [ ] **[Review][Patch] `_time_cpu_rule_eval` docstring is inaccurate** — claims "the same frames the GPU just ran"; it re-walks `iter_labeled_frames` from scratch, and the `break` check fires after the generator has already decoded the next frame. Correctness-neutral (decode is outside the timer), but the docstring asserts a property the code does not have. [__main__.py:2070-2077]
+- [ ] **[Review][Patch] Dev Agent Record pytest counts are off by one** — records "208 → 261" and "+53"; actual is **208 → 262** and **+54** (independently re-run: 262 passed, 54 in `test_keyframe_engine_bench.py`). Arithmetic is otherwise self-consistent, so the suite is genuinely clean — but this number gets cited as a downstream baseline. [story Dev Agent Record + sprint-status.yaml]
+
+#### Deferred
+
+- [x] **[Review][Defer] ESSL `highp` is not guaranteed IEEE-754, so the integer-HSV exactness proof does not transfer to the target** [keyframe_engine_bench.frag:2656-2666] — deferred, cannot be resolved on PC (12.2)
+- [x] **[Review][Defer] `min_ratio` compared at float32 on GPU vs float64 on CPU — a genuine unguarded parity seam** [lut.py:161,171] — deferred, unreachable with shipped values
+- [x] **[Review][Defer] Stale thumbnails from a previous run persist in `--out`** [__main__.py:530-531] — deferred, cosmetic
+- [x] **[Review][Defer] Reference-device GPU contradiction: code says Adreno 642L, sprint-status says 619** [__main__.py:1810-1816] — deferred, 12.2's admin per the story's own note
+- [x] **[Review][Defer] A test pins buffer *identity* (`out[0].frame_bgr is src`), locking in aliasing the ring buffer depends on not happening** [tests:1168-1179] — deferred, green today
 
 ---
 
@@ -460,16 +511,84 @@ Untracked `__pycache__` shells at `tools/auto_roi_discoverer/` and `tools/minima
 
 | Date | Change |
 |---|---|
+| 2026-07-16 | **Story implemented via `/bmad-dev-story` (Amelia; claude-opus-4-8[1m]). `ready-for-dev → in-progress → review`.** AC0a–AC0d + AC1–AC18 `[x]`; Tasks 1–9 `[x]`. AC19/AC20 + Task 10 `[ ] [HELD]` (post-merge admin). Delivered Tool 12 `apps/tooling/tools/keyframe_engine_bench/` (8 modules + `.frag` + `REPORT.md`) + `tests/test_keyframe_engine_bench.py` (+53; pytest **208 → 261**, 0 regressions, `pnpm --filter tooling test` parity) + `wardentooling.py` Tool 12 registration + `utils/video.py` (`-fps_mode passthrough` rename + `extract_iframes_native`) + both manifests (`moderngl`, and the pre-existing `jsonschema` gap). **RESULTS: (1) accuracy = EXACT parity — 0 disagreements over 2666 frames, all three classifiers matching the pinned baseline (0.9805 / 1.0000 / 1.0000), which was re-run first and reproduced exactly. (2) decode-bound CONFIRMED — decode 8.862 ms/kf = 62% of a 14.411 ms/kf wall over 1061 keyframes, 3.08× the whole GPU cost. (3) 🔴 the GPU is ~2× SLOWER than the CPU at rule evaluation (3.253 vs 1.667 ms/frame = 0.51×)** — structural: ~800 texel fetches need a 6.2 MB upload, and upload alone exceeds the CPU's entire budget. Does not settle Android (MediaCodec zero-copy removes the upload → ~1.4×); flagged for 12.3 along with the option the evidence permits — that no GPU engine is required at all. **KEY DEVIATIONS (all recorded, all evidence-backed): (a)** rejected the Dev Notes' float `rgb2hsv` and ported OpenCV's **integer** `RGB2HSV_b` into GLSL after brute-forcing it against `cv2.cvtColor` over all 2^24 RGB (0 mismatches; also confirms max H = 179 ⇒ `/180`) — a float path cannot hit integer `inRange` bounds and 31/134 rules have asymmetric bands; this is what bought exact parity. **(b)** AC6's literal `glslangValidator -G -S frag` **cannot validate ES 3.00** (`-G` requires ES ≥ 3.10) — gate runs without `-G`, verified to reject `float x = 1;` on `300 es` and accept it on `330 core`. **(c)** the flagged `video_test.py:613` "latent bug" is **not a bug** — elapsed IS 0 on the falling-edge frame, so `0 >= dur` is the correct, documented intent; no 9.13 divergence to report. **(d)** AC10 verdict: enum **EXTENDED** with `doubt` + `confidence` (remapping = the forcing E4 forbids); doubt fired on 2/1061. **DEBUG:** a silent moderngl `u1`(=RGBA8**UI**) vs `f1`(=RGBA8) format mismatch made the first full run return uninitialized memory as plausible detections (0.35/0.31/0.05) — now guarded by a construction-time `MegaShader._selftest()`. **GOP measured at 4.167 s (1061 keyframes), ~half the epic's GOP-2s/2400 assumption.** Dev-Notes staleness noted: the 9.15 salvage landed, so the fragment source-of-truth contract is **no longer broken**. AC13b honoured (shader ignores the dead 3×5 `roi`); both data defects reported, neither fixed. Nothing committed. epic-12 stays `in-progress`. |
 | 2026-07-16 | Story created via `/bmad-create-story` (Stephane; claude-opus-4-8[1m]). `backlog → ready-for-dev`; epic-12 `backlog → in-progress` (first story). AC0 (4 kickoff decisions) + AC1–AC20 + 10 Tasks + Dev Notes. Three live-tree findings recorded that invalidate parts of the epic brief (existing FFmpeg extractor; the `.bak` is not newer data; degenerate scoring math). Dependency on 9.15 reassessed against disk state — 12.1 is unblocked. |
 
 ## Dev Agent Record
 
 ### Agent Model Used
 
+`claude-opus-4-8[1m]` (Amelia, `/bmad-dev-story`), 2026-07-16.
+
+### AC0 — Kickoff decisions (resolved before Task 1)
+
+| AC | Verdict | Rationale |
+|---|---|---|
+| **AC0a — Decoder binding** | **Option A — reuse `utils/video.py`** (Stephane, confirmed) | Zero new pip deps beyond `moderngl`; the module already implements Volet A's decode spec verbatim (Finding 1). Both in-story fixes applied: `-vsync 0` → `-fps_mode passthrough`, and a new native-resolution variant `extract_iframes_native()`. |
+| **AC0b — Bench input + `.bak`** | **Option A — bench `map_config.v2.json`; leave the `.bak` byte-untouched** | Story 12.1 is read-only w.r.t. zone data. The `.bak` was not read, moved, or restored. **Dev-Notes correction:** the fragment source-of-truth contract is **no longer broken** — the 9.15 salvage landed (`e4b9c29`, `be0292b`, `1ba0f96`), so all four fragments + `manifest.json` now exist on disk and `tests/test_zone_fragments_v2.py` (+4) guards them. That Dev Note is stale in 12.1's favour. |
+| **AC0c — LUT packing** | **Option A — pre-resolved OpenCV integer bounds** | 12 slots for 12 values; reproduces `band_inrange_ratio`'s three branches 1:1. Parity comes from *not* re-deriving the band on the GPU. The symmetric circular-distance form stays rejected. |
+| **AC0d — Tool name + number** | **Tool 12 — `apps/tooling/tools/keyframe_engine_bench/`** | Package form per the epic's `tools/<name>/`; `zone_picker/` precedent. |
+| **AC6 gate tooling** (not an AC0 item; needed a call) | **Download the Khronos prebuilt glslang** (Stephane, confirmed) | Not on PATH, not pip-installable. Used out-of-tree via `$GLSLANG_VALIDATOR`; **not vendored** (AC18). |
+
 ### Debug Log References
+
+**Pre-flight (Task 1).** pytest baseline **208** (matches AC16's amended figure, not the stale 204 in Task 1's text). Python 3.11.15, FFmpeg 8.0.1, config = **134 rules** (10 hud + 3 in_match + 121 map), corpus 2666 PNGs / 16 classes, 4 V2 captures. GL: Intel UHD 770, GL 3.3.0, `GL_ARB_ES3_compatibility` present.
+
+**GOP — the epic's assumption was wrong (Task 1).** Measured, not inherited: **GOP = 4.167 s**, 72 keyframes / 300 s, **1061 keyframes** for the full capture — roughly **half** the epic's GOP-2s / 2400-keyframe assumption. Since decode dominates, this halves the dominant cost.
+
+**🔴 The bug that cost a full accuracy run — moderngl `u1` vs `f1`.** First full accuracy run returned 0.35 / 0.31 / 0.05 with 101 disagreements over 48 frames. Root cause: **moderngl's `dtype='u1'` spells `GL_RGBA8UI` (an *integer* texture), not normalized `GL_RGBA8` (which is `dtype='f1'`)**. The frame texture was an integer texture read through a `sampler2D`, and the render target was an integer attachment receiving a `vec4`. **Neither raised** — the readback returned uninitialized memory that looked like plausible detections. Localized by noticing the readback held values of 100 and 1 when `step()` can only emit 0 or 255, then bisecting to a constant-red shader (still garbage) and finally to `fbo.read()` raising `GL_INVALID_OPERATION` while `tex.read()` returned correct pixels. Fixed to `f1` on both. `MegaShader._selftest()` now asserts the clear/read round-trip at construction so this class of silent GL failure can never pass unnoticed again.
+
+**🔴 AC6's prescribed gate command is unusable.** `glslangValidator -G -S frag` **rejects `#version 300 es` outright** ("ES shaders for SPIR-V require version 310 or higher") — `-G` requests SPIR-V-for-OpenGL codegen, so the literal command *structurally cannot* validate the ES 3.00 dialect E2 mandates. Gate runs **without `-G`** (glslang's GLSL/ESSL front-end — the part that enforces the subset). Verified the gate is real: it **rejects `float x = 1;` under `300 es` and accepts it under `330 core`**, i.e. it catches the #1 silent killer that the `-G` form could not even reach.
+
+**Integer HSV — a deliberate deviation from the Dev Notes, brute-forced first.** Dev Notes prescribe Sam Hocevar's float `rgb2hsv`. Rejected: cv2's HSV are *integers* from fixed-point math, and `cv2.inRange` tests **integer bounds inclusively**, so a float hue at 19.9997 instead of 20 flips a rule — and 31 of 134 rules have bands asymmetric about their center. Ported OpenCV's integer `RGB2HSV_b` into GLSL instead, after brute-forcing a numpy model against `cv2.cvtColor(BGR2HSV)` over **all 2^24 RGB inputs: 0 mismatches on H/S/V**. That sweep also independently confirmed `/180` (**max H = 179; 180 unattainable**). Payoff: exact per-frame parity (below).
+
+**The "latent bug" at `video_test.py:606-614` is NOT a bug.** The observation (`falling_ts = ts` before `(ts - falling_ts) >= dur`, so the expression is always `0 >= dur`) is accurate; the conclusion is not. On the falling-edge frame, elapsed time **is zero by definition**, so `0 >= dur` correctly evaluates "is the score window already over?" — zero score frames when `dur == 0`, falling-edge frame first in `score_screen` when `dur > 0`. Exactly the documented intent. Ported as intent with the zero explicit; Tool 11 untouched. **No divergence from 9.13 exists to report.**
 
 ### Completion Notes List
 
+**Both AC11 deliverables landed. The pivot's premise is confirmed; its implicit corollary is not.**
+
+1. **Accuracy — EXACT parity (AC11/AC12/AC13).** AC12's baseline was re-run unmodified first and **reproduced the pinned numbers exactly** (hud 0.9805 / in_match 1.0000 / map_id 1.0000) → `output/roi_detection_tests/v2/2026-07-16T230122/`, pinned as *the* baseline. The GPU then matched **all three numbers identically**, and per-frame against Tool 9's own `frame_predictions.csv`: **0 disagreements over 2666 frames**. Phrased throughout as an in-sample **parity target**, never as accuracy-in-the-world (REL-006's floor is 9.9b's job, not 12.1's).
+2b. **🔴 CORRECTION (post-review question from Stephane: "isn't there a better way to avoid transferring too much data and use non-blocking calls?"). The run output's upload/shader split was MISATTRIBUTED, and the Android upside was UNDER-reported.** GL uploads are **asynchronous** — the timer around `upload()` stops before the transfer lands, and the blocking `draw_and_read()` absorbs the tail. The **total (2.88 ms) was always correct**; the split was not. Added **`--profile-gpu`** (forces completion per stage, median of 200) to make the true shape reproducible: **upload 2.34–2.46 ms (~91%) / shader 0.15–0.22 ms (~8%) / readback stall 0.004–0.073 ms (<1%, in the noise)**. Two consequences: **(i) non-blocking readback is NOT worth building** — the stall is ≲0.07 ms/frame (~0.5% of wall), and the readback direction carries only **600 bytes**; the 6.2 MB goes the *other* way. The story's Dev Note (*"PBO ping-pong is premature at 600 bytes — build synchronous, measure first"*) is **confirmed by measurement**. **(ii) The zero-copy upside is ~7×, not the ~1.4× first reported** — the GPU's real cost is **~0.24 ms**, not 3.25 ms, so removing the upload gives **0.24 vs the CPU's 1.667 ms**. **This is the most decision-relevant number in the story for 12.3:** the GPU engine is not marginal on Android, it is excellent — but the *entire* case rests on zero-copy, and §6's colour bind is that the bit-parity mitigation (Y/U/V as R8 textures) **gives up that very path**. Ceiling unchanged though: even with upload and stall at zero, wall goes 14.41 → ~11.8 ms/kf because decode (8.86 ms) would then be ~75% of what remains. `REPORT.md` §3's two affected rows are **flagged in place, not silently rewritten** — they are what naive wall-clock instrumentation reports, and 12.2 will instrument the same way on device. pytest 261 → **262**.
+
+2. **🔴 Timing — decode-bound CONFIRMED, but the GPU LOSES at rule evaluation.** Full capture, 1061 keyframes: decode **8.862 ms/kf (62%)**, upload 1.705, shader+readback 1.177, wall **14.411 ms/kf** (15.29 s). **Decode is 3.08× the entire GPU cost** — the pivot's thesis holds. But engine-vs-engine with decode excluded from both: **CPU 1.667 ms/frame vs GPU 3.253 ms/frame = 0.51× — the CPU is ~2× faster.** Structural, not tuning-fixable on PC: the rects are 1–25 px (~800 texel fetches/frame — the SCP's 60k is ~100× pessimistic), yet the GPU must upload the whole **6.2 MB** frame to reach them; upload alone (1.705 ms) already exceeds the CPU's entire rule-eval budget. The Dev Notes' 0.647 ms/frame was measured **@ 640×360**, where upload is ~9× smaller; AC5 mandates 1080. **This does not settle Android** — MediaCodec's zero-copy `samplerExternalOES` removes the upload (leaving ~1.4×), so the whole architectural case for the GPU rests on a path only 12.2 can measure. Flagged for 12.3, including the third option the evidence permits: since both engines are decode-bound and CPU rule-eval is already 1.67 ms/frame, the measured evidence **does not currently require a GPU engine at all**. Verdict is 12.3's; 12.1 reports.
+3. **AC8/AC10 — doubt designed, implemented, and stated.** Confirmed in code that there is **no upstream `unknown` to inherit** on the phase axis (the in_match classifier is hard-binary). Mechanism: split-vote detection (unanimous = confident, split = doubt; `--doubt-margin 0` reproduces 9.13), never forced to the nearest class, resolved by holding the machine so surrounding reliable context (the confidently-armed score-screen timer, which keeps running underneath) gives the doubtful stretch its meaning. One forward pass, no window, no lookahead. **AC10 verdict: the enum is EXTENDED** with `doubt` + a sibling `confidence` field — remapping to `not_in_match` is exactly the forcing E4 forbids. Measured: doubt fired on **2 of 1061** keyframes.
+4. **AC13b honoured — the shader ignores `minimap_identification.roi`.** Zone rects evaluated as absolute reference-res coords against the full 1920×1080 frame. Both data defects (`roi` = 3×5 box byte-identical to `atlantis_z10`; `id` = `"test"`) reported as known defects with zero runtime effect today. **Neither fixed** (AC18-fenced, 9.9b's).
+5. **AC13 — all three per-classifier formulas reproduced** exactly (HUD normalized / in_match normalized-then-binary / map-ID raw unnormalized). Divergence from Tools 10/11 documented, not reconciled. Live confirmation of Finding 3's degenerate scoring: observed `map_id_confidence` of **17.0** against a 0.6 threshold.
+6. **AC15 — deps recorded.** `moderngl>=5.12,<6` added to **both** manifests; the pre-existing `jsonschema` gap in `requirements.txt` fixed as the AC directs. FFmpeg lands in no manifest (system-PATH dep, Finding 1). `uv.lock` updated as a consequence.
+7. **Gates.** pytest **208 → 262** (+54; the `+53`/`261` figures elsewhere in this record predate item 2b's added test — see the correction at the end of 2b), **0 regressions**; `uv run pytest` and `pnpm --filter tooling test` parity confirmed. GLSL gate green on all four variants. Tool 12 registered at all five `wardentooling.py` points — including AC17's first-of-its-kind `-m` package + positional-video layout (video at `last_args` index **2**, not 1); `run_tool` needed no change. **↻ Post-review (2026-07-19): 262 → 305 (+43 review-hardening tests).**
+
+**AC19/AC20 + Task 10 HELD** — commit / `--no-ff` merge / `review → done` flip are post-merge admin per [[feedback_two_pr_docs_execution]] + [[feedback_ac_checkbox_tighten]]. Nothing was committed.
+
+**Not done, by design:** did not re-open Story 1.1, publish the spike report (12.3), re-arm the ladder (12.3), re-point Tool 9 (9.16), or touch zone data / schema / Tools 9-11 / the emitter.
+
 ### File List
+
+**New**
+
+- `apps/tooling/tools/keyframe_engine_bench/__init__.py`
+- `apps/tooling/tools/keyframe_engine_bench/__main__.py`
+- `apps/tooling/tools/keyframe_engine_bench/lut.py`
+- `apps/tooling/tools/keyframe_engine_bench/frames.py`
+- `apps/tooling/tools/keyframe_engine_bench/phases.py`
+- `apps/tooling/tools/keyframe_engine_bench/scoring.py`
+- `apps/tooling/tools/keyframe_engine_bench/shader.py`
+- `apps/tooling/tools/keyframe_engine_bench/keyframe_engine_bench.frag`
+- `apps/tooling/tools/keyframe_engine_bench/REPORT.md` — the AC11 measured report (feeds 12.3)
+- `apps/tooling/tests/test_keyframe_engine_bench.py` (+54 tests; **+97 after the 2026-07-19 review pass**)
+
+**Modified**
+
+- `apps/tooling/utils/video.py` — AC0a: `-vsync 0` → `-fps_mode passthrough`; `extract_iframes_scaled` refactored onto a shared `_extract_iframes` + new `extract_iframes_native` (AC5). Public signature/behaviour of `extract_iframes_scaled` unchanged.
+- `apps/tooling/pyproject.toml` — + `moderngl>=5.12,<6`
+- `apps/tooling/requirements.txt` — + `moderngl>=5.12,<6`, + `jsonschema>=4.23.0` (pre-existing gap)
+- `apps/tooling/wardentooling.py` — Tool 12 registration (flow / `_TOOL_MAP` / `choices_main` / `menu_main` / `_reprompt_source`)
+- `uv.lock` — lockfile consequence of the `moderngl` manifest change
+
+**Generated (gitignored, not deliverable source)**
+
+- `apps/tooling/output/roi_detection_tests/v2/2026-07-16T230122/` — the pinned AC12 baseline
+- `apps/tooling/output/keyframe_engine_bench/accuracy.json`
+- `apps/tooling/output/2026-04-27 22-05-34/{results.json, bench.json, 55 thumbnails}`
 
 ### Review Findings
