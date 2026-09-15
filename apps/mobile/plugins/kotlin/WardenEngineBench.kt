@@ -76,6 +76,7 @@ class WardenEngineBench(private val context: Context) {
         o.put("hardware", Build.HARDWARE)
         o.put("soc_model", if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else "n/a")
         o.put("supported_abis", JSONArray(Build.SUPPORTED_ABIS.toList()))
+        o.put("thermal", thermalState())
 
         val gl = JSONObject()
         for ((k, v) in egl.describe()) gl.put(k, v)
@@ -840,6 +841,44 @@ class WardenEngineBench(private val context: Context) {
     // AC16 — the observed threading model
     // -----------------------------------------------------------------------
 
+    /**
+     * AC11's thermal context, COLLECTED rather than observed out of band.
+     *
+     * 🔴 REPORT.md asserted "both full runs completed with `Thermal Status: 0`
+     * and every `CoolingDevice` at `mValue=0`" as AC11's sustained-clock
+     * evidence. The 2026-09-15 review found that no code anywhere touched
+     * `PowerManager.getCurrentThermalStatus()` and no delivered JSON carried a
+     * thermal field: it was an `adb dumpsys` observation typed into prose, in a
+     * report whose stated discipline is "stated rather than invented". A reader
+     * could not check it, and a throttled run would have looked identical.
+     *
+     * Reported per run, so 12.3 can tell a clock-limited measurement from a
+     * clean one instead of trusting a sentence.
+     */
+    fun thermalState(): JSONObject {
+        val o = JSONObject()
+        return try {
+            val pm = context.getSystemService(Context.POWER_SERVICE)
+                as? android.os.PowerManager
+            if (pm == null || Build.VERSION.SDK_INT < 29) {
+                o.put("available", false)
+                    .put("reason", "PowerManager thermal API needs API 29+")
+            } else {
+                val s = pm.currentThermalStatus
+                o.put("available", true)
+                    .put("status", s)
+                    .put("status_name", THERMAL_NAMES.getOrElse(s) { "UNKNOWN($s)" })
+                    .put("throttled", s > android.os.PowerManager.THERMAL_STATUS_NONE)
+                    .put("note",
+                        "0 = NONE. Anything above LIGHT means the governor is capping " +
+                            "clocks and every ms/keyframe figure in this report is a " +
+                            "throttled measurement, not a capability measurement.")
+            }
+        } catch (t: Throwable) {
+            o.put("available", false).put("error", t.toString())
+        }
+    }
+
     fun threadingModel(egl: WardenEglContext): JSONObject = JSONObject()
         .put("egl_owner_thread", egl.ownerThreadName)
         .put("egl_owner_thread_id", egl.ownerThreadId)
@@ -950,12 +989,40 @@ class WardenEngineBench(private val context: Context) {
                     val ms = (System.nanoTime() - t0) / 1e6
                     val expected = (0 until 20).map { it * 4_166_667L }
                     report.put("seektest", JSONObject()
+                        .put("strategy", "ABSOLUTE SEEK_TO_CLOSEST_SYNC — the SHIPPED strategy")
                         .put("requested_us", JSONArray(expected))
                         .put("landed_us", JSONArray(landed))
                         .put("all_distinct", landed.toSet().size == landed.size)
                         .put("all_match_expected", landed == expected)
                         .put("total_ms", ms)
-                        .put("ms_per_seek", ms / 20.0))
+                        .put("ms_per_seek", ms / 20.0)
+                        .put("note",
+                            "`all_match_expected` false with `all_distinct` true means the " +
+                                "requested multiples of 4166667us are 1-3us off the real GOP " +
+                                "boundaries — rounding, not a seek failure."))
+                }
+                // 🔴 The pattern AC0b PRESCRIBED and Story 12.2 rejected. Measured
+                // here for the first time; the amendment shipped without it.
+                WardenKeyframeDecoder(videoPath, null).use { dec ->
+                    val groundTruth = dec.countSyncSamplesByScan()
+                    val t0 = System.nanoTime()
+                    val found = dec.incrementalNextSyncScan()
+                    val ms = (System.nanoTime() - t0) / 1e6
+                    report.put("ac0b_prescribed_incremental_scan", JSONObject()
+                        .put("strategy", "INCREMENTAL seekTo(lastPts + 1, SEEK_TO_NEXT_SYNC) — AC0b Option A as written")
+                        .put("sync_samples_found", found.size)
+                        .put("ground_truth_sync_samples", groundTruth)
+                        .put("reproduces_the_amendment_claim", found.size < groundTruth)
+                        .put("first_landings_us", JSONArray(found.take(10)))
+                        .put("total_ms", ms)
+                        .put("note",
+                            "Story 12.2 amended AC0b on the claim that this pattern stops " +
+                                "after 2 sync samples against a ground truth of 1061, and " +
+                                "shipped absolute SEEK_TO_CLOSEST_SYNC instead. The claim had " +
+                                "NO archived artifact until this run. If found == ground truth, " +
+                                "the prescribed pattern works on this device and the amendment " +
+                                "rests on a misdiagnosis — which Story 12.4 must know, since it " +
+                                "inherits the decode path."))
                 }
             }
             if (mode == "pngdump") {
@@ -1057,6 +1124,11 @@ class WardenEngineBench(private val context: Context) {
          * and a mode present there but absent here resolves to a successful-looking
          * empty report. Both drifts existed before the 2026-09-15 review.
          */
+        /** PowerManager.THERMAL_STATUS_* in ordinal order. */
+        private val THERMAL_NAMES = listOf(
+            "NONE", "LIGHT", "MODERATE", "SEVERE", "CRITICAL", "EMERGENCY", "SHUTDOWN"
+        )
+
         val BENCH_MODES = setOf(
             "all", "parity", "cpugpu", "timing", "framediff",
             "flushprobe", "seektest", "pngdump",

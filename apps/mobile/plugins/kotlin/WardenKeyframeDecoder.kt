@@ -217,6 +217,44 @@ class WardenKeyframeDecoder(
     }
 
     /**
+     * 🔴 AC0b OPTION A **EXACTLY AS THE STORY PRESCRIBES IT**, so the amendment
+     * that rejected it finally has evidence.
+     *
+     * Story 12.2 amended AC0b on the claim that the incremental scan —
+     * `seekTo(lastPts + 1, SEEK_TO_NEXT_SYNC)` in a loop — "stops advancing after
+     * the second sync sample, reporting 2 keyframes against a ground truth of
+     * 1061". That claim drove the shipped decode strategy and is inherited by
+     * Story 12.4, and it had **no archived artifact**: `keyframe-decode-perf-
+     * research.md` records it as *"Non résolu"*, and [seekProbe] — the mode
+     * REPORT.md §10 advertised as covering this — measures ABSOLUTE
+     * `SEEK_TO_CLOSEST_SYNC` seeks, i.e. the strategy that works, not the one
+     * under dispute. Archiving that would have looked like evidence and been none.
+     *
+     * This runs the disputed pattern and nothing else. Whatever it returns is the
+     * answer: a short list vindicates the amendment, a full one means AC0b Option
+     * A was fine and the shipped strategy was chosen on a misdiagnosis. Both are
+     * worth knowing before 12.4 inherits the decision.
+     *
+     * @param maxSteps hard cap so a pathological file cannot hang the probe.
+     */
+    fun incrementalNextSyncScan(maxSteps: Int = 4000): List<Long> {
+        val out = ArrayList<Long>()
+        extractor.seekTo(0L, MediaExtractor.SEEK_TO_NEXT_SYNC)
+        var last = -1L
+        var steps = 0
+        while (steps++ < maxSteps) {
+            val t = extractor.sampleTime
+            // The AC's own termination rule: "verify the seek loop terminates
+            // (advance past the returned sampleTime)".
+            if (t < 0 || t <= last) break
+            out.add(t)
+            last = t
+            extractor.seekTo(last + 1, MediaExtractor.SEEK_TO_NEXT_SYNC)
+        }
+        return out
+    }
+
+    /**
      * DIAGNOSTIC (§6 of the keyframe-decode-perf research) — where do the 33 ms go?
      *
      * The research derives, WITHOUT instrumentation, that ~25.7 ms of the 32.9 ms

@@ -165,6 +165,18 @@ Decoded count asserted against an independent sample-table scan: **1061 == 1061 
 | readback | 0.305 | 0.136 |
 | **GPU total** | **2.576** | **3.391** |
 
+> 🔴 **These figures are SESSION-VARIABLE. Do not quote the multiplier to three digits.**
+> *(Added 2026-09-15, after nine full runs on the reference device.)* The same code measured
+> Path P's upload at **1.173–1.720 ms** and the zero-copy advantage at **3.3×–4.7×** across
+> sessions — while code the review never touched drifted just as much: the sample-table scan
+> ranged **62–92 s**. What is stable is the bind, **0.341–0.374 ms** across every run and every
+> code variant, because it is the one stage that is neither I/O- nor bandwidth-bound.
+>
+> Nothing in the bench records what varies between sessions (page-cache state over a 2.3 GB
+> file, background load), so the spread cannot currently be attributed. Thermal status IS now
+> collected per run (`ac1_device_profile.thermal`, §10). **The qualitative finding is robust —
+> zero-copy removes the upload — but the exact multiplier is not a three-digit number.**
+
 ### AC13 — the three questions, answered from measurement
 
 **(a) Does zero-copy actually remove the upload? By how much?**
@@ -724,14 +736,14 @@ Modes: `all`, `parity`, `cpugpu`, `timing`, `framediff`, `seektest`, `pngdump`,
 runs agree closely (Path Z wall 33.428 vs 33.117 ms/kf; Path P 42.299 vs 42.033). The run is
 ~8 minutes end to end, which is not long enough to provoke sustained-clock decay on this device.
 
-> ⚠️ **This is an out-of-band `adb` observation, not a collected artifact** *(stated
-> 2026-09-15, code review — this report's own discipline is "stated rather than invented")*. No
-> Kotlin in the delivery touches `PowerManager.getCurrentThermalStatus()`,
-> `addThermalStatusListener` or `/sys/class/thermal`; `deviceProfile()` collects Build fields,
-> GL strings and MediaCodec info only, and no delivered JSON carries a thermal field. **The
-> reproducible half of the claim is the run-to-run agreement**, which is in the artifacts and
-> is the stronger evidence of the two. If 12.3 needs thermal state on the record, the bench has
-> to collect it.
+> ✅ **Now COLLECTED, not observed by hand** *(2026-09-15)*. The original claim was an
+> out-of-band `adb dumpsys` observation typed into prose: no code touched
+> `PowerManager.getCurrentThermalStatus()` and no delivered JSON carried a thermal field, so a
+> reader could not check it and a throttled run would have looked identical to a clean one.
+> `deviceProfile()` now emits a `thermal` object — `status`, `status_name`, `throttled` — in
+> every report. Anything above `LIGHT` means every ms/keyframe figure in that report is a
+> **throttled measurement, not a capability measurement**, and 12.3 can now tell the two apart
+> without trusting a sentence.
 
 **No lint gate exists on this surface.** `apps/mobile`'s `lint` script is an `echo` placeholder
 and there is no ktlint or detekt anywhere in the repo — stated rather than invented. There is
