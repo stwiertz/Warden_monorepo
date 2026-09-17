@@ -58,9 +58,10 @@ class WardenEngineBench(private val context: Context) {
 
     /**
      * @param knownSyncCount a ground truth already measured by the caller, or -1.
-     *   When >= 0 the 62 s sample-table walk is SKIPPED here — see
-     *   [WardenKeyframeDecoder.probe]. An `all` run used to pay that walk twice
-     *   and report only one of them.
+     *   **This function NEVER runs the 62 s sample-table walk itself** (Story 12.4a
+     *   AC3) — see [WardenKeyframeDecoder.countSyncSamplesByScan]. `-1` is reported
+     *   verbatim as "not measured". An `all` run used to pay that walk twice and
+     *   report only one of them; now it is paid exactly where a bench mode asks.
      */
     fun deviceProfile(
         egl: WardenEglContext,
@@ -99,8 +100,16 @@ class WardenEngineBench(private val context: Context) {
 
         if (videoPath != null && File(videoPath).exists()) {
             WardenKeyframeDecoder(videoPath, null).use { dec ->
+                // 🔴 STORY 12.4a AC3 — THIS USED TO READ `scanSyncSamples =
+                // knownSyncCount < 0`, i.e. "if the caller does not already know the
+                // count, go and spend 62 SECONDS finding it". `describeDevice` reaches
+                // this function from the RN bridge and is saved today only by passing a
+                // null video path — a coincidence, not a guarantee, and Story 12.4c
+                // wires a real path into the pipeline. The profile NEVER scans now;
+                // the ground-truth walk happens only where a bench mode asks for it
+                // explicitly, and `sync_sample_count` is -1 when nobody did.
                 val p = dec.probe(
-                    scanSyncSamples = knownSyncCount < 0,
+                    scanSyncSamples = false,
                     knownSyncCount = knownSyncCount,
                 )
                 val d = JSONObject()
@@ -110,7 +119,14 @@ class WardenEngineBench(private val context: Context) {
                 d.put("width", p.width); d.put("height", p.height)
                 d.put("duration_us", p.durationUs)
                 d.put("sync_sample_count", p.syncSampleCount)
-                d.put("sync_sample_count_source", if (knownSyncCount < 0) "scanned here" else "passed in by the caller, scanned once")
+                d.put(
+                    "sync_sample_count_source",
+                    if (knownSyncCount < 0)
+                        "NOT MEASURED — this profile never runs the 62 s ground-truth walk " +
+                            "(Story 12.4a AC3). A bench mode that needs it scans explicitly " +
+                            "and passes it in; -1 means no mode in this run asked."
+                    else "passed in by the caller, scanned once"
+                )
                 d.put("supported_color_formats", JSONArray(p.supportedColorFormats))
                 o.put("mediacodec", d)
             }
@@ -981,6 +997,29 @@ class WardenEngineBench(private val context: Context) {
                     for ((k, v) in idle) o.put(k, v)
                     report.put("idle_flush_probe", o)
                 }
+                // Story 12.4a AC0a — the PIPELINE DEPTH SWEEP, so `k` is measured
+                // rather than picked. Same 100 keyframes as `decode_probe` above, on
+                // the flush-free loop, at five depths in one run so the comparison is
+                // free of run-to-run spread. `depth = 1` is the control: it is the
+                // same loop with nothing in flight, which separates "the flush was
+                // the cost" from "the pipelining was the win".
+                val sweep = JSONArray()
+                for (depth in intArrayOf(1, 2, 4, 8, 16)) {
+                    WardenKeyframeDecoder(videoPath, null).use { dec ->
+                        val pts = dec.syncSamplePtsListBySeek(200)
+                        val o = JSONObject()
+                        try {
+                            for ((k, v) in dec.pipelineProbe(pts, 100, depth)) o.put(k, v)
+                        } catch (t: Throwable) {
+                            // A depth that wedges or mis-decodes is EVIDENCE, not a
+                            // reason to lose the other four. Record and carry on.
+                            o.put("pipeline_depth", depth)
+                            o.put("error", t.toString())
+                        }
+                        sweep.put(o)
+                    }
+                }
+                report.put("ac0a_pipeline_depth_sweep", sweep)
             }
             if (mode == "seektest" && wantsVideo) {
                 WardenKeyframeDecoder(videoPath!!, null).use { dec ->

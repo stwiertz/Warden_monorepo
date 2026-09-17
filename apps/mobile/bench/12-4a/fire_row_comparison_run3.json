@@ -1,0 +1,21 @@
+{
+  "story": "12.4a",
+  "what_this_proves": "Per-keyframe rule-fire masks are derived from DECODED PIXELS and keyed by the PTS the decoder reported. Identical rows across the full capture mean the pipelined decode loop returned the same pixels for the same timestamps.",
+  "before_file": "apps/mobile/bench/12-4a/BEFORE_timing_fires_bit_parity_seek_1061.json",
+  "after_file": "apps/mobile/bench/12-4a/AFTER_timing_fires_run3.json",
+  "n_rules_before": 134,
+  "n_rules_after": 134,
+  "rows_before": 1061,
+  "rows_after": 1061,
+  "duplicate_pts_in_after": 0,
+  "pts_missing_from_after": [],
+  "n_pts_missing_from_after": 0,
+  "pts_extra_in_after": [],
+  "n_pts_extra_in_after": 0,
+  "n_shared_pts": 1061,
+  "n_rows_with_changed_fires": 0,
+  "first_changed_pts": [],
+  "delivery_order_identical": true,
+  "rule_frame_decisions_compared": 142174,
+  "identical": true
+}

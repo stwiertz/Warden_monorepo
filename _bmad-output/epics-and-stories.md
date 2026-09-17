@@ -673,7 +673,7 @@ This map traces every FR, NFR, architecture work item (AR), brownfield dispositi
 >
 > **Sequencing change:** **Epics 5, 6 and 7 are HELD behind Story 12.3 (engine verdict) + Story 12.4 (mobile consumer rewrite).** They remain `backlog` — no status change, since `blocked` is a story-level status only (precedent: Story 1.9). Order, not state, is what changed.
 >
-> > **UPDATE 2026-09-15 — Story 12.3 HAS LANDED. Only Story 12.4 remains between Epics 5/6/7 and start.** The engine verdict is published: [`architecture-spike-gpu-megashader.md`](architecture-spike-gpu-megashader.md), recorded as `architecture.md` **Decision #13** — **the GPU mega-shader is REJECTED**; the bound engine is **Kotlin CPU rule evaluation on the MediaCodec keyframe-decode path** (the GPU measured **6.4× slower** for **bit-identical** output, and the engine is only **6–7% of the wall** either way). PERF-002 is re-baselined from measurement and is **MET by ~4.9×**; the Innovation #1 fallback ladder is **re-armed across all five rungs**, so the auto-slice FRs have a V1 safety net again. **The hold on Epics 5/6/7 is now single-gated on Story 12.4**, whose content the rejection changed: it is a CPU-arm wiring + decode-loop optimisation + GLES-removal story, not a shader-integration story.
+> > **UPDATE 2026-09-15 — Story 12.3 HAS LANDED. Only Story 12.4 remains between Epics 5/6/7 and start.** The engine verdict is published: [`architecture-spike-gpu-megashader.md`](architecture-spike-gpu-megashader.md), recorded as `architecture.md` **Decision #13** — **the GPU mega-shader is REJECTED**; the bound engine is **Kotlin CPU rule evaluation on the MediaCodec keyframe-decode path** (the GPU measured **6.4× slower** for **bit-identical** output, and the engine is only **6–7% of the wall** either way). PERF-002 is re-baselined from measurement and is **MET by ~4.9×**; the Innovation #1 fallback ladder is **re-armed across all five rungs**, so the auto-slice FRs have a V1 safety net again. **The hold on Epics 5/6/7 is now single-gated on Story 12.4**, whose content the rejection changed: it is a CPU-arm wiring + decode-loop optimisation + GLES-removal story, not a shader-integration story. *(**UPDATE 2026-09-17, `/bmad-create-story`:** Story 12.4 is **SPLIT into 12.4a–d** — decode-loop optimisation → CPU colour port + GLES removal → engine wiring + TS consumer rewrite → end-to-end PERF-002 + ladder closeout. **The hold is now gated on Story 12.4d**, which lifts it.)*
 >
 > **This is a dev-focus decision, not a dependency-driven one — stated plainly so a future reader who checks the dependency graph is not misled.** Epics 5/6/7 do not *strictly* require the engine: the app supports manual clips and J3 explicitly designs for graceful degradation. The hold is deliberate: it prevents ~20 stories of mobile review UI being built on top of an engine that is today a stub (`architecture.md:102`) plus an unenumerated hole (:2750), and it stops V1 shipping :2748's *"auto-slice produces `unknown` map labels on HUD 2.0 sessions."*
 >
@@ -3280,7 +3280,7 @@ The 12 cross-surface invariants from architecture are honored across stories:
 
 ## Epic 12: Detection Engine — GPU Mega-Shader POC (V1-GATING) — *verdict 2026-09-15: shader REJECTED, CPU arm bound*
 
-**Status:** in-progress · V1-GATING · engine-first — **12.1 `done` · 12.2 `done` · 12.3 `done` (THE GATE, closed 2026-09-15) · 12.4 remaining**
+**Status:** in-progress · V1-GATING · engine-first — **12.1 `done` · 12.2 `done` · 12.3 `done` (THE GATE, closed 2026-09-15) · 12.4 SPLIT 2026-09-17 into 12.4a (`ready-for-dev`) + 12.4b + 12.4c + 12.4d (all `backlog`, sequential)**
 
 > ### 🔴 EPIC VERDICT — 2026-09-15 (Story 12.3)
 >
@@ -3338,10 +3338,66 @@ The 12 cross-surface invariants from architecture are honored across stories:
 **Why the ladder re-arm is not cosmetic:** `architecture.md:857`'s hard-fail rung triggers on *"JSI binding does not ship"* — **unreachable** under a shader engine. Until this story lands, the auto-slice FRs have **no V1 safety net**. `architecture.md:858`'s FORBIDDEN cloud fallback stays verbatim.
 **Dependencies:** Story 12.2.
 
-### Story 12.4: Mobile Detection Consumer Rewrite
+### Story 12.4: Mobile Detection Consumer Rewrite (SPLIT 2026-09-17 → 12.4a + 12.4b + 12.4c + 12.4d)
+
+**Status:** cancelled (split via `/bmad-create-story` 2026-09-17; original spec preserved below for traceability).
+
+**Split rationale.** Story 12.3's verdict set this story's sprint fit to **`needs-spike-or-split`** and recorded *"**Split at create-story**"* in both the epic and `sprint-status.yaml` — because **the rejection GREW this story rather than shrinking it**. The create-story run produced a four-way split along the boundaries the verdict itself drew, plus one coupling create-story found that no prior artifact had recorded:
+
+> 🔴 **THE COUPLING: removing GLES removes the colour conversion the bound CPU arm depends on.** `WardenCpuBaseline.evaluate()` takes **BGRA**; `WardenKeyframeDecoder.imageToKeyframe()` produces **YUV planes**; the only thing that has ever bridged them on the video path is **`RESOLVE_YUV_FRAG`, a GPU shader** in the file being deleted. And the CPU arm has **never been fed MediaCodec output at all** — Story 12.2's decisive AC12 measurement fed it BGRA decoded from labeled PNG *Bitmaps*. **That is exactly why the spike tags the bound configuration `[P]` — "a construction over three measured parts describing a configuration that was never run end to end."** Story 12.4b is therefore a **substitution, not a deletion**: port the conversion, prove parity, *then* delete.
+
+**The four sub-stories, and why the order is what it is:**
+
+| | story | why here |
+| --- | --- | --- |
+| **12.4a** | Decode-Loop Optimisation | **First** — it needs the 12.2 bench harness intact as its measuring instrument (`flushprobe` / `timing`), and its whole point is a before/after on-device number. Takes the three items 12.3 re-homed with the headroom quantified. |
+| **12.4b** | CPU Colour-Conversion Port + GLES/EGL Removal | **Second** — safe once 12.4a's measurement is banked. Must leave a **CPU-vs-PC parity instrument standing**: today's 0 / 357,244 result is *GPU*-vs-PC, so removing the GPU arm removes the only thing `WardenCpuBaseline` was ever checked against. |
+| **12.4c** | Engine Wiring + TS Consumer Rewrite | **Third**, and still `needs-spike-or-split` — the flag is retained deliberately. Wires a now-minimal engine; pipeline stages 1+2 collapse into one native call. **Closes the `:2750` hole.** |
+| **12.4d** | End-to-End PERF-002 + Ladder Closeout | **Last** — measures the real thing, resolves provisional rung-0, retires rung 3, closes Epic 12 and **releases Epics 5/6/7**. |
+
+**Two decisions taken at create-story (Stephane, 2026-09-17):** (1) the **4-way split** above, over a 2-way native/consumer split or keeping it whole on the 12.1/12.2 precedent; (2) **12.4c bundles `map_config.v2.json` minimally as a Metro asset and leaves a named seam**, rather than blocking on Story 1.13 — 1.13 later generalises it into the hybrid stale-while-revalidate Firestore overlay. Story 1.13 stays `backlog`, released for create-story, and is **not** on the critical path Epics 5/6/7 wait behind.
+
+**Also found at create-story, and carried into the sub-stories as traps:** `WardenKeyframeDecoder.kt`'s own header says strategy **A′ "is what shipped"** when [Decision #13](architecture.md) binds **A** (32.937 vs 62.820 ms/kf) — the file is stale against the decision it implements (12.4a AC8). The **scoring and phase-resolution semantics exist only in Python** (`scoring.py` / `phases.py`, 394 lines) and have never run on a device; Kotlin has fire bits and nothing else (12.4c AC0b/AC9). The generated zod `MapConfigSchema` is **lossy** — zones are `z.any()` because `$defs` are unresolved (12.4c AC4). And `opencv.ts`'s `loadFrameFromPath` is **fully implemented**, not the stub both architecture docs describe (12.4b AC12).
+
+---
+
+### Story 12.4a: Decode-Loop Optimisation
+
+**Status:** ready-for-dev. **Sprint fit:** `fits-in-one-sprint`.
+**Spec:** authoritative story file at [`_bmad-output/implementation-artifacts/12-4a-decode-loop-optimisation.md`](implementation-artifacts/12-4a-decode-loop-optimisation.md).
+**Scope:** The three decode-loop items Story 12.3 re-homed here with headroom quantified (AC0d / AC15) — shorten `TIMEOUT_US` (**~10.6 ms/kf → ~11.2 s**), stop flushing per keyframe by keeping several IDRs in flight (**up to ~14.5 ms/kf → ~15.4 s**; an IDR resets the DPB by definition), and replace the **62.070 s** `countSyncSamplesByScan()` full-file read with the **2.290 s** seek-built index. **~25.1 of the 42.2 ms/kf wall — a projected ~2.5× decode-loop speedup worth ~26 s, the single largest lever Epic 12 found, and it is NOT the engine.** Strategy A is retained; the count assertion (1061 == 1061) and bit-parity (0 / 357,244) are the tripwires.
+**Dependencies:** Story 12.3.
+
+### Story 12.4b: CPU Colour-Conversion Port + GLES/EGL Surface Removal
+
+**Status:** backlog (flip to `ready-for-dev` when 12.4a reaches `review`). **Sprint fit:** `fits-in-one-sprint`.
+**Spec:** authoritative story file at [`_bmad-output/implementation-artifacts/12-4b-cpu-colour-port-and-gles-removal.md`](implementation-artifacts/12-4b-cpu-colour-port-and-gles-removal.md).
+**Scope:** **A substitution, not a deletion** — see the coupling box above. Port the bt709 limited-range YUV→RGB conversion from `RESOLVE_YUV_FRAG` onto the CPU (constants verbatim, nearest chroma, NV12/NV21/I420, geometry asserted), **prove 0 disagreements end to end for the first time**, and only then delete `WardenGlUtil.kt` (219), `WardenDetectionEngine.kt` (981), `WardenSurfaceTextureHost`, `decodeResults`, the shader-asset emission and the bench's GL half. **SEC-007 entry 5 narrows to MediaCodec-only and entry 5a is resolved.** Amendment **5c does not lapse** — MediaCodec keeps decode Android-only with or without GLES.
+**Dependencies:** Story 12.4a.
+
+### Story 12.4c: Engine Wiring + TS Consumer Rewrite
+
+**Status:** backlog (flip to `ready-for-dev` when 12.4b reaches `review`). **Sprint fit:** **`needs-spike-or-split`** — retained deliberately; if it must split again the seam is the native-API shape (per-session call vs per-frame bridge), because everything else follows from it.
+**Spec:** authoritative story file at [`_bmad-output/implementation-artifacts/12-4c-engine-wiring-and-ts-consumer-rewrite.md`](implementation-artifacts/12-4c-engine-wiring-and-ts-consumer-rewrite.md).
+**Scope:** **Closes the `:2750` hole.** A production native detection API behind `detectionEngine.ts` (the invariant's sole JS entry point); `map_config.v2.json` bundled minimally with a seam for 1.13; the **three distinct classifier formulas** and the **doubt-holds** phase machine ported from `scoring.py` / `phases.py`; `gameDetector.ts` / `mapIdentifier.ts` / `blackScreenDetector.ts` / `segmentation.ts` rewritten off v1 pHash onto v2 ROI/HSV; `processingPipeline.ts` re-orchestrated with stages 1+2 collapsed — **while preserving the FGS lifecycle, MMKV checkpoint resume, error semantics, progress monotonicity, the results stage and `assertSafeSessionId`**, none of which are restated as ACs but all of which are requirements. `minimap_identification.roi` **MUST be ignored** (9.15 D2 / 12.1 AC13b). **REL-006 is NOT claimed here** — that is 9.9b's, instrumented via 9.16.
+**Dependencies:** Story 12.4b.
+
+### Story 12.4d: End-to-End PERF-002 Re-measurement + Ladder Closeout
+
+**Status:** backlog (flip to `ready-for-dev` when 12.4c reaches `review`). **Sprint fit:** `fits-in-one-sprint`.
+**Spec:** authoritative story file at [`_bmad-output/implementation-artifacts/12-4d-end-to-end-perf-002-and-ladder-closeout.md`](implementation-artifacts/12-4d-end-to-end-perf-002-and-ladder-closeout.md).
+**Scope:** Measure PERF-002 **end to end over the real pipeline** — 12.3's re-baseline covers the **detection pass only**, and segmentation, thumbnail export and the rest of the orchestration were **never measured**. Then close the ladder: **rung-0 resolves** from provisional (but cannot simply become PASS — PERF-003/004 stay UN-INSTRUMENTED and PERF-005 unmeasured), **rung 3 retires** on the evidence, **rung 1 step 1a is marked SPENT by 12.4a**, rung 2 stays labelled, and the **FORBIDDEN row is carried VERBATIM**. PERF-010 is **not** re-opened. **Releases Epics 5/6/7** and closes Epic 12.
+**Dependencies:** Story 12.4c.
+
+---
+
+<details>
+<summary><strong>Original Story 12.4 spec — preserved for traceability (superseded by the split above)</strong></summary>
 
 **Sprint fit:** **`needs-spike-or-split`** — set 2026-09-15 by the Story 12.3 verdict, which the epic left as *"TBD at create-story (conditional on the 12.3 verdict)"*. **Rationale:** the rejection *grew* this story rather than shrinking it. It now carries four separable workstreams, three of which touch device-measured Kotlin: (1) the **TS consumer rewrite** off v1 pHash data; (2) **wiring the bound engine** into `processingPipeline.ts` behind `detectionEngine.ts`; (3) the **decode-loop optimisation** re-homed from 12.3 (`TIMEOUT_US` + per-keyframe `flush()` + replacing the 62 s `countSyncSamplesByScan()`), each needing an on-device re-measurement loop; (4) **removing the GLES/EGL surface** from the plugin and the `Warden*.kt` sources, after which SEC-007 entry 5 narrows and entry 5a is dropped. Plus an **end-to-end PERF-002 re-measurement** over the real pipeline, which 12.3's re-baseline explicitly does not cover. **Split at create-story.**
 **Scope:** Closes the :2750 hole — the TS rewrite of `gameDetector.ts` / `mapIdentifier.ts` / `blackScreenDetector.ts` off v1 pHash data onto the bound engine. Unblocks Epics 5/6/7. **Re-scoped 2026-09-15 by the verdict: this is a CPU-arm wiring + decode-loop optimisation + GLES-removal story, NOT a shader-integration story.** It also **retires ladder rung 3** (which does not fire today but stays live until a real binding ships) and **resolves provisional rung-0**.
 **Dependencies:** Story 12.3.
 
-**Downstream:** Epic 9 (9.9b resume-or-re-scope, 9.10 unblock, 9.16 re-point), Story 1.13 (create-story), Epics 5/6/7 (via 12.4).
+</details>
+
+**Downstream:** Epic 9 (9.9b resume-or-re-scope, 9.10 unblock, 9.16 re-point), Story 1.13 (create-story), Epics 5/6/7 (released by **Story 12.4d**).

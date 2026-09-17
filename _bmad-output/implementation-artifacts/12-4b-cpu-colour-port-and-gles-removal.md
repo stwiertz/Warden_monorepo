@@ -1,0 +1,191 @@
+# Story 12.4b: CPU Colour-Conversion Port + GLES/EGL Surface Removal
+
+Status: backlog
+
+Sprint fit: `fits-in-one-sprint`. **Kotlin + plugin + architecture docs. No TypeScript rewrite, no pipeline wiring.** Split out of Story 12.4 on 2026-09-17 (`/bmad-create-story` on 12.4). **Depends on Story 12.4a** (decode-loop optimisation) — flip to `ready-for-dev` when 12.4a reaches `review`.
+
+<!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
+
+## Story
+
+As **Stephane (solo dev / product owner)**,
+I want **the bit-parity YUV→RGB conversion moved from the rejected GPU shader onto the CPU, proven at zero disagreements, and only then the entire GLES/EGL surface physically deleted**,
+so that **the engine [Decision #13](../architecture.md) bound can actually run without a GPU — and the Android-only GLES surface, its driver-defined colour path and its SEC-007 entry disappear at no measured cost.**
+
+---
+
+## ⚠️ Read This First — This Story Is a SUBSTITUTION, Not a Deletion
+
+**The epic's own framing calls this "physically removing the GLES/EGL surface". That framing is incomplete and will get you a broken engine if you take it literally.**
+
+Here is the coupling nobody wrote down until create-story found it:
+
+```
+TODAY (what 12.2 built)                    AFTER naive deletion
+─────────────────────────────              ──────────────────────────
+MediaCodec  →  YUV420Flexible              MediaCodec  →  YUV420Flexible
+                    ↓                                          ↓
+      RESOLVE_YUV_FRAG  (GPU)                            ??? nothing ???
+      bt709 limited-range YUV→RGB                             ↓
+                    ↓                                    WardenCpuBaseline
+              BGRA bytes                                 .evaluate(bgra…)
+                    ↓                                          ↓
+      WardenCpuBaseline.evaluate(bgra…)                   💥 no pixels
+```
+
+**`WardenCpuBaseline.evaluate()` takes `bgra: ByteArray` — B,G,R,A per pixel, row-major** ([`WardenCpuBaseline.kt:74-79`](../../apps/mobile/plugins/kotlin/WardenCpuBaseline.kt#L74-L79)). **`WardenKeyframeDecoder.imageToKeyframe()` produces YUV planes** ([`WardenKeyframeDecoder.kt:766-785`](../../apps/mobile/plugins/kotlin/WardenKeyframeDecoder.kt#L766-L785)). The only thing that has ever bridged those two on the video path is **`RESOLVE_YUV_FRAG`, a GPU shader** ([`WardenDetectionEngine.kt:946-978`](../../apps/mobile/plugins/kotlin/WardenDetectionEngine.kt#L946-L978)) — the very file this story deletes.
+
+**🔴 And the CPU arm has never been fed MediaCodec output at all.** Story 12.2's decisive AC12 measurement (`cpuVsGpu`, [`WardenEngineBench.kt:352-442`](../../apps/mobile/plugins/kotlin/WardenEngineBench.kt#L352-L442)) fed the CPU arm **BGRA decoded from labeled PNG Bitmaps** (`bitmapToBgra`), not from the decoder. That is precisely why the [spike report](../architecture-spike-gpu-megashader.md) tags the bound configuration **`[P]` — "a construction over three measured parts describing a configuration that was never run end to end."**
+
+**You are the story that runs it end to end for the first time.** Port the colour conversion, prove parity, *then* delete. In that order — reversing it leaves you deleting the only working reference you had to check against.
+
+---
+
+## 🔴 Traps
+
+1. **🔴 The conversion constants are load-bearing and were nearly wrong twice.** 12.2 found **two silent colour bugs** ([REPORT §6](../../apps/mobile/bench/12-2/REPORT.md) *"Two silent colour bugs found and fixed"*), and the shader's coefficients were ultimately proved **exhaustively and offline over all 2²⁴ (Y, Cb, Cr) triples** (`ac3_numpy_reference.py verify-constants`, error bounded at 1 unit on green over 0.179% of the domain). **Port the constants at [`WardenDetectionEngine.kt:963-976`](../../apps/mobile/plugins/kotlin/WardenDetectionEngine.kt#L963-L976) verbatim** — bt709, **limited range** (`color_range=tv` on the fixture). Re-deriving them from a formula you remember is how both earlier bugs happened.
+2. **🔴 Chroma upsampling is NEAREST, not interpolated, and that is deliberate.** `RESOLVE_YUV_FRAG` samples chroma nearest-neighbour (`ivec2 pc = ivec2(p.x / 2, p.y / 2)`). The residual ΔS ≈ 2.46 against FFmpeg's `rgb24` is a **chroma-upsampling policy difference** (nearest vs swscale), ≤3 units of 255 — **not** a matrix error. **Do not "improve" to bilinear:** it would change the fire bits and break AC3's parity, and it would diverge from `lut.py`/Tool 12, which 9.16 re-points at this engine. ⚠️ **Do not quote `ac3_frame_diff.json`'s `diagnosis` string** — it reads *"MATRIX-ERROR-scale discrepancy (709 vs 601)"* for **both** paths and is a superseded heuristic label.
+3. **🔴 NV12 vs NV21 is a live portability defect in this exact code.** The semi-planar fast path keys only on `uPixelStride == 2 && vPixelStride == 2` and uploads `planes[1]` as the base, **ignoring `planes[2]`** ([`WardenDetectionEngine.kt:460-470`](../../apps/mobile/plugins/kotlin/WardenDetectionEngine.kt#L460-L470), `isSemiPlanarNv12` [:626-671](../../apps/mobile/plugins/kotlin/WardenDetectionEngine.kt#L626)). On NV12 (`U V U V…`) the pairs are correct; **on NV21 (`V U V U…`) it mis-pairs Cb with the next column's Cr.** It was patched in 12.2's review but is latent on the reference device — the CPU port must handle **both** orders explicitly, and must not silently take a fast path on an untested layout.
+4. **🔴 Geometry.** `requireGeometry()` ([:439](../../apps/mobile/plugins/kotlin/WardenDetectionEngine.kt#L439)) hard-fails off-1920×1080; Path Z had no such assertion and silently rescaled. Zone coordinates are calibrated at `reference_resolution` **1920×1080** and `clampRect` is applied CPU-side at pack time. **The CPU converter must assert its geometry, not rescale.**
+5. **🔴 Two Jest tests will go red the moment you delete the asset, and one of them reads Kotlin off disk.** `detectionEnginePlugin.test.ts` (4 tests) is entirely a guard on the `.frag` checksum and its ES-3.0 invariants. `detectionEngine.test.ts:118-138` **reads `plugins/kotlin/WardenEngineBench.kt` from disk** and asserts `BENCH_MODES` stays in lockstep with the TS `BenchMode` union. Both are AC-mandated guards from 12.2, not incidental tests — **retire or re-point them deliberately and say which** (AC9).
+6. **🔴 The plugin hard-codes class names inside REGEXES, in four places — not just in the file list.** All of them strip-and-re-emit against a **reused** `android/` tree, and a regex that stops matching fails **silently**, leaving stale generated code that still compiles:
+   - [`:160`](../../apps/mobile/plugins/with-detection-engine.js#L160) — the stale-file sweeper, `/^Warden(DetectionEngine|Engine|GlUtil|RulePacker|CpuBaseline|KeyframeDecoder).*\.kt$/`. **This is what actually deletes sources you drop from `KOTLIN_FILES`** ([:111-121](../../apps/mobile/plugins/with-detection-engine.js#L111)). Drop a file but leave the regex unable to match its name and the orphan survives prebuild.
+   - [`:273`](../../apps/mobile/plugins/with-detection-engine.js#L273) — the half-written-overlay guard, which **throws** on a `Story 12.2` comment with no matching `WardenEngineBenchActivity"` `/>`.
+   - [`:283`](../../apps/mobile/plugins/with-detection-engine.js#L283) — the debug-manifest strip, keyed on `WardenEngineBenchActivity"`.
+   - [`:331`](../../apps/mobile/plugins/with-detection-engine.js#L331) — the `MainApplication.kt` strip, keyed on `add\(WardenDetectionEnginePackage\(\)\)`.
+
+   **Any rename must change the Kotlin and the regex in the same edit.** The file's own review comments ([:324-329](../../apps/mobile/plugins/with-detection-engine.js#L324)) document this as shipped bug #2: the mod is idempotent by **replacement**, not by presence, precisely because `if (xml.includes(...)) return` once meant a later *fix* silently never reached the APK. **Preserve that discipline, and verify by prebuild against a reused tree — a clean prebuild cannot catch any of these four.**
+
+   *(Confirmed by exhaustive sweep at create-story: outside `plugins/kotlin/` and the generated `android/` tree, the **entire** blast radius of the GLES removal is six locations — `MainApplication.kt:29`, `debug/AndroidManifest.xml:9,11`, the plugin, `detectionEngine.ts`, and its two test files. **No feature module, no `docs/`, no `contracts/`, no `packages/` file references any `Warden*` class** — AC18b's sole-access invariant held in practice.)*
+
+---
+
+## Acceptance Criteria
+
+### AC0 — Kickoff decisions (resolve BEFORE Task 3; record verdicts in the Dev Agent Record)
+
+- [ ] **AC0a — Where the CPU YUV→BGRA conversion lives.** Options: a new `WardenColorConvert.kt` (**RECOMMENDED** — a pure object, testable, mirrors `WardenCpuBaseline`'s shape and keeps the 141-line evaluator focused); inside `WardenKeyframeDecoder.imageToKeyframe()` (fewer files, but welds colour policy to the decoder); or inside `WardenCpuBaseline` (welds it to the evaluator, and the evaluator's 0-disagreement validation is a property you do not want to perturb). Record the choice and why.
+- [ ] **AC0b — Full-frame conversion vs rule-region-only.** The shipped rects are **1–25 px, fourteen of them 1×1** — ~800 texels of a 2,073,600-pixel frame. Converting the whole frame costs ~2 M pixel conversions per keyframe to read ~800 of them. **Converting only the rule rects is ~2600× less work** and is available precisely because there is no longer a shader that needs a whole texture. **Recommended: rule-region-only**, with `evaluate` fed per-rect, *provided* it produces bit-identical fire bits. **Costs:** it changes `WardenCpuBaseline.evaluate`'s contract (today: whole `bgra` frame + rect offsets), which is the function validated at 0 disagreements — so AC3 must re-prove parity, not inherit it. **If you take the whole-frame route, say so and record the measured cost**; PERF-002 has ~176 s of unused budget, so this is a legitimate choice, not a forced one. *(Note `MAX_RECT_TEXELS = 4096` caps the inner loop at [`WardenCpuBaseline.kt:109`](../../apps/mobile/plugins/kotlin/WardenCpuBaseline.kt#L109) while `ratio` divides by full `area` — latent for rects > 4096 px, unreachable on the shipped config. Do not silently change this; it is mirrored in the shader and in `lut.py`.)*
+- [ ] **AC0c — What survives of `WardenEngineBench.kt`.** It is **1176 lines** and roughly half is GL. **The parity instrument MUST survive in some form** (AC3, AC4) — today `parityRun` ([:187-241](../../apps/mobile/plugins/kotlin/WardenEngineBench.kt#L187)) builds a `WardenDetectionEngine`, i.e. it is GPU-based. Decide: re-point `parityRun` at the CPU arm (**RECOMMENDED**), or extract a minimal parity harness. Also decide the fate of `cpugpu` (its GPU half has no arm left), `framediff`, `pngdump`, `forcedCompletionProfile`, and `deviceProfile`'s GL strings. **Keep `flushprobe`, `seektest` and `timing`** — 12.4a needs them and 12.4d re-uses them.
+- [ ] **AC0d — `describeDevice()` and the `ffmpeg-kit` coordinate.** (i) [`WardenDetectionEngineModule.kt:74-83`](../../apps/mobile/plugins/kotlin/WardenDetectionEngineModule.kt#L74) calls `WardenEglContext.createOffscreen()` — it **cannot survive** GLES removal as written. Re-point it at a GL-free device profile (model / SoC / API level / codec), or drop the method; `detectionEngine.ts` and its tests follow. (ii) **SEC-007 entry 5a** — `ffmpeg-kit-main-16kb:6.1.4`, injected at [`with-detection-engine.js:375-414`](../../apps/mobile/plugins/with-detection-engine.js#L375), exists **only** for AC0b Option C's software-decode control. [architecture.md](../architecture.md) says *"Story 12.4 drops the re-declaration when it removes the bench surface; if it turns out to have a consumer, this entry stays as written."* **Check for a consumer, then act.** Note the same coordinate still reaches the APK transitively via entry 1 (`@wokcito/ffmpeg-kit-react-native`), so nothing ships differently either way.
+
+### The substitution — do this BEFORE any deletion
+
+- [ ] **AC1 — A CPU YUV→BGRA converter exists, with the bt709 limited-range constants ported verbatim.** Per AC0a/AC0b. Source of truth: [`WardenDetectionEngine.kt:946-978`](../../apps/mobile/plugins/kotlin/WardenDetectionEngine.kt#L946) (`RESOLVE_YUV_FRAG`) and its exhaustive offline proof `ac3_numpy_{reference.py,constants.json}`. **Nearest-neighbour chroma** (trap 2). Handles **both NV12 and NV21 semi-planar orders explicitly, plus fully-planar I420** (trap 3), and **asserts geometry rather than rescaling** (trap 4).
+- [ ] **AC2 — The converter is proved against the exhaustive offline reference, not just against the device.** Re-use `ac3_numpy_reference.py verify-constants`' method: the port must reproduce the pinned constants' behaviour. A unit-level check over a generated triple sweep is acceptable and preferable to a device round-trip for this AC. **State the domain covered and the max error.** (The shader's bound was *1 unit on green over 0.179% of the 2²⁴ domain*.)
+- [ ] **AC3 — 🔴 THE GATE: the full CPU path reproduces 0 per-rule disagreements against the pinned PC reference.** MediaCodec → CPU colour → `WardenCpuBaseline.evaluate` over the parity corpus, compared to `apps/mobile/bench/12-2/pc_reference_fires.json` (2666 frames). Banked baseline: **0 disagreements / 357,244 decisions** (`parity_comparison.json`). **This is the first time the bound configuration has ever been run end to end** — the `[P]` label exists because of this gap, and this AC closes it. **If it is not zero, STOP and fix before deleting anything.** A non-zero result here with the GPU still present is a debuggable situation; the same result after deletion is not.
+- [ ] **AC4 — 🔴 Do not delete the GPU arm until AC3 is green.** Explicit sequencing AC, not ceremony. Until AC3 passes, `WardenDetectionEngine.kt` is your **reference implementation** — it is the thing validated at 0 disagreements on this device, and it is the only A/B you have. Record in the Dev Agent Record that AC3 passed **before** the deletion commit/step.
+
+### The removal
+
+- [ ] **AC5 — The GLES/EGL Kotlin surface is gone.** Delete: **`WardenGlUtil.kt`** (219 lines — `WardenGlException`, `WardenGlUtil`, `WardenEglContext`) · **`WardenDetectionEngine.kt`** (981 lines, entire) · **`WardenSurfaceTextureHost`** ([`WardenKeyframeDecoder.kt:818-918`](../../apps/mobile/plugins/kotlin/WardenKeyframeDecoder.kt#L818)) and with it the `toSurface: Surface?` constructor param ([:73](../../apps/mobile/plugins/kotlin/WardenKeyframeDecoder.kt#L73)) and every `toSurface != null` branch (`:337`, `:557-565`, `:694-701`) · **`WardenRulePacker.decodeResults`** ([:380-385](../../apps/mobile/plugins/kotlin/WardenRulePacker.kt#L380), the RGBA8 GPU-readback decoder). The GL surface in `WardenEngineBench.kt` per AC0c (inventory: `:6`, `:48-51`, `:65-130`, `:187-241`, `:249-346`, GPU half of `:352-442`, `:480-554`, `:641-642`, `:649-720`, `:721-805`, `:882-899`, `:936-938`, `:1095`, `:1105-1109`).
+  **🔴 Path P — `COLOR_FormatYUV420Flexible`, `configureCodec` ([:592-606](../../apps/mobile/plugins/kotlin/WardenKeyframeDecoder.kt#L592)) and `imageToKeyframe` ([:766-785](../../apps/mobile/plugins/kotlin/WardenKeyframeDecoder.kt#L766)) — is what the CPU arm needs. Keep it.**
+- [ ] **AC6 — The shader asset and its emission are gone; Tool 12's `.frag` is NOT.** Remove the `keyframe_engine_bench.frag` emission from [`with-detection-engine.js:63-101, :167-178`](../../apps/mobile/plugins/with-detection-engine.js#L63) (`FRAG_RELATIVE_PATH`, `FRAG_SHA256`, `readVerbatimFrag`, the assets write) and the generated `android/app/src/main/assets/` copy. **🔴 `apps/tooling/tools/keyframe_engine_bench/keyframe_engine_bench.frag` is the tooling source of truth for Tool 12 — Story 12.1 is `done`, Tool 12 is the PC bench, and Story 9.16 re-points the testers. DO NOT DELETE IT.** You are removing a *copy mechanism*, not a shader.
+- [ ] **AC7 — The plugin is consistent after the removal.** Prune `KOTLIN_FILES` ([:111-121](../../apps/mobile/plugins/with-detection-engine.js#L111)) **and** keep the stale-file sweeper regex at [:160](../../apps/mobile/plugins/with-detection-engine.js#L160) matching the dropped names (trap 6). Handle the `ffmpeg-kit` compile dep per AC0d(ii) and the debug bench activity per AC0c. **Verify by prebuild against a REUSED `android/` tree, not a clean one** — a clean prebuild cannot catch a sweeper regression, which is exactly the class of bug 12.2 hit.
+- [ ] **AC8 — `detectionEngine.ts`'s GL-shaped surface is narrowed.** The TS seam carries GL in its types: `EngineStageTimings.{upload_or_bind, resolve, shader, readback, gl_total, gl_share_of_wall}` ([:25-46](../../apps/mobile/src/shared/services/detectionEngine.ts#L25)), `EngineTimingResult.color_path` ([:49](../../apps/mobile/src/shared/services/detectionEngine.ts#L49)), `EngineDeviceProfile.{gl, ac2_oes_essl3}` ([:79-83](../../apps/mobile/src/shared/services/detectionEngine.ts#L79)), `ac11_one_off_egl_context_ms` ([:95](../../apps/mobile/src/shared/services/detectionEngine.ts#L95)), and GLES prose at `:15-17`, `:149`. Narrow the types and the prose to match what the native side now reports. **This is a type/shape narrowing only — do NOT add the production detection API here; that is 12.4c's** (AC12).
+- [ ] **AC9 — The two guard tests are deliberately disposed.** Per trap 5. `detectionEnginePlugin.test.ts` (shader checksum + ES-3.0 invariants) has no subject left — **delete it, and say so**, rather than leaving a green test asserting a file that is gone. `detectionEngine.test.ts`'s `BENCH_MODES` lockstep check ([:118-138](../../apps/mobile/src/shared/services/__tests__/detectionEngine.test.ts#L118)) **must be re-pointed, not deleted** — it is a genuine cross-language contract guard and it is more valuable after this story, not less. Update the expected mode list to AC0c's outcome.
+
+### Architecture cascade
+
+- [ ] **AC10 — SEC-007 entry 5 narrows; entry 5a is resolved.** [architecture.md](../architecture.md) → *SEC-007 third-party SDK allowlist*. Entry 5 currently names `GLES30`/`EGL14`/`SurfaceTexture` **as pending removal** — *"they are still present in the emitted sources today, which is why this entry names them as pending removal rather than omitting them."* **That sentence becomes false when you land this story. Rewrite entry 5 to the bound surface: `android.media.MediaCodec` + `android.media.MediaExtractor` + a plain Kotlin integer rule evaluator and colour converter.** Entry 5a per AC0d(ii). ⚠️ **Nothing here widens a permission surface** — GLES/EGL require none, and there is no `<uses-feature android:glEsVersion>` in the tree to remove (verified). Do not invent one to delete.
+- [ ] **AC11 — The architecture's own "pending removal" pointers are closed.** At minimum: [Decision #13](../architecture.md) → *Implementation* (*"the GLES/EGL sources are removed by Story 12.4, not here"*); the **[INVARIANT: native-modules-only-via-shared-services]** amendment (*"the GLES/EGL surface is removed by Story 12.4"*); and [`architecture-spike-gpu-megashader.md`](../architecture-spike-gpu-megashader.md) → *What this does NOT bind* (*"This spike removes no code… their physical removal… is Story 12.4's"*) and its *Follow-up work required* row. **Each says "Story 12.4 will"; make each say what happened.** *(Amendment **5c does NOT lapse** — MediaCodec keeps decode Android-only with or without GLES. It is **re-scoped, not reverted**. Do not "finish the job" by reverting it; [architecture.md](../architecture.md) → *iOS Phase 2 deferral* explains why at length.)*
+- [ ] **AC12 — `docs/architecture-mobile.md`'s native-module table is corrected while you are in it.** It currently lists **four** modules and describes `opencv.ts` as *"**Stub.** `loadFrameFromPath` throws"* — **that is stale**: [`opencv.ts:412-492`](../../apps/mobile/src/shared/services/opencv.ts#L412) is a fully implemented `react-native-fast-opencv` JSI call. Add the detection engine as the fifth module and fix the OpenCV row. **Fix only these two facts** — the broader pHash→ROI/HSV prose sweep is **Story 9.10's** and the OpenCV *retirement* decision is **12.4c's**.
+
+### Fences, gates, delivery
+
+- [ ] **AC13 — Scope fence.** 12.4b does **NOT**: rewrite `gameDetector.ts` / `mapIdentifier.ts` / `blackScreenDetector.ts` / `segmentation.ts` / `processingPipeline.ts` (**12.4c's**) · add a production detection API to the native module or `detectionEngine.ts` (**12.4c's**) · bundle or load `map_config` on device (**12.4c's**) · re-touch the decode loop's timeout/flush/index (**12.4a's** — inherit them) · re-measure PERF-002 end to end (**12.4d's**) · resolve rung-0 or retire rung 3 (**12.4d's**) · delete Tool 12 or its `.frag` (**12.1 is `done`; 9.16 re-points the testers**) · touch `map_config*`, zone data or `contracts/` · bump `schema_version` (**E1**) · run the exhaustive pHash prose sweep (**9.10's**).
+- [ ] **AC14 — Gates green.** `pnpm typecheck && pnpm test && pnpm format:check` from the repo root. **Re-verify the baseline first.** Post-12.3 state: mobile jest **20 suites / 161 passed + 10 todo**; tooling pytest **305**; root typecheck **3 errors, all `web` (pre-existing)**; web vitest **flaky, not merely red** (134/191 then 132/193 on the *identical* tree — its count cannot be a regression signal at ±2); `format:check` clean. **🔴 Note `format:check` does NOT cover `_bmad-output/`** — `.prettierignore` excludes it, so a green run says nothing about story-file edits. **This story legitimately MOVES the jest numbers** (AC9 removes 4 tests and edits another) — that is expected, and the Dev Agent Record must state the new baseline explicitly so 12.4c does not read it as a regression.
+- [ ] **AC15 — Committed to `main`.** Direct to `main`, no branch, no PR ([[project_warden_main_branch_workflow]]); lowercase subject; scope `mobile`. `main` is **not** auto-pushed. `sprint-status.yaml` rides in the same commit; check `git status` for foreign edits first ([[project_warden_shared_doc_commit_boundary]]).
+- [ ] **AC16 — `sprint-status.yaml`: `12-4b-…` `in-progress → review`**, and `12-4c-…` `backlog → ready-for-dev`. Record in the entry comment: AC3's parity result (the first end-to-end run of the bound configuration), the new jest baseline, and what survived of the bench.
+
+---
+
+## Tasks / Subtasks
+
+- [ ] **Task 1 — Read the colour evidence.** (AC: 1, 2) [12.2 REPORT §6](../../apps/mobile/bench/12-2/REPORT.md) (*AC3 — colour*, and *Two silent colour bugs found and fixed*); `ac3_numpy_reference.py`; `RESOLVE_YUV_FRAG` at [`WardenDetectionEngine.kt:946-978`](../../apps/mobile/plugins/kotlin/WardenDetectionEngine.kt#L946); `imageToKeyframe` at [`WardenKeyframeDecoder.kt:766-785`](../../apps/mobile/plugins/kotlin/WardenKeyframeDecoder.kt#L766).
+- [ ] **Task 2 — Re-establish the parity baseline on device** with the GPU arm still present. You need a green `parityRun` to compare against. (AC: 3)
+- [ ] **Task 3 — Resolve AC0.** (AC: 0a–0d) Record all four verdicts before writing code.
+- [ ] **Task 4 — Write the CPU converter.** (AC: 1, 2) Constants verbatim · nearest chroma · NV12 **and** NV21 **and** I420 · geometry assertion · offline constants check.
+- [ ] **Task 5 — 🔴 THE GATE.** (AC: 3, 4) Run MediaCodec → CPU colour → `WardenCpuBaseline` over the 2666-frame corpus. **0 disagreements, or stop.** Record that this passed before proceeding to Task 6.
+- [ ] **Task 6 — Delete.** (AC: 5, 6, 7) Kotlin files → bench GL → asset emission → plugin `KOTLIN_FILES` + sweeper regex. **Prebuild against a reused `android/` tree** and confirm no orphaned `Warden*.kt` survives.
+- [ ] **Task 7 — TS narrowing + test disposal.** (AC: 8, 9)
+- [ ] **Task 8 — Architecture cascade.** (AC: 10, 11, 12) Turn every *"Story 12.4 will remove"* into a statement of what happened.
+- [ ] **Task 9 — Deliver.** (AC: 13–16) Fence check → gates → commit → sprint-status.
+
+---
+
+## Dev Notes
+
+### Removal inventory (verified against the tracked sources, 2026-09-17)
+
+The Kotlin exists in **two byte-identical copies**. **`apps/mobile/plugins/kotlin/*.kt` is the tracked source of truth**; `apps/mobile/android/app/src/main/java/team/warden/mobile/*.kt` is a **gitignored** build artifact regenerated at prebuild. **Edit the tracked copy only** — an edit under `android/` is silently discarded.
+
+| File | Lines | Disposition |
+|---|---|---|
+| `WardenGlUtil.kt` | 219 | **DELETE** — EGL 1.4 + GLES 3.0 plumbing; `WardenEglContext.createOffscreen` (pbuffer, `EGL_CONTEXT_CLIENT_VERSION 3`) |
+| `WardenDetectionEngine.kt` | 981 | **DELETE** — the mega-shader engine, both colour paths, FBOs, `glReadPixels`, the self-test |
+| `WardenCpuBaseline.kt` | 141 | **KEEP + PROMOTE** — the bound evaluator |
+| `WardenRulePacker.kt` | 386 | **KEEP**, minus `decodeResults` (`:380-385`) |
+| `WardenKeyframeDecoder.kt` | 918 | **KEEP**, minus `WardenSurfaceTextureHost` (`:818-918`) and the `toSurface` branches |
+| `WardenEngineBench.kt` | 1176 | **AMPUTATE** per AC0c — keep `lutCrossCheck` (`:143-185`, no GL), `flushprobe`, `seektest`, `timing`; re-point `parityRun` |
+| `WardenDetectionEngineModule.kt` | 96 | **EDIT** — `describeDevice` uses EGL (`:74-83`) |
+| `WardenDetectionEnginePackage.kt` | 21 | keep |
+| `WardenEngineBenchActivity.kt` | 86 | keep/trim per AC0c |
+
+**Inline GLSL lives in Kotlin string constants, not files** — `ES_VERSION` (`:825`), `OES_ESSL3_EXTENSION` (`:837`), `RULES_PROBE_FRAG` (`:847-877`), `VERT_BODY` (`:880-889`), `RESOLVE_OES_FRAG` (`:895-928`), `RESOLVE_YUV_FRAG` (`:946-978`). All go with the file. **The only external shader is Tool 12's `.frag` — AC6 protects it.**
+
+**There is no `<uses-feature android:glEsVersion>` and no GLES-related permission in the tree.** Verified. The main manifest's permissions (FOREGROUND_SERVICE, DATA_SYNC, INTERNET, POST_NOTIFICATIONS, READ/WRITE_EXTERNAL_STORAGE, SYSTEM_ALERT_WINDOW, VIBRATE) are Story 1.2's and unrelated. **Leave them alone.**
+
+**Story 1.2's `WardenProcessing*.kt`** (foreground service) are emitted by a *different* plugin (`with-foreground-service.js`, string templates, no `kotlin/` dir). **Untouched by this story.**
+
+### Why removing this is free, and why it is worth doing
+
+From [Decision #13](../architecture.md): *"Rejecting it removes an architectural surface at no measured cost — no EGL context to own and make current, no GL thread-affinity constraint, no LUT texture upload, no readback synchronisation, and no **driver-defined, AOSP-unspecified** colour conversion."*
+
+The last one is the substantive win. Path Z's zero-copy OES conversion diverged from bit-parity on **0.888%** of decisions across **59.9%** of keyframes and **95 of 134** rules — **including 44 of the 69 low-saturation rules**, exactly where the accepted `h_tol = 180` tuning is most fragile ([[project_warden_low_sat_hue_unconstrained]]). That divergence is driver-defined, so it is not merely imperfect but **unpredictable across devices**. **Option A reached the same colour behaviour by removing the choice instead of making it** — and this story is where the removal actually happens.
+
+There is also a measured cost *saving*: Path P's **disjoint GL stages were 3.068 ms of 42.299 ms/kf (7.3%)**. Removing them and adding back the CPU arm's **0.376 ms** is the arithmetic behind the `[P]` projection of 39.607 ms/kf. **12.4d measures whether that holds.**
+
+### Testing standards
+
+Mobile: **jest + jest-expo**, co-located `__tests__/<subject>.test.ts(x)` (Decision #ES-6). There are **no Kotlin unit or instrumented tests** in this repo — `android/app/src/` has no `test/` or `androidTest/`. All native verification is on-device via the bench plus the two disk-reading Jest guards. **That is the established pattern; this story is not the place to introduce a Kotlin test framework**, but if AC2's constants check is cheapest as a JVM-side check, say so and record it as a deviation.
+
+### Fixtures and reproduction
+
+| fixture | path |
+|---|---|
+| capture | `videos/V2/2026-04-27 22-05-34.mp4` — 1920×1080 h264 `yuv420p` **`color_range=tv`** `bt709` · 4419.633 s · 1061 keyframes |
+| config | `apps/tooling/output/map_configs/map_config.v2.json` — 134 rules (10 hud / 3 in_match / 121 map / 13 maps) |
+| parity corpus | `apps/tooling/output/labeled/v2/` — 2666 PNGs / 16 classes |
+| PC reference (**tracked**) | `apps/mobile/bench/12-2/pc_reference_fires.json` |
+| constants proof | `apps/mobile/bench/12-2/ac3_numpy_{reference.py,constants.json}` |
+
+Staging (scoped storage — `/sdcard/<dir>` is **EACCES at targetSdk 36**; `adb push` of a *directory* fails, pre-create with `mkdir -p`): input `getExternalFilesDir(null)/warden12_2`, output `.../bench12_2`. Full sequence: [`apps/mobile/bench/12-2/REPORT.md` §10](../../apps/mobile/bench/12-2/REPORT.md).
+
+### Project Structure Notes
+
+- The native module is the **fifth** and is reached **only** via `apps/mobile/src/shared/services/detectionEngine.ts` ([INVARIANT: native-modules-only-via-shared-services](../architecture.md)). Grep confirms `detectionEngine.ts` + its two test files are the only touch points in `apps/mobile/src` — AC18b holds. **Do not breach it while narrowing.**
+- The bridge is a **legacy `ReactPackage`, explicitly not a TurboModule** — no codegen spec exists anywhere in the repo ([`WardenDetectionEngineModule.kt:19-22`](../../apps/mobile/plugins/kotlin/WardenDetectionEngineModule.kt#L19)). Registered into `MainApplication.kt` by the plugin against the `// add(MyReactNativePackage())` anchor, which **throws on drift**. Same pattern as Story 1.2's FGS module ([[project_warden_fgs_mmkv_push]]).
+- Both native methods return a **JSON string**, parsed JS-side.
+
+### References
+
+- [Source: _bmad-output/architecture.md#Decision-13] — what is bound / what is dropped; *Implementation* ("GLES/EGL sources are removed by Story 12.4"); *Cascading implications*
+- [Source: _bmad-output/architecture.md#SEC-007] — entry 5 ("pending removal"), entry 5a (`ffmpeg-kit-main-16kb` re-declaration and its condition)
+- [Source: _bmad-output/architecture.md#iOS-Phase-2-deferral] — amendment 5c is **re-scoped, not reverted**
+- [Source: _bmad-output/architecture-spike-gpu-megashader.md] — *What is dropped*; *What this does NOT bind* ("this spike removes no code"); *Follow-up work required*; the Path Z / Path P divergence table
+- [Source: apps/mobile/bench/12-2/REPORT.md] — §6 colour (ΔH/ΔS/ΔV, the two silent bugs, the exhaustive constants proof), §7 parity, §10 reproduce
+- [Source: _bmad-output/implementation-artifacts/12-2-android-poc-gles-port.md] — the NV21 and geometry review findings; plugin idempotency-by-replacement
+- [Source: _bmad-output/epics-and-stories.md#Epic-12] — E1 schema unchanged; E3 hue wraparound mandatory; E4 doubt is first-class
+
+---
+
+## Dev Agent Record
+
+### Agent Model Used
+
+### Debug Log References
+
+### Completion Notes List
+
+### File List
