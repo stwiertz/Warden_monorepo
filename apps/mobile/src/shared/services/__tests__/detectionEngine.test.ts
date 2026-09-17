@@ -1,4 +1,22 @@
 // Story 12.2 (Epic 12) — wrapper-level guarantees of detectionEngine.ts.
+// Story 12.4b — the BENCH_MODES lockstep guard RE-POINTED, not deleted.
+//
+// 🔴 AC9 is explicit that this file's cross-language guard "must be re-pointed,
+// not deleted — it is a genuine cross-language contract guard and it is more
+// valuable after this story, not less." It is: 12.4b retired THREE native modes
+// (`cpugpu`, `pngdump` and the temporary `cpucolor` gate), and a TS union still
+// exporting them would type-check, resolve successfully, and hand back a report
+// with no measurements and no `error` field — the exact defect the 2026-09-15
+// review found with `"profile"`. The guard is what turns "we remembered to update
+// both sides" into something CI checks.
+//
+// Its sibling `detectionEnginePlugin.test.ts` was DELETED in the same story, and
+// the difference is worth stating: that one tested the plugin's `readVerbatimFrag`
+// — the shader-asset copy mechanism 12.4b removes — so it had no subject left. The
+// ES-3.0 invariants it also asserted are still gated, by the tooling pytest suite
+// over `read_frag_body()` (apps/tooling/tests/test_keyframe_engine_bench.py), which
+// is where a GLSL guard belongs now that no Kotlin reads that file. Tool 12's
+// `.frag` itself is untouched and must stay so (AC6).
 //
 // Device-free by construction, following the foregroundService.test.ts
 // precedent: `jest.mock("react-native")` + a stubbed NativeModules entry. There
@@ -7,7 +25,9 @@
 // testInstrumentationRunner), and Story 12.1's AC16 explicitly forbade a GL
 // context in its test suite. 12.2 keeps that line: the GL/MediaCodec surface is
 // verified by the on-device bench and its REPORT.md, exactly as 12.1 did, and
-// what is unit-tested here is the SEAM.
+// what is unit-tested here is the SEAM. (Pre-12.4b that GL surface was a GPU
+// mega-shader; it is now MediaCodec plus plain Kotlin, and the reasoning is
+// unchanged — jest still cannot run Kotlin.)
 //
 // Guarantees asserted:
 //   1. Android-only: every call no-ops off Android (amendment 5c — MediaCodec +
@@ -84,11 +104,10 @@ describe("detectionEngine wrapper (Story 12.2)", () => {
       android_release: "14",
       android_sdk_int: 34,
       model: "22101320G",
-      gl: { GL_RENDERER: "Adreno (TM) 642L" },
-      ac2_oes_essl3: {
-        extension_advertised: true,
-        extension_name: "GL_OES_EGL_image_external_essl3",
-        compiles: true,
+      engine: {
+        kind: "CPU integer rule evaluation on MediaCodec keyframe decode",
+        color_conversion: "WardenColorConvert — bt709 limited range, nearest chroma",
+        gpu_used: false,
       },
       a_field_the_seam_has_never_heard_of: { nested: [1, 2, 3] },
     };
@@ -136,6 +155,44 @@ describe("detectionEngine wrapper (Story 12.2)", () => {
     // report with no measurements and no error; a mode present in Kotlin but not
     // in TS is unreachable through the only sanctioned seam (AC18b).
     expect(tsModes).toEqual(nativeModes);
+  });
+
+  it("exports no mode the native bench has stopped dispatching on", () => {
+    // The lockstep test above would catch these too, but only as an opaque array
+    // inequality. Named explicitly because all three were LIVE modes whose removal
+    // is the story's substance, and because a TS-only mode is the silent failure:
+    // it type-checks and returns a successful-looking report with no measurements.
+    const ts = fs.readFileSync(
+      path.resolve(__dirname, "../detectionEngine.ts"),
+      "utf8"
+    );
+    const union = /export type BenchMode =([\s\S]*?);/.exec(ts);
+    expect(union).not.toBeNull();
+    const tsModes = [...union![1].matchAll(/"([a-z]+)"/g)].map((m) => m[1]);
+    // `cpugpu` lost its GPU arm; `pngdump` dumped the resolved GPU frame texture;
+    // `cpucolor` was 12.4b's own AC3(B) gate — an A/B against the GPU arm, so it
+    // could not outlive it (result banked in bench/12-4b/REPORT.md).
+    expect(tsModes).not.toContain("cpugpu");
+    expect(tsModes).not.toContain("pngdump");
+    expect(tsModes).not.toContain("cpucolor");
+    expect(tsModes).not.toContain("profile");
+  });
+
+  it("keeps the native side free of the deleted GLES/EGL surface", () => {
+    // AC5/AC18b. The bench is the only Kotlin the TS seam can reach, and it is the
+    // file that held every GL call site. A re-introduced import here would mean the
+    // GPU arm came back without anyone re-opening Decision #13 — which rejected it
+    // on a MEASUREMENT (GPU 6.4x slower for bit-identical output), not a preference.
+    const kotlin = fs.readFileSync(
+      path.resolve(__dirname, "../../../../plugins/kotlin/WardenEngineBench.kt"),
+      "utf8"
+    );
+    const code = kotlin
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+    expect(code).not.toMatch(/import android\.opengl/);
+    expect(code).not.toMatch(/GLES30|EGL14|WardenEglContext|WardenGlUtil/);
+    expect(code).not.toMatch(/WardenDetectionEngine\s*\(/);
   });
 
   it("holds the native keyframe-count assertion to a non-vacuous form", () => {

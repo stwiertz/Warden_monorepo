@@ -14,20 +14,19 @@
 // hand-edit of the generated tree is erased by the next `--clean` and is
 // invisible to git.
 //
-// What it emits:
-//   1. `assets/keyframe_engine_bench.frag` — the shader, COPIED VERBATIM from
-//      the tooling source of truth, guarded by a checksum (AC4).
-//   2. Six RN-agnostic Kotlin sources implementing the engine, the LUT packer,
-//      the keyframe decoder, the CPU baseline and the bench harness.
-//   3. A thin RN bridge (module + ReactPackage) — the trigger only; no engine
+// What it emits (Story 12.4b removed the shader asset — see below):
+//   1. RN-agnostic Kotlin sources implementing the LUT packer, the keyframe
+//      decoder, the colour converter, the CPU rule evaluator and the bench.
+//   2. A thin RN bridge (module + ReactPackage) — the trigger only; no engine
 //      logic lives in it, so the measurement code and the future runtime module
 //      are the same code (AC0a's closing clause).
-//   4. A DEBUG-ONLY `<activity>` in `src/debug/AndroidManifest.xml` so the bench
+//   3. A DEBUG-ONLY `<activity>` in `src/debug/AndroidManifest.xml` so the bench
 //      is adb-triggerable without an exported activity ever reaching a release
 //      manifest.
 //
 // Android-only by construction (amendment 5c): `withDangerousMod("android")` and
-// `withMainApplication` no-op on iOS.
+// `withMainApplication` no-op on iOS. 🔴 Amendment 5c is RE-SCOPED by Story 12.4b,
+// NOT reverted — MediaCodec keeps decode Android-only with or without GLES.
 
 const {
   withAppBuildGradle,
@@ -36,7 +35,6 @@ const {
   withPlugins,
   withRunOnce,
 } = require("@expo/config-plugins");
-const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
@@ -44,62 +42,23 @@ const PACKAGE = "team.warden.mobile";
 const PACKAGE_PATH = PACKAGE.split(".").join("/");
 
 // ---------------------------------------------------------------------------
-// AC4 — ONE GLSL body, two dialects, byte-identical apart from the preamble.
+// 🔴 STORY 12.4b REMOVED THE SHADER EMISSION. IT DID NOT REMOVE THE SHADER.
 //
-// The shader is NOT re-authored here as a JS string; it is READ FROM the tooling
-// package and copied verbatim, which is what makes "the Android copy is
-// regenerated from it" a mechanical fact rather than a promise. The checksum is
-// taken over LF-NORMALIZED bytes so a CRLF checkout (Windows) and an LF checkout
-// (CI/Linux) agree — the guard must fail on a CONTENT change, never on a line
-// ending.
+// This plugin used to read `apps/tooling/tools/keyframe_engine_bench/
+// keyframe_engine_bench.frag` verbatim, verify it against a pinned LF-normalized
+// SHA-256 (AC4's mechanical drift guard), and write it into
+// `android/app/src/main/assets/`. That copy fed `WardenDetectionEngine`, the GPU
+// mega-shader architecture.md Decision #13 rejected.
 //
-// If the tooling `.frag` legitimately changes, AC4's procedure is: change it in
-// the tooling file first, re-gate BOTH dialects
-// (`uv run python -m tools.keyframe_engine_bench --gate-glsl`), re-run the
-// tooling pytest suite, then update FRAG_SHA256 here. Prebuild failing loudly is
-// the point: silent drift between the PC reference and the device port would
-// invalidate every parity number the story produces.
+// What is gone is the COPY MECHANISM. The tooling `.frag` is untouched and must
+// stay untouched: it is Tool 12's source of truth, Story 12.1 is `done`, Tool 12
+// is the PC bench, and Story 9.16 re-points the testers at it. Its ES-3.0
+// invariants are still gated — by the tooling pytest suite over `read_frag_body()`
+// (`apps/tooling/tests/test_keyframe_engine_bench.py`), which is where a GLSL
+// guard belongs now that no Kotlin reads the file.
+//
+// `detectionEnginePlugin.test.ts` tested `readVerbatimFrag` and went with it.
 // ---------------------------------------------------------------------------
-const FRAG_RELATIVE_PATH = path.join(
-  "..",
-  "..",
-  "tooling",
-  "tools",
-  "keyframe_engine_bench",
-  "keyframe_engine_bench.frag"
-);
-const FRAG_SHA256 =
-  "5bc4fc754fb592d81209fe6a512e21b11e3ec3bedd36fc3f5148eba29ffdeee0";
-const FRAG_ASSET_NAME = "keyframe_engine_bench.frag";
-
-function readVerbatimFrag() {
-  // `__dirname` is apps/mobile/plugins — the tooling package is a sibling app in
-  // the same pnpm workspace, so this resolves in every checkout of the monorepo.
-  const src = path.resolve(__dirname, FRAG_RELATIVE_PATH);
-  if (!fs.existsSync(src)) {
-    throw new Error(
-      `[with-detection-engine] AC4: shader source of truth not found at ${src}. ` +
-        "The Android shader is a verbatim copy of the tooling file — it is never " +
-        "re-authored. Restore apps/tooling/tools/keyframe_engine_bench/."
-    );
-  }
-  const normalized = fs.readFileSync(src).toString("utf8").replace(/\r\n/g, "\n");
-  const actual = crypto.createHash("sha256").update(normalized, "utf8").digest("hex");
-  if (actual !== FRAG_SHA256) {
-    throw new Error(
-      "[with-detection-engine] AC4 VIOLATION — keyframe_engine_bench.frag has " +
-        `changed.\n  expected sha256 (LF-normalized): ${FRAG_SHA256}\n` +
-        `  actual   sha256 (LF-normalized): ${actual}\n` +
-        "A change to the shader body invalidates every parity number Story 12.2 " +
-        "measured against the PC reference. AC4's procedure: change the TOOLING " +
-        "file first, re-gate both dialects (--gate-glsl), re-run the tooling " +
-        "pytest suite, then update FRAG_SHA256 in this plugin. Do not 'fix' this " +
-        "by editing the checksum alone."
-    );
-  }
-  return normalized;
-}
-
 // ---------------------------------------------------------------------------
 // Kotlin sources. Each is read from `plugins/kotlin/` rather than inlined as a
 // template literal: the FGS plugin's string-template approach works for ~100
@@ -109,10 +68,9 @@ function readVerbatimFrag() {
 // ---------------------------------------------------------------------------
 const KOTLIN_SOURCE_DIR = path.resolve(__dirname, "kotlin");
 const KOTLIN_FILES = [
-  "WardenGlUtil.kt",
   "WardenRulePacker.kt",
-  "WardenDetectionEngine.kt",
   "WardenCpuBaseline.kt",
+  "WardenColorConvert.kt",
   "WardenKeyframeDecoder.kt",
   "WardenEngineBench.kt",
   "WardenDetectionEngineModule.kt",
@@ -157,25 +115,35 @@ function withEngineSources(config) {
       // plugin's own files are left alone — only names this plugin owns.
       const owned = new Set(KOTLIN_FILES);
       for (const existing of fs.readdirSync(javaDir)) {
-        if (!/^Warden(DetectionEngine|Engine|GlUtil|RulePacker|CpuBaseline|KeyframeDecoder).*\.kt$/.test(existing)) {
+        // 🔴 TRAP: this alternation is what actually DELETES a source dropped
+        // from KOTLIN_FILES. A name it cannot match survives prebuild as an
+        // orphan that still COMPILES, and the regex fails SILENTLY. Any file
+        // added to or renamed in KOTLIN_FILES must be reflected here in the SAME
+        // edit — `ColorConvert` was added by Story 12.4b alongside the file.
+        // The FGS plugin's WardenProcessing*.kt are deliberately not matched.
+        if (!/^Warden(DetectionEngine|Engine|GlUtil|RulePacker|CpuBaseline|ColorConvert|KeyframeDecoder).*\.kt$/.test(existing)) {
           continue;
         }
         if (owned.has(existing)) continue;
         fs.rmSync(path.join(javaDir, existing));
       }
 
-      // AC0d — the `.frag` lands in `assets/`, NOT `res/raw/`. `res/raw/`
-      // resource names may not contain uppercase letters or dots, so the file
-      // would have to be RENAMED to live there — which directly undercuts AC4's
-      // "copied verbatim" guarantee and the one-source-of-truth claim. `assets/`
-      // preserves the filename and is read with AssetManager.open().
-      const assetsDir = path.join(androidRoot, "app", "src", "main", "assets");
-      fs.mkdirSync(assetsDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(assetsDir, FRAG_ASSET_NAME),
-        readVerbatimFrag(),
-        "utf8"
+      // 🔴 Story 12.4b — sweep the shader asset off a REUSED android/ tree.
+      //
+      // The plugin used to write `assets/keyframe_engine_bench.frag` here. Simply
+      // dropping the write leaves the old copy in place on any tree not prebuilt
+      // with --clean, where it would keep shipping in the APK: 22 kB of a shader
+      // nothing reads, and a second "source of truth" for anyone who greps for it.
+      // Same reasoning as the stale-.kt sweeper above — remove what we used to own.
+      const staleFrag = path.join(
+        androidRoot,
+        "app",
+        "src",
+        "main",
+        "assets",
+        "keyframe_engine_bench.frag"
       );
+      if (fs.existsSync(staleFrag)) fs.rmSync(staleFrag);
 
       // AC7/AC5 — the packed reference LUT and the PC parity fixtures are pushed
       // at run time via adb, never baked into the APK: they are gitignored
@@ -427,7 +395,3 @@ function withDetectionEngine(config) {
 }
 
 module.exports = withDetectionEngine;
-// Exported for the plugin's own unit test (AC4's guard is the thing most worth
-// testing, and it is pure).
-module.exports.readVerbatimFrag = readVerbatimFrag;
-module.exports.FRAG_SHA256 = FRAG_SHA256;

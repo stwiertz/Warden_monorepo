@@ -32,17 +32,18 @@ class WardenDetectionEngineModule(
     /**
      * Runs the bench off the JS thread and resolves with the report JSON.
      *
-     * The engine's EGL context is created on THIS worker thread and never
-     * touches the RN thread — which is precisely the AC16 finding: the binding
-     * shape is governed by thread affinity, not by which JS context is alive.
+     * Runs on a plain worker thread and never touches the RN thread. Pre-12.4b
+     * that was AC16's finding about EGL thread affinity; with the GPU arm gone the
+     * reason is simply that a multi-minute decode must not block JS.
      */
     @ReactMethod
     fun runBench(mode: String, video: String?, limit: Int, cpuFrames: Int, promise: Promise) {
-        // 🔴 REVIEW 2026-09-15: two overlapping runs each spawned their own EGL
-        // context and both wrote report_<mode>.json, parity_fires.json,
-        // rules_lut_device.f32 and timing_fires_*.json into the same directory —
-        // interleaved artifacts, and two runs contending for the GPU while each
-        // claims to measure sustained clocks. A bench is a singleton by nature.
+        // 🔴 REVIEW 2026-09-15: two overlapping runs both wrote report_<mode>.json,
+        // parity_fires.json, rules_lut_device.f32 and timing_fires_*.json into the
+        // same directory — interleaved artifacts, and two runs contending for the
+        // machine while each claims to measure sustained clocks. A bench is a
+        // singleton by nature. (Pre-12.4b each also spawned its own EGL context;
+        // the artifact collision and the clock contention outlive the GPU arm.)
         if (!benchInFlight.compareAndSet(false, true)) {
             promise.reject(
                 "WARDEN_BENCH_BUSY",
@@ -65,29 +66,40 @@ class WardenDetectionEngineModule(
     }
 
     /**
-     * AC1/AC2 only — cheap enough to call from JS without a full bench run.
-     * Creates and releases its own context, so it is safe to call repeatedly.
+     * The device profile — cheap enough to call from JS without a full bench run.
+     *
+     * 🔴 STORY 12.4b RE-POINTED THIS AT A GL-FREE PROFILE. It used to open an
+     * offscreen EGL context purely to read GL_RENDERER / GL_VERSION and compile-probe
+     * `GL_OES_EGL_image_external_essl3`, because Path Z's availability turned on
+     * them. architecture.md Decision #13 rejected the GPU engine, so there is no
+     * context to create and no extension whose absence changes anything.
+     *
+     * What it reports now is what the BOUND path rests on: SoC, API level, thermal
+     * state, and the MediaCodec decoder's identity and colour formats — the last of
+     * which decides whether `COLOR_FormatYUV420Flexible`, and therefore
+     * WardenColorConvert, works on this device at all.
+     *
+     * Still off the JS thread, still safe to call repeatedly, and now genuinely
+     * cheap: it allocates nothing and touches no GPU. Passing a null video path
+     * keeps it off the decoder entirely; Story 12.4c decides whether the production
+     * caller wants the `mediacodec` block.
      */
     @ReactMethod
     fun describeDevice(promise: Promise) {
         Thread({
-            var egl: WardenEglContext? = null
             try {
-                egl = WardenEglContext.createOffscreen()
                 val bench = WardenEngineBench(reactContext.applicationContext)
-                promise.resolve(bench.deviceProfile(egl, null).toString())
+                promise.resolve(bench.deviceProfile(null).toString())
             } catch (t: Throwable) {
                 promise.reject("WARDEN_DEVICE_PROBE_FAILED", t.message, t)
-            } finally {
-                egl?.release()
             }
         }, "warden-device-probe").start()
     }
 
     companion object {
         /**
-         * Process-wide guard: the bench owns the GPU, the EGL context and a fixed
-         * set of artifact filenames, so exactly one run may be in flight.
+         * Process-wide guard: the bench owns a fixed set of artifact filenames and
+         * the machine's sustained clocks, so exactly one run may be in flight.
          * [WardenEngineBenchActivity] takes the same latch.
          */
         @JvmStatic

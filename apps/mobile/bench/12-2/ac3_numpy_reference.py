@@ -39,8 +39,9 @@ comparison could:
 WHAT THIS DOES *NOT* CLAIM
 --------------------------
 It does not make dS = 0 against an FFmpeg `rgb24` PNG achievable. It cannot:
-`RESOLVE_YUV_FRAG` samples chroma nearest-neighbour (`ivec2(p.x / 2, p.y / 2)`)
-while swscale interpolates, so the two disagree at every chroma edge BY DESIGN,
+the conversion samples chroma nearest-neighbour (`ivec2(p.x / 2, p.y / 2)` in
+the original shader, `x / 2, y / 2` in WardenColorConvert) while swscale
+interpolates, so the two disagree at every chroma edge BY DESIGN,
 with a residual bounded by the local chroma gradient. AC3's literal stop rule was
 unreachable by construction against that reference. What is provable, and is
 proved here, is that the CONSTANTS -- the thing the stop rule exists to protect
@@ -63,12 +64,23 @@ import numpy as np
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------------------------------------------------------------------
-# The constants, transcribed from WardenDetectionEngine.RESOLVE_YUV_FRAG.
+# The constants, transcribed from the Kotlin colour converter.
+#
+# 🔴 RE-POINTED BY STORY 12.4b. They were transcribed from
+# `WardenDetectionEngine.RESOLVE_YUV_FRAG` -- a GPU shader in a file 12.4b
+# DELETES, because architecture.md Decision #13 rejected the shader. The
+# constants did not change (that is the point: they were ported verbatim); their
+# HOME did. It is now `plugins/kotlin/WardenColorConvert.kt`.
+#
+# Left pointing at the old file, `verify-shader-transcription` would have raised
+# FileNotFoundError -- the exhaustive proof becoming unrunnable at exactly the
+# moment it became the ONLY proof of these numbers.
 #
 # Transcribed DELIBERATELY rather than parsed: the point of an independent
-# reimplementation is that a human read the shader and wrote the arithmetic
-# again. `verify-shader-transcription` re-reads the shader and asserts these
+# reimplementation is that a human read the source and wrote the arithmetic
+# again. `verify-shader-transcription` re-reads that source and asserts these
 # literals still appear in it, so the independence cannot silently rot.
+# `colorConvert.test.ts` holds the same pairing from the other side, in CI.
 # ---------------------------------------------------------------------------
 Y_OFFSET = 16.0
 Y_SCALE = 219.0
@@ -81,7 +93,22 @@ KG_CR = 0.4681
 KB_CB = 1.8556   # b = yn + KB_CB * cbn
 
 SHADER_PATH = os.path.join(
-    _HERE, "..", "..", "plugins", "kotlin", "WardenDetectionEngine.kt"
+    _HERE, "..", "..", "plugins", "kotlin", "WardenColorConvert.kt"
+)
+
+# 🔴 STORY 12.4b -- the pin the DEVICE is held to.
+#
+# Everything else in this file proves the CONSTANTS. A port can carry the right
+# constants and still have the wrong ARITHMETIC (a `+` where the shader has a
+# `-` passes every literal check ever written), and no offline check of literals
+# can see that. So the device re-computes this entire 2^24 domain with the
+# shipped Kotlin and hashes the result; `WardenEngineBench.colorConstantsCheck()`
+# compares its digest against this one.
+#
+# SHA-256 over `shader_model`'s uint8 B,G,R output for every (Y, Cb, Cr) triple,
+# C-order: y slowest, then cb, then cr, then the three channels.
+REFERENCE_YUV_SWEEP_SHA256 = (
+    "4dd2da47dc76c0b295572188703077e65b8c01c4c366b52fd73d6d6404c34e27"
 )
 
 
@@ -290,18 +317,39 @@ def verify_constants(out_path: str) -> int:
 
 
 def verify_shader_transcription() -> int:
-    """Assert the literals above still appear in the shader they were read from."""
-    with open(os.path.abspath(SHADER_PATH), encoding="utf-8") as fh:
+    """Assert the literals above still appear in the source they were read from."""
+    path = os.path.abspath(SHADER_PATH)
+    if not os.path.exists(path):
+        print(f"🔴 colour-converter source not found at {path} — this script's "
+              f"transcription cannot be checked, so its independence claim is "
+              f"unverifiable. Story 12.4b moved the constants from "
+              f"WardenDetectionEngine.RESOLVE_YUV_FRAG (deleted with the GPU arm) "
+              f"to WardenColorConvert.kt; if that file moved again, re-point "
+              f"SHADER_PATH in the same edit.")
+        return 1
+    with open(path, encoding="utf-8") as fh:
         src = fh.read()
     missing = [
         lit for lit in ("1.5748", "0.1873", "0.4681", "1.8556", "219.0", "224.0")
         if lit not in src
     ]
     if missing:
-        print(f"🔴 shader no longer contains: {missing} — this script's "
-              f"transcription is stale and its independence claim is void.")
+        print(f"🔴 {os.path.basename(path)} no longer contains: {missing} — this "
+              f"script's transcription is stale and its independence claim is void.")
         return 1
-    print("shader transcription still matches RESOLVE_YUV_FRAG.")
+    # The device pin is part of the same contract: the bench hashes its own
+    # 2^24 sweep against REFERENCE_YUV_SWEEP_SHA256, and a digest that no longer
+    # appears on both sides is a pin that proves nothing.
+    bench = os.path.join(os.path.dirname(path), "WardenEngineBench.kt")
+    if os.path.exists(bench):
+        with open(bench, encoding="utf-8") as fh:
+            if REFERENCE_YUV_SWEEP_SHA256 not in fh.read():
+                print(f"🔴 {os.path.basename(bench)} does not pin "
+                      f"REFERENCE_YUV_SWEEP_SHA256 = {REFERENCE_YUV_SWEEP_SHA256}; "
+                      f"the on-device sweep is comparing against a different "
+                      f"reference than this script produces.")
+                return 1
+    print("constants transcription still matches WardenColorConvert.kt.")
     return 0
 
 

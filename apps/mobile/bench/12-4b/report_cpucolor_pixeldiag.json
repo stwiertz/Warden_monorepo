@@ -1,0 +1,211 @@
+{
+ "story": "12.2",
+ "generated_at": 1789648533747,
+ "mode": "cpucolor",
+ "reference_device_note": "Measured on the Poco X5 Pro 5G (SM7325 \/ Android 14 \/ Adreno 642L). AC15: these are REAL reference-device numbers but they bind NEITHER PERF-002 NOR PERF-010 — both re-baseline with Story 12.3, and PERF-010 is a SOFT target, not a measured floor. The engine brief's <10 s is the aspiration, not an acceptance criterion. Parity figures are an IN-SAMPLE parity target, never accuracy-in-the-world; REL-006's >=95% floor is 9.9b's, instrumented by Tool 9 via 9.16.",
+ "ac11_one_off_egl_context_ms": 9.283177,
+ "ac1_device_profile": {
+  "android_release": "14",
+  "android_sdk_int": 34,
+  "model": "22101320G",
+  "manufacturer": "Xiaomi",
+  "board": "redwood",
+  "hardware": "qcom",
+  "soc_model": "SM7325",
+  "supported_abis": [
+   "arm64-v8a",
+   "armeabi-v7a",
+   "armeabi"
+  ],
+  "thermal": {
+   "available": true,
+   "status": 0,
+   "status_name": "NONE",
+   "throttled": false,
+   "note": "0 = NONE. Anything above LIGHT means the governor is capping clocks and every ms\/keyframe figure in this report is a throttled measurement, not a capability measurement."
+  },
+  "gl": {
+   "GL_VENDOR": "Qualcomm",
+   "GL_RENDERER": "Adreno (TM) 642L",
+   "GL_VERSION": "OpenGL ES 3.2 V@0530.57 (GIT@4bbe300fc3, Ie69fc1c69b, 1747652194) (Date:05\/19\/25)",
+   "GL_SHADING_LANGUAGE_VERSION": "OpenGL ES GLSL ES 3.20",
+   "GL_EXTENSIONS": "GL_OES_EGL_image GL_OES_EGL_image_external GL_OES_EGL_sync GL_OES_vertex_half_float GL_OES_framebuffer_object GL_OES_rgb8_rgba8 GL_OES_compressed_ETC1_RGB8_texture GL_AMD_compressed_ATC_texture GL_KHR_texture_compression_astc_ldr GL_KHR_texture_compression_astc_hdr GL_OES_texture_compression_astc GL_OES_texture_npot GL_EXT_texture_filter_anisotropic GL_EXT_texture_format_BGRA8888 GL_EXT_read_format_bgra GL_OES_texture_3D GL_EXT_color_buffer_float GL_EXT_color_buffer_half_float GL_QCOM_alpha_test GL_OES_depth24 GL_OES_packed_depth_stencil GL_OES_depth_texture GL_OES_depth_texture_cube_map GL_EXT_sRGB GL_OES_texture_float GL_OES_texture_float_linear GL_OES_texture_half_float GL_OES_texture_half_float_linear GL_EXT_texture_type_2_10_10_10_REV GL_EXT_texture_sRGB_decode GL_EXT_texture_format_sRGB_override GL_OES_element_index_uint GL_EXT_copy_image GL_EXT_geometry_shader GL_EXT_tessellation_shader GL_OES_texture_stencil8 GL_EXT_shader_io_blocks GL_OES_shader_image_atomic GL_OES_sample_variables GL_EXT_texture_border_clamp GL_EXT_EGL_image_external_wrap_modes GL_EXT_multisampled_render_to_texture GL_EXT_multisampled_render_to_texture2 GL_OES_shader_multisample_interpolation GL_EXT_texture_cube_map_array GL_EXT_draw_buffers_indexed GL_EXT_gpu_shader5 GL_EXT_robustness GL_EXT_texture_buffer GL_EXT_shader_framebuffer_fetch GL_ARM_shader_framebuffer_fetch_depth_stencil GL_OES_texture_storage_multisample_2d_array GL_OES_sample_shading GL_OES_get_program_binary GL_EXT_debug_label GL_KHR_blend_equation_advanced GL_KHR_blend_equation_advanced_coherent GL_QCOM_tiled_rendering GL_ANDROID_extension_pack_es31a GL_EXT_primitive_bounding_box GL_OES_standard_derivatives GL_OES_vertex_array_object GL_EXT_disjoint_timer_query GL_KHR_debug GL_EXT_YUV_target GL_EXT_sRGB_write_control GL_EXT_texture_norm16 GL_EXT_discard_framebuffer GL_OES_surfaceless_context GL_OVR_multiview GL_OVR_multiview2 GL_EXT_texture_sRGB_R8 GL_KHR_no_error GL_EXT_debug_marker GL_OES_EGL_image_external_essl3 GL_OVR_multiview_multisampled_render_to_texture GL_EXT_buffer_storage GL_EXT_external_buffer GL_EXT_blit_framebuffer_params GL_EXT_clip_cull_distance GL_EXT_protected_textures GL_EXT_shader_non_constant_global_initializers GL_QCOM_texture_foveated GL_QCOM_texture_foveated_subsampled_layout GL_QCOM_shader_framebuffer_fetch_noncoherent GL_QCOM_shader_framebuffer_fetch_rate GL_EXT_memory_object GL_EXT_memory_object_fd GL_EXT_EGL_image_array GL_NV_shader_noperspective_interpolation GL_KHR_robust_buffer_access_behavior GL_EXT_EGL_image_storage GL_EXT_blend_func_extended GL_EXT_clip_control GL_OES_texture_view GL_EXT_fragment_invocation_density GL_QCOM_motion_estimation GL_QCOM_validate_shader_binary GL_QCOM_YUV_texture_gather GL_QCOM_shading_rate "
+  },
+  "ac2_oes_essl3": {
+   "extension_advertised": true,
+   "extension_name": "GL_OES_EGL_image_external_essl3",
+   "compiles": true,
+   "consequence_if_absent": "Path Z is UNAVAILABLE under ESSL 3.00. Do NOT fall back to #version 100 + GL_OES_EGL_image_external — that breaks E2 (one GLSL source of truth) and turns the port into a rewrite. Fall to AC0c Path P and say so."
+  },
+  "mediacodec": {
+   "codec_name": "c2.qti.avc.decoder",
+   "is_hardware_accelerated": true,
+   "mime": "video\/avc",
+   "width": 1920,
+   "height": 1080,
+   "duration_us": 4419633333,
+   "sync_sample_count": -1,
+   "sync_sample_count_source": "NOT MEASURED — this profile never runs the 62 s ground-truth walk (Story 12.4a AC3). A bench mode that needs it scans explicitly and passes it in; -1 means no mode in this run asked.",
+   "supported_color_formats": [
+    2130708361,
+    2135033992,
+    19,
+    21,
+    20,
+    39
+   ]
+  }
+ },
+ "ac16_threading_model": {
+  "egl_owner_thread": "warden-bench",
+  "egl_owner_thread_id": 882,
+  "bench_thread": "warden-bench",
+  "is_main_thread": false,
+  "finding": "EGL contexts are THREAD-bound, not JS-context-bound. This context was created and made current on a plain worker thread with a pbuffer surface: no Activity, no SurfaceView, no UI thread. GL calls, SurfaceTexture.updateTexImage() and the MediaCodec output handling all run on that same thread. architecture.md:2047's rationale (\"the foreground service hosts the main JS context where the JSI binding lives\") is therefore NOT the constraint that governs this engine — thread affinity is. The CONCLUSION survives (a foreground service still hosts the work, because the process must stay alive), but it is now re-derived rather than inherited. 12.3 rewrites the architecture prose."
+ },
+ "ac5_lut_cross_check": {
+  "n_rules": 134,
+  "bytes": 7200,
+  "sha256": "b8287e084937dff08ee9a36bdb144e7d09b4bb414bab88d5fee6ee1b2b7f62c5",
+  "mode_distribution": {
+   "normal": 57,
+   "wrap": 9,
+   "full_circle": 68
+  },
+  "reference_sha256_from_lut_py": "b8287e084937dff08ee9a36bdb144e7d09b4bb414bab88d5fee6ee1b2b7f62c5",
+  "matches_reference": true
+ },
+ "ac2_color_constants": {
+  "triples": 16777216,
+  "sha256": "4dd2da47dc76c0b295572188703077e65b8c01c4c366b52fd73d6d6404c34e27",
+  "reference_sha256_from_numpy": "4dd2da47dc76c0b295572188703077e65b8c01c4c366b52fd73d6d6404c34e27",
+  "matches_reference": true,
+  "total_ms": 24276.429574,
+  "note": "Exhaustive over the WHOLE (Y, Cb, Cr) domain — 16,777,216 triples, bit-for-bit against ac3_numpy_reference.shader_model. A match means the ported ARITHMETIC is right, not merely that the constants are: the literal checks in colorConvert.test.ts and verify-constants cannot distinguish a transcribed operator error. WardenColorConvert computes in fp64 where the shader ran at ESSL highp (fp32); measured on PC the two disagree on 109 of 16,777,216 triples (0.00065%), max 1 unit — 275x rarer than the published-rounding error the BT.709 four-decimal constants already carry, and inside the same envelope."
+ },
+ "ac0c_paths_measured": [
+  "ZERO_COPY",
+  "BIT_PARITY"
+ ],
+ "ac3b_cpu_color_parity": {
+  "n_keyframes": 2,
+  "n_rules": 134,
+  "rule_frame_decisions": 268,
+  "frames_with_disagreement": 0,
+  "total_rule_disagreements": 0,
+  "decoder_chroma_layout": "NV12 (semi-planar, U V U V)",
+  "cpu_ms_per_keyframe": 9.3223695,
+  "gpu_ms_per_keyframe": 16.256328,
+  "per_rule_disagreements": {},
+  "examples": [],
+  "first_frame_pixel_diff": {
+   "differing_pixel_locations": [
+    {
+     "x": 438,
+     "y": 110,
+     "chroma_x": 219,
+     "chroma_y": 55,
+     "max_channel_delta": 1,
+     "gpu_bgr": [
+      49,
+      78,
+      119
+     ],
+     "cpu_bgr": [
+      49,
+      79,
+      119
+     ]
+    },
+    {
+     "x": 1918,
+     "y": 1078,
+     "chroma_x": 959,
+     "chroma_y": 539,
+     "max_channel_delta": 68,
+     "gpu_bgr": [
+      5,
+      73,
+      0
+     ],
+     "cpu_bgr": [
+      5,
+      5,
+      5
+     ]
+    },
+    {
+     "x": 1919,
+     "y": 1078,
+     "chroma_x": 959,
+     "chroma_y": 539,
+     "max_channel_delta": 69,
+     "gpu_bgr": [
+      3,
+      72,
+      0
+     ],
+     "cpu_bgr": [
+      3,
+      3,
+      3
+     ]
+    },
+    {
+     "x": 1918,
+     "y": 1079,
+     "chroma_x": 959,
+     "chroma_y": 539,
+     "max_channel_delta": 69,
+     "gpu_bgr": [
+      2,
+      71,
+      0
+     ],
+     "cpu_bgr": [
+      2,
+      2,
+      2
+     ]
+    },
+    {
+     "x": 1919,
+     "y": 1079,
+     "chroma_x": 959,
+     "chroma_y": 539,
+     "max_channel_delta": 68,
+     "gpu_bgr": [
+      0,
+      68,
+      0
+     ],
+     "cpu_bgr": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "frame_width": 1920,
+   "frame_height": 1080,
+   "chroma_width": 960,
+   "chroma_height": 540,
+   "decoder_chroma_layout": "NV12 (semi-planar, U V U V)",
+   "taken": true,
+   "pts_us": 0,
+   "pixels": 2073600,
+   "differing_pixels": 5,
+   "differing_fraction": 2.4112654320987654E-6,
+   "max_abs_channel_delta": 69,
+   "mean_abs_channel_delta": 4.5814043209876546E-5,
+   "delta_histogram": {
+    "0": 2073595,
+    "1": 1,
+    "68": 2,
+    "69": 2
+   },
+   "note": "GPU = the RESOLVED frame texture RESOLVE_YUV_FRAG wrote (B,G,R,A, .r == blue). CPU = WardenColorConvert over the SAME decoder planes. A residual of +\/-1 on a small fraction is the fp32-vs-fp64 difference measured at 109 of 16,777,216 triples on PC, NOT a matrix or range error — those are unbounded and affine in the pixel's own chroma. Off the measurement path: an 8.3 MB readback plus a whole-frame CPU conversion, first keyframe only."
+  },
+  "note": "🔴 STORY 12.4b AC3(B) — THE GATE. MediaCodec -> CPU colour -> WardenCpuBaseline, against MediaCodec -> RESOLVE_YUV_FRAG -> mega-shader -> readback, on IDENTICAL decoder output, frame by frame. This is the end-to-end run the `[P]` label exists because nobody had done. Zero, or the GPU arm does not get deleted. The CPU arm converts RULE REGIONS ONLY (~800 texels); the GPU arm converts all 2,073,600 because a shader needs a whole texture."
+ }
+}

@@ -1,6 +1,5 @@
 package team.warden.mobile
 
-import android.graphics.SurfaceTexture
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaExtractor
@@ -8,7 +7,6 @@ import android.media.MediaFormat
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
-import android.view.Surface
 import java.nio.ByteBuffer
 
 // Story 12.2 AC0b — keyframe-only decode. `-skip_frame nokey` has NO MediaCodec
@@ -64,7 +62,7 @@ class WardenKeyframe(
     val presentationTimeUs: Long,
     val width: Int,
     val height: Int,
-    /** Path P only: Y/U/V planes + their strides. Null on the Surface path. */
+    /** Y/U/V planes + their strides, as the codec reported them. Never null. */
     val planes: Array<ByteBuffer>? = null,
     val rowStrides: IntArray? = null,
     val pixelStrides: IntArray? = null,
@@ -83,7 +81,6 @@ data class WardenDecoderProfile(
 
 class WardenKeyframeDecoder(
     private val path: String,
-    private val toSurface: Surface?,
 ) : AutoCloseable {
 
     private val extractor = MediaExtractor()
@@ -100,8 +97,12 @@ class WardenKeyframeDecoder(
 
     /**
      * Every `MediaCodec.flush()` this decoder has actually issued. Incremented at
-     * all three call sites (`decodeProbe`, `flushOnlyProbe`,
-     * `decodeKeyframesBySeekSurfaceLegacy`) and at none other.
+     * both remaining call sites (`decodeProbe`, `flushOnlyProbe`) and at none
+     * other. Story 12.4b removed the third — `decodeKeyframesBySeekSurfaceLegacy`,
+     * the Surface-only pre-12.4a loop — with the Surface path itself, so **no
+     * decode path this app ships calls `flush()` any more**. The two that remain
+     * are bench INSTRUMENTS whose structure is load-bearing: `decodeProbe` is the
+     * A/B that measured the flush at 14.5 ms in the first place.
      *
      * 🔴 Added by the 2026-09-17 review because `pipelineProbe` used to report
      * `"flush_calls" to 0` as a LITERAL — an assertion about the code dressed as a
@@ -386,7 +387,7 @@ class WardenKeyframeDecoder(
                 when {
                     outIdx >= 0 -> {
                         val eos = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
-                        if (info.size > 0 || (toSurface != null && !eos)) {
+                        if (info.size > 0) {
                             if (queuedAt != 0L) queueToOutNs.add(System.nanoTime() - queuedAt)
                             c.releaseOutputBuffer(outIdx, false)
                             decoded++
@@ -543,12 +544,12 @@ class WardenKeyframeDecoder(
      * last few keyframes do not come out on their own. Removing the flush does not
      * remove that; it removes paying for it 1061 times.
      *
-     * 🔴 THE SURFACE PATH (Path Z) DELIBERATELY KEEPS THE OLD LOOP — see
-     * [decodeKeyframesBySeekSurfaceLegacy]. Not caution: [WardenSurfaceTextureHost]
-     * consumes ONE posted frame at a time and already treats `pendingFrames > 1` as
-     * an anomaly, so k frames in flight would coalesce in the `SurfaceTexture` and
-     * mis-bind. Path Z is not bound (it exists only to feed the rejected shader) and
-     * **Story 12.4b deletes it**, taking this branch with it.
+     * 🔴 THERE IS NO LONGER A SECOND LOOP. Until Story 12.4b this dispatched to
+     * `decodeKeyframesBySeekSurfaceLegacy` whenever a Surface was supplied — the
+     * pre-12.4a seek/flush/EOS/drain loop, retained because Path Z's
+     * `WardenSurfaceTextureHost` consumed ONE posted frame at a time and could not
+     * take a pipeline. 12.4b removed Path Z, so the branch, the legacy loop and
+     * **the last `flush()` outside the two bench instruments** went with it.
      */
     fun decodeKeyframesBySeek(
         ptsList: LongArray,
@@ -557,11 +558,7 @@ class WardenKeyframeDecoder(
     ): Int {
         val target = if (limit > 0) minOf(limit, ptsList.size) else ptsList.size
         if (target == 0) return 0
-        return if (toSurface != null) {
-            decodeKeyframesBySeekSurfaceLegacy(ptsList, target, onFrame)
-        } else {
-            decodeKeyframesBySeekPipelined(ptsList, target, onFrame)
-        }
+        return decodeKeyframesBySeekPipelined(ptsList, target, onFrame)
     }
 
     /**
@@ -782,84 +779,6 @@ class WardenKeyframeDecoder(
     }
 
     /**
-     * The PRE-12.4a loop — seek, `flush()`, queue, `END_OF_STREAM`, drain, per
-     * keyframe. **Retained ONLY for the Surface path**, whose one-frame-at-a-time
-     * consumer cannot take a pipeline (see [decodeKeyframesBySeek]). Path Z is not
-     * bound and Story 12.4b removes it; this goes with it.
-     */
-    private fun decodeKeyframesBySeekSurfaceLegacy(
-        ptsList: LongArray,
-        target: Int,
-        onFrame: (WardenKeyframe) -> Unit,
-    ): Int {
-        configureCodec()
-        val c = codec!!
-        val info = MediaCodec.BufferInfo()
-        var decoded = 0
-        val t0 = System.nanoTime()
-
-        for (idx in 0 until target) {
-            val pts = ptsList[idx]
-            seekToVerifiedSyncSample(idx, pts)
-            flushCalls++; c.flush()
-            // NB: no start() after flush() — see decodeKeyframes.
-            var sampleQueued = false
-            var eosQueued = false
-            var got = false
-            var spins = 0
-            while (!got) {
-                if (!eosQueued) {
-                    val inIdx = c.dequeueInputBuffer(TIMEOUT_US)
-                    if (inIdx >= 0) {
-                        if (!sampleQueued) {
-                            val buf = c.getInputBuffer(inIdx)!!
-                            val size = extractor.readSampleData(buf, 0)
-                            if (size < 0) {
-                                c.queueInputBuffer(inIdx, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                                eosQueued = true
-                            } else {
-                                c.queueInputBuffer(
-                                    inIdx, 0, size, extractor.sampleTime,
-                                    MediaCodec.BUFFER_FLAG_KEY_FRAME
-                                )
-                                sampleQueued = true
-                            }
-                        } else {
-                            c.queueInputBuffer(inIdx, 0, 0, pts, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                            eosQueued = true
-                        }
-                    }
-                }
-                val outIdx = c.dequeueOutputBuffer(info, TIMEOUT_US)
-                when {
-                    outIdx >= 0 -> {
-                        val eos = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
-                        if (info.size > 0 || !eos) {
-                            val kf = WardenKeyframe(info.presentationTimeUs, profileWidth(), profileHeight())
-                            decodeNs = System.nanoTime() - t0
-                            c.releaseOutputBuffer(outIdx, true)
-                            onFrame(kf)
-                            decoded++
-                            got = true
-                        } else {
-                            c.releaseOutputBuffer(outIdx, false)
-                            throw IllegalStateException(
-                                "keyframe $idx (pts=$pts) drained to END_OF_STREAM with no " +
-                                    "decoded frame — that sync point did not decode standalone."
-                            )
-                        }
-                    }
-                    outIdx == MediaCodec.INFO_TRY_AGAIN_LATER ->
-                        if (++spins > MAX_SPINS) throw IllegalStateException(
-                            "no output for keyframe $idx (pts=$pts) after $MAX_SPINS polls"
-                        )
-                }
-            }
-        }
-        return decoded
-    }
-
-    /**
      * AC0a — the *k* sweep, so [PIPELINE_DEPTH] is MEASURED rather than picked.
      *
      * Runs the pipelined structure at a given depth over the same keyframes the
@@ -1015,15 +934,21 @@ class WardenKeyframeDecoder(
     private fun configureCodec() {
         val mime = format.getString(MediaFormat.KEY_MIME)!!
         val c = MediaCodec.createDecoderByType(mime)
-        if (toSurface == null) {
-            // Path P — flexible YUV 4:2:0 so getOutputImage() hands back planes
-            // with device-reported strides. NEVER assume rowStride == width.
-            format.setInteger(
-                MediaFormat.KEY_COLOR_FORMAT,
-                MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible
-            )
-        }
-        c.configure(format, toSurface, null, 0)
+        // 🔴 PATH P, AND NOW THE ONLY PATH. Flexible YUV 4:2:0 so getOutputImage()
+        // hands back planes with device-reported strides — which is exactly what
+        // WardenColorConvert reads. NEVER assume rowStride == width.
+        //
+        // Story 12.4b removed the `toSurface` alternative (Path Z: decode straight
+        // into a SurfaceTexture for the GPU shader). It was never bound; it existed
+        // only to feed the mega-shader architecture.md Decision #13 rejected, and
+        // its zero-copy conversion was DRIVER-DEFINED — it diverged from bit-parity
+        // on 0.888% of decisions, including 44 of the 69 low-saturation rules.
+        // Removing the choice is how the CPU arm got a predictable colour path.
+        format.setInteger(
+            MediaFormat.KEY_COLOR_FORMAT,
+            MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible
+        )
+        c.configure(format, null, null, 0)
         c.start()
         codec = c
     }
@@ -1114,14 +1039,10 @@ class WardenKeyframeDecoder(
                 outIdx >= 0 -> {
                     spins = 0
                     val eos = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
-                    if (info.size > 0 || (toSurface != null && !eos)) {
-                        val kf = if (toSurface != null) {
-                            WardenKeyframe(info.presentationTimeUs, profileWidth(), profileHeight())
-                        } else {
-                            imageToKeyframe(c, outIdx, info.presentationTimeUs)
-                        }
+                    if (info.size > 0) {
+                        val kf = imageToKeyframe(c, outIdx, info.presentationTimeUs)
                         decodeNs = System.nanoTime() - t0
-                        c.releaseOutputBuffer(outIdx, toSurface != null)
+                        c.releaseOutputBuffer(outIdx, false)
                         onFrame(kf)
                         decoded++
                     } else {
@@ -1171,11 +1092,12 @@ class WardenKeyframeDecoder(
     private fun profileHeight() = format.getInteger(MediaFormat.KEY_HEIGHT)
 
     /**
-     * Coded frame geometry, for callers that have no buffer to measure.
+     * Coded frame geometry, from the format rather than from a buffer.
      *
-     * Path Z never sees a plane or a pixel count, so this is the only thing its
-     * AC7 geometry assertion can key on — see
-     * [WardenDetectionEngine.requireZeroCopyGeometry].
+     * Kept for callers that need the geometry before the first frame arrives. The
+     * per-frame assertion now lives with the pixels, in
+     * [WardenYuvFrame.requireGeometry] — which is the right place for it, because a
+     * frame that lies about its size is only detectable where its planes are.
      */
     val frameWidth: Int get() = profileWidth()
     val frameHeight: Int get() = profileHeight()
@@ -1244,12 +1166,18 @@ class WardenKeyframeDecoder(
          * `queue_to_first_output` — exactly where a withheld-EOS effect belongs.
          *
          * ⚠️ SCOPE: this constant is class-wide, but the measurement above is of the
-         * EOS-terminated structure only. `decodeKeyframes` (A′), `decodeProbe` and
-         * the Surface-legacy loop inherit the 10x finer poll without the analysis —
-         * on A′, whose own KDoc says it can go a while without output while the
-         * extractor skips non-sync samples, that is a 1000 Hz poll doing nothing.
-         * Deferred by the 2026-09-17 review to Story 12.4b, which deletes the
-         * Surface path and can decide whether A′ keeps its own timeout.
+         * EOS-terminated structure only. `decodeKeyframes` (A′) and `decodeProbe`
+         * inherit the 10x finer poll without the analysis — on A′, whose own KDoc
+         * says it can go a while without output while the extractor skips non-sync
+         * samples, that is a 1000 Hz poll doing nothing.
+         *
+         * 🔴 STORY 12.4b VERDICT (the decision the 2026-09-17 review deferred here):
+         * **A′ KEEPS THE SHARED TIMEOUT.** A′ exists for exactly one purpose — to be
+         * compared against A on the same frames — and the delivered pair is
+         * 32.937 vs 62.820 ms/kf measured with BOTH loops polling identically.
+         * Giving A′ its own timeout would make that pair incomparable to any re-run
+         * while improving a path nothing ships. The poll is wasteful and it is
+         * wasteful EQUALLY, which is what a control is for.
          */
         private const val TIMEOUT_US = 1_000L
 
@@ -1347,115 +1275,5 @@ class WardenKeyframeDecoder(
          * `max_observed_in_flight` so the next sweep can settle it.
          */
         private const val PIPELINE_DEPTH = 8
-    }
-}
-
-/**
- * Path Z's SurfaceTexture host.
- *
- * AC16 — SurfaceTexture.updateTexImage() has THREAD AFFINITY: it must be called
- * on the thread that owns the EGL context the texture belongs to. That is the
- * concrete constraint amendment 5d needs re-derived, and it is a property of the
- * GL context, not of the JS context.
- */
-class WardenSurfaceTextureHost(texId: Int) : AutoCloseable {
-    private val lock = Object()
-    private var pendingFrames = 0
-    val surfaceTexture = SurfaceTexture(texId)
-    val surface: Surface
-    private val stMatrix = FloatArray(16)
-
-    /**
-     * Dedicated Looper thread for the frame-available callback.
-     *
-     * 🔴 REVIEW 2026-09-15: `setOnFrameAvailableListener(listener)` with no
-     * Handler binds to `Looper.myLooper()`, falling back to
-     * `Looper.getMainLooper()` when the calling thread has none. The bench runs on
-     * a plain `Thread` with no Looper, so EVERY frame notification was
-     * round-tripping through the **main** thread — contended when `runBench()` is
-     * called from JS with a live RN UI, idle when launched from the bench
-     * Activity, so the two entry points were not measuring the same
-     * `upload_or_bind`. That figure (0.367 ms) is the base of AC13(a). The old
-     * timeout message asserted the opposite ("the listener fires on the thread
-     * that created the SurfaceTexture"), which would have sent the next debugger
-     * the wrong way.
-     */
-    private val callbackThread = HandlerThread("warden-st-frame").apply { start() }
-
-    val surfaceTextureTimestampNs: Long get() = surfaceTexture.timestamp
-
-    init {
-        surfaceTexture.setOnFrameAvailableListener(
-            { synchronized(lock) { pendingFrames++; lock.notifyAll() } },
-            Handler(callbackThread.looper)
-        )
-        surface = Surface(surfaceTexture)
-    }
-
-    fun setDefaultBufferSize(w: Int, h: Int) = surfaceTexture.setDefaultBufferSize(w, h)
-
-    /**
-     * Blocks until the decoder has posted a frame, then binds it. Returns the ST
-     * matrix.
-     *
-     * @param expectPtsUs the presentation timestamp of the keyframe this bind is
-     *   supposed to deliver, or null to skip the check. REVIEW 2026-09-15:
-     *   `frameAvailable` used to be a LATCH rather than a counter, and
-     *   `getTimestamp()` was never compared against anything — so a coalesced or
-     *   dropped frame was undetectable, and on Path Z there was no independent
-     *   signal at all that the bound texture was the keyframe being timed.
-     */
-    fun awaitAndBind(timeoutMs: Long = 2000, expectPtsUs: Long? = null): FloatArray {
-        synchronized(lock) {
-            val deadline = System.currentTimeMillis() + timeoutMs
-            while (pendingFrames == 0) {
-                val remaining = deadline - System.currentTimeMillis()
-                if (remaining <= 0) {
-                    throw IllegalStateException(
-                        "SurfaceTexture frame did not arrive within ${timeoutMs}ms. The " +
-                            "listener runs on this host's own Looper thread " +
-                            "(warden-st-frame), so the producer — MediaCodec — is what " +
-                            "did not deliver."
-                    )
-                }
-                lock.wait(remaining)
-            }
-            if (pendingFrames > 1) {
-                // BufferQueue coalescing: updateTexImage() takes the NEWEST buffer,
-                // so the frames in between are dropped and the timing attributed to
-                // this bind covers more than one decode.
-                Log.w(
-                    TAG, "SurfaceTexture coalesced $pendingFrames frames before this bind; " +
-                        "the bound texture is the newest, not the oldest"
-                )
-            }
-            pendingFrames = 0
-        }
-        surfaceTexture.updateTexImage()
-        if (expectPtsUs != null) {
-            // SurfaceTexture timestamps are nanoseconds in the producer's
-            // timebase, which for MediaCodec is the sample presentation time.
-            val gotUs = surfaceTexture.timestamp / 1000L
-            if (gotUs != expectPtsUs) {
-                throw IllegalStateException(
-                    "Path Z bound the WRONG frame: expected pts ${expectPtsUs}us but " +
-                        "SurfaceTexture.getTimestamp() reports ${gotUs}us. Every per-rule " +
-                        "decision and every ms/keyframe figure from this run would be " +
-                        "attributed to a keyframe that is not the one that was decoded."
-                )
-            }
-        }
-        surfaceTexture.getTransformMatrix(stMatrix)
-        return stMatrix
-    }
-
-    override fun close() {
-        surface.release()
-        surfaceTexture.release()
-        callbackThread.quitSafely()
-    }
-
-    private companion object {
-        const val TAG = "WardenStHost"
     }
 }

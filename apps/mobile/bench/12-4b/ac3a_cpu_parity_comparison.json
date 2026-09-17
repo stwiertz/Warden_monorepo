@@ -1,0 +1,47 @@
+{
+ "frames_compared": 2666,
+ "reference_frames": 2666,
+ "device_frames": 2666,
+ "frame_sets_identical": true,
+ "frames_with_disagreement": 0,
+ "total_rule_disagreements": 0,
+ "rule_frame_decisions": 357244,
+ "per_rule_disagreements": {},
+ "examples": [],
+ "ac14_classifier_accuracy": {
+  "pc_reference": {
+   "hud_version_classifier": {
+    "accuracy": 0.9804951237809453,
+    "n": 2666,
+    "correct": 2614
+   },
+   "in_match_classifier": {
+    "accuracy": 1.0,
+    "n": 2666,
+    "correct": 2666
+   },
+   "map_id_classifier": {
+    "accuracy": 1.0,
+    "n": 2286,
+    "correct": 2286
+   }
+  },
+  "device": {
+   "hud_version_classifier": {
+    "accuracy": 0.9804951237809453,
+    "n": 2666,
+    "correct": 2614
+   },
+   "in_match_classifier": {
+    "accuracy": 1.0,
+    "n": 2666,
+    "correct": 2666
+   },
+   "map_id_classifier": {
+    "accuracy": 1.0,
+    "n": 2286,
+    "correct": 2286
+   }
+  }
+ }
+}

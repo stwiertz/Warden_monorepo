@@ -67,15 +67,69 @@ object WardenCpuBaseline {
     /**
      * Evaluate all rules over one BGRA frame. Returns the per-rule fire bits.
      *
-     * `bgra` is the SAME buffer the GPU arm uploads — B,G,R,A per pixel, row
+     * `bgra` is the SAME buffer the GPU arm uploaded — B,G,R,A per pixel, row
      * major, `width * 4` bytes per row. Feeding both arms identical bytes is
-     * what makes the comparison about the engine rather than about the decode.
+     * what made the comparison about the engine rather than about the decode.
+     *
+     * Still the entry point for the PNG parity corpus (Story 12.4b AC3(A)), which
+     * has no YUV in it by design: a wrong evaluator and a wrong colour conversion
+     * must not be allowed to mask each other.
+     *
+     * `height` is retained in the signature and deliberately unused — callers
+     * pass the frame geometry they asserted, and dropping it would silently
+     * change a call shape that three call sites and one PC reference agree on.
      */
     fun evaluate(
         bgra: ByteArray,
         width: Int,
-        height: Int,
+        @Suppress("UNUSED_PARAMETER") height: Int,
         packed: WardenPackedRules,
+    ): BooleanArray = evaluateWith(packed) { x, y ->
+        val off = (y * width + x) * 4
+        val b = bgra[off].toInt() and 0xFF
+        val g = bgra[off + 1].toInt() and 0xFF
+        val r = bgra[off + 2].toInt() and 0xFF
+        (b shl 16) or (g shl 8) or r
+    }
+
+    /**
+     * Story 12.4b AC0b — evaluate all rules straight off the decoder's YUV planes.
+     *
+     * 🔴 THIS IS THE BOUND PRODUCTION PATH, and it converts RULE REGIONS ONLY.
+     *
+     * The shipped config's rects are 1-25 px, fourteen of them 1x1 — about 800
+     * texels of a 2,073,600-pixel frame. Converting the whole frame to read ~800
+     * of them is ~2,600x more work than the answer needs, and the only reason the
+     * GPU arm ever did it is that a shader needs a whole texture. There is no
+     * shader any more, so the cost goes with it.
+     *
+     * 🔴 THIS DOES NOT INHERIT `evaluate`'s 0-disagreement validation — it SHARES
+     * the code that earned it. Both entry points funnel into [evaluateWith]; only
+     * the pixel source differs. AC3 re-proves both ends anyway: (A) the PNG corpus
+     * through `evaluate`, against the pinned PC reference; (B) this function over
+     * the real capture, against the GPU arm it replaces, while the GPU arm is
+     * still present to answer.
+     */
+    fun evaluateYuv(
+        frame: WardenYuvFrame,
+        packed: WardenPackedRules,
+    ): BooleanArray = evaluateWith(packed) { x, y -> frame.bgrAt(x, y) }
+
+    /**
+     * The rule arithmetic itself, over an arbitrary pixel source.
+     *
+     * `sampler(x, y)` returns B,G,R packed as `b shl 16 or (g shl 8) or r` — the
+     * same packing [WardenColorConvert.yuvToBgrPacked] produces, so a YUV frame
+     * and a decoded PNG reach this loop indistinguishable from each other.
+     *
+     * Extracted by Story 12.4b so the BGRA path and the YUV path cannot drift:
+     * this is the code validated at 0 disagreements over 357,244 rule-frame
+     * decisions, and duplicating it to add a second entry point would have made
+     * that validation a statement about one copy.
+     */
+    private inline fun evaluateWith(
+        packed: WardenPackedRules,
+        sampler: (Int, Int) -> Int,
     ): BooleanArray {
         val out = BooleanArray(packed.nRules)
         val tex = packed.texture
@@ -110,10 +164,10 @@ object WardenCpuBaseline {
             while (k < n) {
                 val dy = k / rw
                 val dx = k - dy * rw
-                val off = ((ry + dy) * width + (rx + dx)) * 4
-                val b = bgra[off].toInt() and 0xFF
-                val g = bgra[off + 1].toInt() and 0xFF
-                val r = bgra[off + 2].toInt() and 0xFF
+                val bgr = sampler(rx + dx, ry + dy)
+                val b = (bgr ushr 16) and 0xFF
+                val g = (bgr ushr 8) and 0xFF
+                val r = bgr and 0xFF
 
                 val hsv = rgb2hsvPacked(b, g, r)
                 val hh = (hsv ushr 16) and 0xFFFF

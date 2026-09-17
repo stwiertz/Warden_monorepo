@@ -1,4 +1,5 @@
-// Story 12.2 (Epic 12) — JS wrapper for the GPU detection-engine bridge.
+// Story 12.2 (Epic 12) — JS wrapper for the detection-engine bridge.
+// Story 12.4b — narrowed to the CPU engine; every GL-shaped field is gone.
 //
 // AC18b — architecture.md:2190 amendment 5g: the native detection-engine module
 // is reachable ONLY through `shared/services/*.ts`. This file is that seam. No
@@ -12,41 +13,65 @@
 // as from adb.
 //
 // Guarantees, matching the foregroundService.ts precedent:
-//   - Android-only: every call early-returns on non-Android. MediaCodec + GLES
-//     is Android-only BY CONSTRUCTION (amendment 5c) — iOS is VideoToolbox +
-//     Metal, and GLES is deprecated there.
+//   - Android-only: every call early-returns on non-Android. MediaCodec is
+//     Android-only BY CONSTRUCTION (amendment 5c). 🔴 Story 12.4b RE-SCOPED that
+//     amendment, it did NOT revert it: removing GLES does not make decode
+//     portable, because MediaCodec is the Android-only half. iOS is
+//     VideoToolbox + Metal and is Phase 2.
 //   - Native-module-missing swallow: in jest (and any un-prebuilt build) the
 //     calls resolve to null with a __DEV__ warning, so the existing test surface
 //     never sees the bridge and no test needs a device.
 
 import { NativeModules, Platform } from "react-native";
 
-/** One colour path's measured stage split, in ms per keyframe. */
+/**
+ * The bound pipeline's measured stage split, in ms per keyframe.
+ *
+ * 🔴 STORY 12.4b REPLACED THE GL STAGES. This carried
+ * `upload_or_bind` / `resolve` / `shader` / `readback` / `gl_total` /
+ * `gl_share_of_wall`, naming four GPU stages that no longer happen. They were not
+ * renamed to CPU equivalents on purpose: a reader comparing `resolve` across
+ * stories would be comparing a whole-frame GPU pass against an ~800-texel CPU
+ * loop. The bound pipeline is decode, then engine.
+ */
 export interface EngineStageTimings {
   /**
    * 🔴 NOT a disjoint stage. `decodeNs` is assigned from the decode loop's entry
-   * and snapshotted before the GL work runs, so this NESTS the upload/resolve/
-   * shader/readback of every frame but the last — which is why `stage_total`
-   * can exceed `wall`. Use {@link decode_excluding_gl} and {@link gl_total}.
+   * and snapshotted before the engine work runs, so this NESTS the conversion and
+   * evaluation of every frame but the last — which is why `stage_total` can
+   * exceed `wall`. Use {@link decode_excluding_engine} and {@link engine_total}.
    */
   decode: number;
-  upload_or_bind: number;
-  resolve: number;
-  shader: number;
-  readback: number;
-  /** Naive sum. Exceeds `wall` because `decode` double-counts the GL stages. */
+  /**
+   * Colour conversion + rule evaluation, in ONE pass: a texel is converted only
+   * when a rule asks for it, so the whole-frame conversion the GPU arm needed
+   * (2,073,600 pixels to read ~800) simply does not happen.
+   */
+  engine: number;
+  /** Naive sum. Exceeds `wall` because `decode` double-counts the engine. */
   stage_total: number;
   wall: number;
-  /** `decode` with the nested GL stages removed. The honest decode figure. */
-  decode_excluding_gl?: number;
-  /** upload_or_bind + resolve + shader + readback. What the ENGINE costs. */
-  gl_total?: number;
-  /** `gl_total / wall`. Measured ~0.06 (Path Z) / ~0.07 (Path P), not ~0.01. */
-  gl_share_of_wall?: number;
+  /** `decode` with the nested engine work removed. The honest decode figure. */
+  decode_excluding_engine?: number;
+  /** What the ENGINE costs. */
+  engine_total?: number;
+  /** `engine_total / wall`. */
+  engine_share_of_wall?: number;
 }
 
 export interface EngineTimingResult {
-  color_path: "ZERO_COPY" | "BIT_PARITY" | "DIRECT_RGB";
+  /**
+   * 🔴 The three GPU colour paths are gone. `ZERO_COPY` decoded straight into a
+   * SurfaceTexture for the shader and its conversion was DRIVER-DEFINED — it
+   * diverged from bit-parity on 0.888% of decisions, including 44 of the 69
+   * low-saturation rules. `BIT_PARITY` uploaded YUV planes for a GPU resolve.
+   * `DIRECT_RGB` was the PNG corpus path. One CPU converter replaces all three,
+   * which is how the colour behaviour became predictable across devices — by
+   * removing the choice rather than by making it.
+   */
+  color_path: "CPU_BT709_LIMITED";
+  /** Which 4:2:0 layout the decoder handed back. Observed, never assumed. */
+  decoder_chroma_layout?: string;
   n_keyframes_decoded: number;
   n_sync_samples_reported: number;
   /**
@@ -63,24 +88,33 @@ export interface EngineTimingResult {
   ms_per_keyframe: EngineStageTimings;
   total_wall_ms: number;
   /**
-   * AC11 — excluded from ms_per_keyframe and reported separately. Covers the
-   * engine's own setup (program build, textures, self-test) only; EGL context
-   * creation is reported at the report root as `ac11_one_off_egl_context_ms`.
+   * 🔴 Structurally ZERO since Story 12.4b, and reported rather than dropped so a
+   * missing field is not read as a measurement that failed. It covered the GPU
+   * engine's program build, texture allocation and rules self-test; the CPU
+   * engine allocates nothing per run.
    */
   one_off_setup_ms: number;
+  one_off_setup_note?: string;
 }
 
 export interface EngineDeviceProfile {
   android_release: string;
   android_sdk_int: number;
   model: string;
-  gl: Record<string, string>;
-  /** AC2 — `GL_OES_EGL_image_external_essl3` is CHECKED, never assumed. */
-  ac2_oes_essl3: {
-    extension_advertised: boolean;
-    extension_name: string;
-    compiles: boolean;
+  /**
+   * 🔴 `gl` and `ac2_oes_essl3` were removed by Story 12.4b. They carried
+   * GL_RENDERER / GL_VERSION and a live compile probe for
+   * `GL_OES_EGL_image_external_essl3`, because Path Z's availability turned on
+   * them. There is no GL context to describe and no extension whose absence
+   * changes anything any more.
+   */
+  engine: {
+    kind: string;
+    color_conversion: string;
+    gpu_used: false;
   };
+  /** Present only when the profile was given a video path. */
+  mediacodec?: Record<string, unknown>;
 }
 
 /** The bench's report. Shape mirrors WardenEngineBench.runAll. */
@@ -90,9 +124,27 @@ export interface EngineBenchReport {
   reference_device_note: string;
   ac1_device_profile: EngineDeviceProfile;
   ac5_lut_cross_check: { matches_reference: boolean; sha256: string };
+  /**
+   * Story 12.4b AC2 — the bt709 limited-range conversion re-derived over ALL 2^24
+   * (Y, Cb, Cr) triples ON DEVICE and hashed against the pinned numpy reference.
+   * Present in EVERY mode: it is the only check that can catch a wrong OPERATOR
+   * rather than a wrong constant, and 12.2 found two silent colour bugs the hard
+   * way.
+   */
+  ac2_color_constants?: {
+    triples: number;
+    sha256: string;
+    reference_sha256_from_numpy: string;
+    matches_reference: boolean;
+  };
+  /**
+   * 🔴 A ONE-ELEMENT array since Story 12.4b, and its element is a different
+   * thing: pre-12.4b the first entry was ZERO_COPY. Stated here rather than left
+   * for Story 12.4d to infer from an array that silently got shorter.
+   */
   ac11_ac13_timing_naive?: EngineTimingResult[];
-  /** AC11 — EGL context creation, the one-off cost 12.3 asked for by name. */
-  ac11_one_off_egl_context_ms?: number;
+  ac0c_paths_measured?: string[];
+  ac0c_paths_removed?: string[];
   error?: string;
   /** Present alongside `error` when the mode itself was not recognised. */
   known_modes?: string[];
@@ -101,22 +153,25 @@ export interface EngineBenchReport {
 /**
  * Every mode the native bench dispatches on.
  *
- * 🔴 Must stay in lockstep with `WardenEngineBench.BENCH_MODES`. Before the
- * 2026-09-15 review this union exported `"profile"`, which NO Kotlin branch has
- * ever implemented — `runBench("profile")` type-checked, resolved successfully,
- * and returned a report with no measurements and no `error` field — while
- * omitting `flushprobe`, `seektest` and `pngdump`, which do exist natively and
- * were therefore unreachable through the sole sanctioned seam (AC18b).
+ * 🔴 Must stay in lockstep with `WardenEngineBench.BENCH_MODES` — asserted
+ * MECHANICALLY by `detectionEngine.test.ts`, which reads the Kotlin off disk.
+ * Before the 2026-09-15 review this union exported `"profile"`, which NO Kotlin
+ * branch has ever implemented — `runBench("profile")` type-checked, resolved
+ * successfully, and returned a report with no measurements and no `error` field.
+ *
+ * Story 12.4b retired three modes: `cpugpu` (its GPU arm is gone; its CPU half
+ * moved into `parity`, which now times the whole 2666-PNG corpus instead of a
+ * 400-PNG prefix), `pngdump` (it dumped the resolved GPU frame texture), and the
+ * temporary `cpucolor` gate — an A/B against the GPU arm, so it could not outlive
+ * it. That gate's result is banked in `apps/mobile/bench/12-4b/REPORT.md`.
  */
 export type BenchMode =
   | "all"
   | "parity"
-  | "cpugpu"
   | "timing"
   | "framediff"
   | "flushprobe"
-  | "seektest"
-  | "pngdump";
+  | "seektest";
 
 interface WardenDetectionEngineNative {
   runBench(
@@ -146,7 +201,7 @@ function unavailable(action: string): boolean {
     if (__DEV__) {
       console.warn(
         `[detectionEngine] ${action} is Android-only by construction (amendment 5c: ` +
-          "MediaCodec + GLES 3.0; iOS is VideoToolbox + Metal)."
+          "MediaCodec; iOS is VideoToolbox + Metal)."
       );
     }
     return true;
@@ -159,7 +214,7 @@ function unavailable(action: string): boolean {
 }
 
 /**
- * AC1/AC2 — the device + GL profile, read from a CURRENT context.
+ * The device profile — SoC, API level, thermal state and the MediaCodec decoder.
  *
  * Returns null when the bridge is unavailable rather than throwing: a probe that
  * cannot run is not an error condition for any caller, and every caller in this
@@ -179,16 +234,21 @@ export async function describeDevice(): Promise<EngineDeviceProfile | null> {
  * Runs the Story 12.2 measurement harness and returns its report.
  *
  * `video` is an on-device path (the capture is pushed with adb, never bundled —
- * it is 2.3 GB). `limit` caps the keyframe count (0 = the whole capture);
- * `cpuFrames` sizes AC12's CPU-vs-GPU comparison.
+ * it is 2.3 GB). `limit` caps the keyframe count (0 = the whole capture).
  *
- * 🔴 AC15 — the numbers this returns bind NEITHER PERF-002 NOR PERF-010. Both
- * re-baseline with Story 12.3.
+ * 🔴 AC15 — the numbers this returns bind NEITHER PERF-002 NOR PERF-010.
+ * PERF-002 was re-baselined by Story 12.3 and is re-measured end to end by Story
+ * 12.4d; PERF-010 stays a SOFT target, not a device-population floor.
  */
 export async function runBench(
   mode: BenchMode = "all",
   video: string | null = null,
   limit = 0,
+  /**
+   * Retained as the bridge's fourth positional argument. It sized the retired
+   * `cpugpu` comparison and the native side now ignores it; left in place so the
+   * bridge signature does not shift under Story 12.4c, which owns this seam next.
+   */
   cpuFrames = 400
 ): Promise<EngineBenchReport | null> {
   if (unavailable("runBench")) return null;

@@ -3,7 +3,6 @@ package team.warden.mobile
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.opengl.GLES30
 import android.os.Build
 import android.util.Log
 import org.json.JSONArray
@@ -45,11 +44,6 @@ class WardenEngineBench(private val context: Context) {
         File(context.getExternalFilesDir(null), "warden12_2").apply { mkdirs() }
     private val outDir = File(context.getExternalFilesDir(null), "bench12_2").apply { mkdirs() }
 
-    private fun frag(): String =
-        context.assets.open("keyframe_engine_bench.frag").use {
-            it.readBytes().toString(Charsets.UTF_8)
-        }
-
     private fun configJson(): String = File(workDir, "map_config.v2.json").readText()
 
     // -----------------------------------------------------------------------
@@ -64,7 +58,6 @@ class WardenEngineBench(private val context: Context) {
      *   report only one of them; now it is paid exactly where a bench mode asks.
      */
     fun deviceProfile(
-        egl: WardenEglContext,
         videoPath: String?,
         knownSyncCount: Int = -1,
     ): JSONObject {
@@ -79,27 +72,35 @@ class WardenEngineBench(private val context: Context) {
         o.put("supported_abis", JSONArray(Build.SUPPORTED_ABIS.toList()))
         o.put("thermal", thermalState())
 
-        val gl = JSONObject()
-        for ((k, v) in egl.describe()) gl.put(k, v)
-        o.put("gl", gl)
-
-        // AC2 — 🔴 CHECKED, never assumed. Two independent probes, because
-        // extension strings lie less often than drivers but both are cheap.
-        val ac2 = JSONObject()
-        val advertised = egl.hasExtension(WardenDetectionEngine.OES_ESSL3_EXTENSION)
-        ac2.put("extension_advertised", advertised)
-        ac2.put("extension_name", WardenDetectionEngine.OES_ESSL3_EXTENSION)
-        ac2.put("compiles", probeOesCompiles())
-        ac2.put(
-            "consequence_if_absent",
-            "Path Z is UNAVAILABLE under ESSL 3.00. Do NOT fall back to #version 100 " +
-                "+ GL_OES_EGL_image_external — that breaks E2 (one GLSL source of truth) " +
-                "and turns the port into a rewrite. Fall to AC0c Path P and say so."
+        // 🔴 STORY 12.4b — `gl` and `ac2_oes_essl3` ARE GONE, AND THAT IS THE POINT.
+        //
+        // This block used to carry GL_RENDERER/GL_VERSION/EGL extension strings and
+        // a live compile probe for GL_OES_EGL_image_external_essl3, because Path Z's
+        // availability turned on them. architecture.md Decision #13 rejected the GPU
+        // engine; there is no EGL context to describe and no extension whose absence
+        // changes anything. Reporting them would be reporting the capabilities of a
+        // subsystem the app no longer uses.
+        //
+        // What replaces them is what the BOUND path actually rests on: the decoder.
+        // `mediacodec` below names the codec, whether it is hardware-accelerated, and
+        // the colour formats it offers — the three facts that decide whether
+        // COLOR_FormatYUV420Flexible (and therefore WardenColorConvert) works at all.
+        o.put(
+            "engine",
+            JSONObject()
+                .put("kind", "CPU integer rule evaluation on MediaCodec keyframe decode")
+                .put("color_conversion", "WardenColorConvert — bt709 limited range, nearest chroma")
+                .put("gpu_used", false)
+                .put(
+                    "note",
+                    "architecture.md Decision #13. No EGL context, no GL thread affinity, " +
+                        "no LUT texture upload, no readback synchronisation, and no " +
+                        "driver-defined colour conversion."
+                )
         )
-        o.put("ac2_oes_essl3", ac2)
 
         if (videoPath != null && File(videoPath).exists()) {
-            WardenKeyframeDecoder(videoPath, null).use { dec ->
+            WardenKeyframeDecoder(videoPath).use { dec ->
                 // 🔴 STORY 12.4a AC3 — THIS USED TO READ `scanSyncSamples =
                 // knownSyncCount < 0`, i.e. "if the caller does not already know the
                 // count, go and spend 62 SECONDS finding it". `describeDevice` reaches
@@ -132,18 +133,6 @@ class WardenEngineBench(private val context: Context) {
             }
         }
         return o
-    }
-
-    /** Compile-tests the `#extension` line — the second half of AC2's probe. */
-    private fun probeOesCompiles(): Boolean = try {
-        val id = WardenGlUtil.compileShader(
-            GLES30.GL_FRAGMENT_SHADER, WardenDetectionEngine.RESOLVE_OES_FRAG, "AC2 OES probe"
-        )
-        GLES30.glDeleteShader(id)
-        true
-    } catch (t: Throwable) {
-        Log.w(TAG, "AC2 OES compile probe failed: ${t.message}")
-        false
     }
 
     // -----------------------------------------------------------------------
@@ -189,6 +178,98 @@ class WardenEngineBench(private val context: Context) {
     }
 
     // -----------------------------------------------------------------------
+    // Story 12.4b AC2 — the colour constants, re-proved ON DEVICE, exhaustively
+    // -----------------------------------------------------------------------
+
+    /**
+     * Runs [WardenColorConvert.yuvToBgrPacked] over ALL 2^24 (Y, Cb, Cr) triples
+     * and hashes the output against the pinned numpy reference.
+     *
+     * 🔴 THIS IS THE ONLY CHECK THAT CAN CATCH A WRONG OPERATOR.
+     *
+     * `ac3_numpy_reference.py verify-constants` proves the CONSTANTS over the
+     * whole domain, and `colorConvert.test.ts` holds the Kotlin literals against
+     * the Python ones in CI. Neither can see a `+` where the shader has a `-`:
+     * both sides would still contain every expected literal. This one re-computes
+     * the entire domain with the shipped Kotlin, on the shipped device, and
+     * compares the bytes.
+     *
+     * Same pattern as [lutCrossCheck]'s [REFERENCE_LUT_SHA256] — a digest pinned
+     * from the PC, re-derived on device, compared. 16.7 M conversions is roughly
+     * a second and it runs once per bench run, which is a cheap price for the one
+     * assertion that covers the arithmetic rather than the numbers.
+     */
+    fun colorConstantsCheck(): JSONObject {
+        val t0 = System.nanoTime()
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        // C-order, matching `shader_model(...).tobytes()`: y slowest, then cb,
+        // then cr, then the three channels. One row of cr at a time keeps the
+        // buffer at 768 B instead of 50 MB.
+        val row = ByteArray(256 * 3)
+        for (y in 0 until 256) {
+            for (cb in 0 until 256) {
+                var i = 0
+                for (cr in 0 until 256) {
+                    val bgr = WardenColorConvert.yuvToBgrPacked(y, cb, cr)
+                    row[i] = ((bgr ushr 16) and 0xFF).toByte()
+                    row[i + 1] = ((bgr ushr 8) and 0xFF).toByte()
+                    row[i + 2] = (bgr and 0xFF).toByte()
+                    i += 3
+                }
+                digest.update(row)
+            }
+        }
+        val hex = digest.digest().joinToString("") { "%02x".format(it) }
+        val ms = (System.nanoTime() - t0) / 1e6
+        return JSONObject()
+            .put("triples", 256 * 256 * 256)
+            .put("sha256", hex)
+            .put("reference_sha256_from_numpy", REFERENCE_YUV_SWEEP_SHA256)
+            .put("matches_reference", hex == REFERENCE_YUV_SWEEP_SHA256)
+            .put("total_ms", ms)
+            .put(
+                "note",
+                "Exhaustive over the WHOLE (Y, Cb, Cr) domain — 16,777,216 triples, " +
+                    "bit-for-bit against ac3_numpy_reference.shader_model. A match means " +
+                    "the ported ARITHMETIC is right, not merely that the constants are: " +
+                    "the literal checks in colorConvert.test.ts and verify-constants " +
+                    "cannot distinguish a transcribed operator error. WardenColorConvert " +
+                    "computes in fp64 where the shader ran at ESSL highp (fp32); measured " +
+                    "on PC the two disagree on 109 of 16,777,216 triples (0.00065%), max " +
+                    "1 unit — 275x rarer than the published-rounding error the BT.709 " +
+                    "four-decimal constants already carry, and inside the same envelope."
+            )
+    }
+
+    // -----------------------------------------------------------------------
+    // Story 12.4b AC3(B) — 🔴 THE GATE. RUN, BANKED, AND THEN REMOVED.
+    //
+    // `cpuColorParity()` decoded the whole capture and evaluated every keyframe
+    // TWICE — once through uploadYuvPlanes -> RESOLVE_YUV_FRAG -> mega-shader ->
+    // glReadPixels, once through WardenColorConvert -> WardenCpuBaseline — on
+    // byte-identical decoder planes, and counted per-rule disagreements. It was the
+    // first end-to-end run of the configuration architecture.md Decision #13 binds,
+    // which is why the spike report had tagged that configuration `[P]`.
+    //
+    //   RESULT, 2026-09-17, Poco X5 Pro 5G:
+    //     1061 keyframes · 134 rules · 142,174 rule-frame decisions
+    //     0 frames with disagreement · 0 total rule disagreements
+    //     CPU 0.651 ms/kf (rule regions only) vs GPU 2.855 ms/kf (whole frame)
+    //     decoder chroma layout: NV12 (semi-planar, U V U V) — observed
+    //
+    // It is REMOVED here rather than kept because it is an A/B, and one of its two
+    // arms no longer exists. A "parity run" with one arm is not a weaker test, it is
+    // a different test wearing the name of a stronger one. The evidence is banked in
+    // `bench/12-4b/REPORT.md` and `bench/12-4b/report_cpucolor.json`.
+    //
+    // 🔴 It also found a REAL DEFECT in the arm being deleted — the GPU read the byte
+    // one past the U plane as the last chroma texel's Cr (0 instead of 128), wrong on
+    // the frame's bottom-right 2x2 block. 12.2's review identified that byte and
+    // argued it away; the measurement says the argument was wrong. See REPORT §4.
+    // No rule rect reaches that corner, which is why the fire bits were still 0.
+    // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
     // AC14a — PNG parity corpus. Isolates SHADER parity from DECODE colour.
     // -----------------------------------------------------------------------
 
@@ -205,43 +286,52 @@ class WardenEngineBench(private val context: Context) {
         require(corpus.isDirectory) {
             "parity corpus not found at $corpus — push apps/tooling/output/labeled/v2/"
         }
-        val engine = WardenDetectionEngine(
-            frag(), packed, REF_W, REF_H, WardenColorPath.DIRECT_RGB
-        )
         val rows = JSONArray()
         var nFrames = 0
-        try {
-            val classes = corpus.listFiles { f -> f.isDirectory }?.sortedBy { it.name } ?: emptyList()
-            for (cls in classes) {
-                val pngs = cls.listFiles { f -> f.name.endsWith(".png") }?.sortedBy { it.name }
-                    ?: continue
-                for (png in pngs) {
-                    val bits = evaluateBitmap(engine, png) ?: continue
-                    rows.put(
-                        JSONObject()
-                            .put("frame", "${cls.name}/${png.name}")
-                            .put("label", cls.name)
-                            .put("fires", bitsToHex(bits))
-                    )
-                    nFrames++
-                }
+        var cpuNs = 0L
+        val classes = corpus.listFiles { f -> f.isDirectory }?.sortedBy { it.name } ?: emptyList()
+        for (cls in classes) {
+            val pngs = cls.listFiles { f -> f.name.endsWith(".png") }?.sortedBy { it.name }
+                ?: continue
+            for (png in pngs) {
+                val cpu = evaluateBitmapCpu(png, packed) ?: continue
+                cpuNs += cpu.second
+                rows.put(
+                    JSONObject()
+                        .put("frame", "${cls.name}/${png.name}")
+                        .put("label", cls.name)
+                        .put("fires", bitsToHex(cpu.first))
+                )
+                nFrames++
             }
-        } finally {
-            engine.release()
         }
         File(outDir, "parity_fires.json").writeText(
             JSONObject().put("n_rules", packed.nRules).put("frames", rows).toString()
         )
+        val n = maxOf(1, nFrames)
         return JSONObject()
             .put("n_frames", nFrames)
             .put("n_rules", packed.nRules)
+            .put("rule_frame_decisions", nFrames * packed.nRules)
+            .put("cpu_ms_per_frame", cpuNs / 1e6 / n)
             .put("output", "parity_fires.json")
             .put(
                 "note",
                 "Per-rule fire bits, one hex string per frame, bit i = rule i (texel " +
-                    "order). Compared against the PC GPU reference OFF-DEVICE — a " +
-                    "disagreement here is a SHADER/driver finding (AC8/AC9/AC10), not a " +
-                    "colour finding, because no YUV conversion is in this path."
+                    "order). Compared against `bench/12-2/pc_reference_fires.json` " +
+                    "OFF-DEVICE with `pc_reference.py compare`. NO YUV conversion is in " +
+                    "this path and that is deliberate: a wrong evaluator and a wrong " +
+                    "colour conversion must not be able to mask each other, so the corpus " +
+                    "is PNGs and the colour port is proved separately (AC2's exhaustive " +
+                    "2^24 sweep, and AC3(B)'s run over the real capture — see " +
+                    "bench/12-4b/REPORT.md). " +
+                    "🔴 STORY 12.4b RE-POINTED THIS AT THE CPU EVALUATOR. It ran the GPU " +
+                    "mega-shader until Decision #13 rejected it. Banked result for the CPU " +
+                    "arm, 2026-09-17: 2666 frames / 357,244 decisions / 0 disagreements " +
+                    "against the pinned PC reference — the same figure the GPU arm held, " +
+                    "re-earned rather than inherited. `cpu_ms_per_frame` also replaces what " +
+                    "the retired `cpugpu` mode reported, now over the WHOLE corpus instead " +
+                    "of a 400-PNG prefix."
             )
     }
 
@@ -261,23 +351,25 @@ class WardenEngineBench(private val context: Context) {
         inPremultiplied = false
     }
 
-    /** Decodes a PNG and evaluates it. Returns null if geometry does not match. */
-    private fun evaluateBitmap(engine: WardenDetectionEngine, png: File): BooleanArray? {
+    /**
+     * Decode one corpus PNG and evaluate it. Null if geometry does not match.
+     *
+     * Returns `(fireBits, nanoseconds)`. The timer covers the rule evaluation
+     * ONLY; the PNG decode and the ARGB->BGRA shuffle sit outside it, exactly as
+     * the retired GPU arm's upload sat outside its shader timer — so
+     * `cpu_ms_per_frame` stays comparable to the 0.376 ms/frame 12.3 bound the
+     * engine verdict on.
+     */
+    private fun evaluateBitmapCpu(png: File, packed: WardenPackedRules): Pair<BooleanArray, Long>? {
         val bmp = BitmapFactory.decodeFile(png.absolutePath, opaqueDecodeOptions()) ?: return null
         try {
-            if (bmp.width != REF_W || bmp.height != REF_H) {
-                Log.w(TAG, "skipping ${png.name}: ${bmp.width}x${bmp.height} != ${REF_W}x$REF_H")
-                return null
-            }
-            if (bmp.hasAlpha()) {
-                // Not fatal — the alpha channel is discarded either way — but it
-                // means this corpus is not what the PC reference assumes, so the
-                // next parity divergence has a decode-side explanation available.
-                Log.w(TAG, "${png.name} carries alpha; PC reference reads it as IMREAD_COLOR")
-            }
-            engine.uploadBgrDirect(bitmapToBgra(bmp), bmp.width, bmp.height)
-            engine.evaluate()
-            return engine.readback().first
+            if (bmp.width != REF_W || bmp.height != REF_H) return null
+            val buf = bitmapToBgra(bmp)
+            val arr = ByteArray(buf.capacity())
+            buf.position(0); buf.get(arr)
+            val t0 = System.nanoTime()
+            val bits = WardenCpuBaseline.evaluate(arr, REF_W, REF_H, packed)
+            return Pair(bits, System.nanoTime() - t0)
         } finally {
             bmp.recycle()
         }
@@ -308,163 +400,46 @@ class WardenEngineBench(private val context: Context) {
         return buf
     }
 
+    // -----------------------------------------------------------------------
+    // Story 12.4b — `cpugpu` and `pngdump` are RETIRED.
+    //
+    // `cpuVsGpu` was AC12, the measurement 12.3's verdict turned on: device CPU
+    // 0.376 vs device GPU 2.389 ms/frame = the GPU 6.4x SLOWER for BIT-IDENTICAL
+    // output. It has no GPU arm left. Its CPU half moved into `parityRun`, where it
+    // now runs over the WHOLE 2666-PNG corpus rather than a 400-PNG prefix — a mode
+    // named `cpugpu` that measures one arm would be a lie in the report's own key.
+    //
+    // `pngDump` uploaded one named PNG through DIRECT_RGB and dumped
+    // `engine.readFrameTexture()`, to settle a 12.2-era 37% parity divergence that
+    // no cheap hypothesis explained. Without GL it degrades to "write the PNG's own
+    // bytes back out", which the PC can do from the PNG.
+    // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // AC11 / AC13 — timing over the real capture. ONE path now, not two.
+    // -----------------------------------------------------------------------
+
     /**
-     * DIAGNOSTIC — upload ONE named PNG through DIRECT_RGB and dump what the
-     * frame texture actually holds, so the device's view of a known input can be
-     * diffed byte-for-byte against `cv2.imread` on the PC.
+     * Per-keyframe stage split for the bound CPU pipeline.
      *
-     * Added because a 37% per-rule disagreement on the parity corpus could not be
-     * explained by any of the cheap hypotheses (vertical flip, BGR swap), and
-     * guessing at a second one would have cost another build/flash cycle each.
-     * Dump the bytes; stop guessing.
+     * 🔴 STORY 12.4b REPLACED `WardenStageTimings` (upload_or_bind / resolve /
+     * shader / readback), which lived in the deleted `WardenDetectionEngine.kt` and
+     * named four GL stages that no longer happen. The bound pipeline has ONE stage
+     * after decode: convert the rule regions and evaluate the rules, which the CPU
+     * arm does in a single pass because it converts a texel only when a rule asks
+     * for it. Keeping the old field names and filling them with CPU numbers would
+     * have been worse than removing them — a reader would compare `resolve` across
+     * stories and be comparing a whole-frame GPU pass against an ~800-texel loop.
      */
-    fun pngDump(packed: WardenPackedRules, relPath: String): JSONObject {
-        val png = File(File(workDir, "labeled"), relPath)
-        require(png.isFile) { "no such PNG: $png" }
-        val engine = WardenDetectionEngine(
-            frag(), packed, REF_W, REF_H, WardenColorPath.DIRECT_RGB
-        )
-        try {
-            val bmp = BitmapFactory.decodeFile(
-                png.absolutePath,
-                opaqueDecodeOptions()
-            ) ?: return JSONObject().put("error", "decode returned null")
-            val o = JSONObject()
-                .put("file", relPath)
-                .put("bitmap_w", bmp.width).put("bitmap_h", bmp.height)
-                .put("bitmap_config", bmp.config?.name ?: "null")
-                .put("has_alpha", bmp.hasAlpha())
-                .put("is_premultiplied", bmp.isPremultiplied)
-            // First pixel as Android sees it, before any of our reordering.
-            val p0 = bmp.getPixel(0, 0)
-            o.put("pixel_0_0_argb", String.format("%08x", p0))
-            engine.uploadBgrDirect(bitmapToBgra(bmp), bmp.width, bmp.height)
-            engine.evaluate()
-            o.put("fires", bitsToHex(engine.readback().first))
-            val raw = engine.readFrameTexture()
-            if (raw != null) {
-                File(outDir, "pngdump_frametex.raw").writeBytes(raw)
-                o.put("frametex_bytes", raw.size)
-                o.put(
-                    "frametex_first_texels_bgra",
-                    (0 until 4).joinToString(" ") { i ->
-                        (0 until 4).joinToString(",") { c ->
-                            (raw[i * 4 + c].toInt() and 0xFF).toString()
-                        }
-                    }
-                )
-            }
-            bmp.recycle()
-            return o
-        } finally {
-            engine.release()
-        }
+    private class WardenCpuStageTimings {
+        var decodeNs: Long = 0
+        var engineNs: Long = 0
+        val totalNs: Long get() = decodeNs + engineNs
     }
-
-    // -----------------------------------------------------------------------
-    // AC12 — device CPU vs device GPU at rule evaluation, decode EXCLUDED
-    // -----------------------------------------------------------------------
-
-    fun cpuVsGpu(packed: WardenPackedRules, nFrames: Int): JSONObject {
-        val corpus = File(workDir, "labeled")
-        val pngs = corpus.listFiles { f -> f.isDirectory }
-            ?.sortedBy { it.name }
-            ?.flatMap { d -> (d.listFiles { f -> f.name.endsWith(".png") } ?: emptyArray()).sortedBy { it.name } }
-            ?.take(nFrames) ?: emptyList()
-        require(pngs.isNotEmpty()) { "no PNGs for the CPU/GPU comparison" }
-
-        val engine = WardenDetectionEngine(
-            frag(), packed, REF_W, REF_H, WardenColorPath.DIRECT_RGB
-        )
-        var cpuNs = 0L
-        var gpuNs = 0L
-        var counted = 0
-        var disagreements = 0
-        try {
-            for (png in pngs) {
-                val bmp = BitmapFactory.decodeFile(
-                    png.absolutePath,
-                    opaqueDecodeOptions()
-                ) ?: continue
-                if (bmp.width != REF_W || bmp.height != REF_H) { bmp.recycle(); continue }
-                val bgra = bitmapToBgra(bmp)
-                bmp.recycle()
-
-                // --- GPU arm: upload + draw + readback, FORCED TO COMPLETION.
-                // glFinish() is what makes this number mean what it says; 12.1
-                // proved the naive split misattributes async GL work.
-                val g0 = System.nanoTime()
-                engine.uploadRgbaFrame(bgra, REF_W, REF_H)
-                engine.evaluate()
-                val gpuBits = engine.readback().first
-                engine.finish()
-                gpuNs += System.nanoTime() - g0
-
-                // --- CPU arm: identical bytes, identical bounds, identical test.
-                val arr = ByteArray(bgra.capacity())
-                bgra.position(0); bgra.get(arr)
-                val c0 = System.nanoTime()
-                val cpuBits = WardenCpuBaseline.evaluate(arr, REF_W, REF_H, packed)
-                cpuNs += System.nanoTime() - c0
-
-                for (i in cpuBits.indices) if (cpuBits[i] != gpuBits[i]) disagreements++
-                counted++
-            }
-        } finally {
-            engine.release()
-        }
-        // REVIEW 2026-09-15: `require(pngs.isNotEmpty())` above guards the LIST, not
-        // the count of USABLE frames. Without this, every PNG failing decodeFile or
-        // the REF_W check gave 0.0/0 = NaN, which JSONObject.put(String, Double)
-        // rejects — surfacing as a "Forbidden numeric value" JSON error that
-        // runAll's catch turned into {"error": …}, discarding the AC1/AC5/AC16
-        // results already computed. Fail with the real reason instead.
-        require(counted > 0) {
-            "no usable PNGs for the CPU/GPU comparison: all ${pngs.size} candidate(s) " +
-                "either failed BitmapFactory.decodeFile or were not ${REF_W}x$REF_H"
-        }
-        val cpuMs = cpuNs / 1e6 / counted
-        val gpuMs = gpuNs / 1e6 / counted
-        return JSONObject()
-            .put("n_frames", counted)
-            .put("n_rules", packed.nRules)
-            .put("cpu_ms_per_frame", cpuMs)
-            .put("gpu_ms_per_frame", gpuMs)
-            .put("speedup_gpu_over_cpu", if (gpuMs > 0) cpuMs / gpuMs else 0.0)
-            .put("fire_bit_disagreements", disagreements)
-            // 🔴 REVIEW 2026-09-15 (D1): what this GPU number actually contains.
-            // The arm runs DIRECT_RGB, so it has NO resolve pass and NO bind —
-            // resolve() early-returns 0L on that path. It DOES carry a full
-            // 1920x1080 RGBA (~8.3 MB) host->device upload that neither shipping
-            // path pays, while the CPU arm's equivalent 8.3 MB copy sits outside
-            // its own timer. Substituting Path Z's forced-completion stages
-            // (bind 0.367 + resolve 1.306 + shader 0.598 + readback 0.305 =
-            // 2.576 ms) gives 6.85x, i.e. the GPU looks slightly WORSE, not
-            // better — so the conclusion is unaffected by the composition.
-            .put(
-                "stage_composition",
-                "GPU arm = RGBA upload (~8.3 MB) + draw + glReadPixels + glFinish. " +
-                    "NO resolve pass and NO bind: DIRECT_RGB has no resolve program. " +
-                    "CPU arm excludes its own 8.3 MB ByteBuffer->ByteArray copy. " +
-                    "Path Z substitution (forced completion) = 2.576 ms => 6.85x."
-            )
-            .put(
-                "note",
-                "Decode EXCLUDED from both sides. CPU arm is plain Kotlin (NOT " +
-                    "react-native-fast-opencv JSI — that re-opens Story 1.1's frozen " +
-                    "spike and adds a variable). 12.1's PC figure was CPU 1.667 / GPU " +
-                    "3.253 ms/frame = 0.51x."
-            )
-    }
-
-    // -----------------------------------------------------------------------
-    // AC11 / AC13 — timing over the real capture, both colour paths
-    // -----------------------------------------------------------------------
 
     fun timingRun(
         packed: WardenPackedRules,
         videoPath: String,
-        path: WardenColorPath,
         limit: Int,
         /** true = AC0b Option A (absolute seek per keyframe); false = A-prime (single-pass demux). */
         bySeek: Boolean = true,
@@ -473,130 +448,60 @@ class WardenEngineBench(private val context: Context) {
         /** Ground truth from the sample-table scan, measured ONCE outside the timer. */
         knownSyncCount: Int = 0,
     ): JSONObject {
-        val t = WardenStageTimings()
+        val t = WardenCpuStageTimings()
         var nFrames = 0
-        var syncCount = 0
         val fires = JSONArray()
+        var layout = "not observed"
         // The sync-sample ground-truth scan walks the ENTIRE sample table of a
-        // 2.3 GB / 4419 s file. MEASURED COST: 62 s (`ground_truth_scan_ms`
-        // 62069.9 / 61470.2 across the two delivered runs) — and it is a FULL-FILE
-        // READ, not an index walk, because NuMediaExtractor::fetchTrackSamples
-        // reads sample DATA on every advance(). See WardenKeyframeDecoder's
-        // countSyncSamplesByScan KDoc: MUST NEVER SHIP. It is a one-off correctness
-        // assertion, not part of the per-keyframe pipeline, so it runs BEFORE the
-        // wall clock starts — leaving it inside would have inflated
-        // `total_wall_ms` by more than the work being measured.
-        syncCount = knownSyncCount
+        // 2.3 GB / 4419 s file. MEASURED COST: 62 s — and it is a FULL-FILE READ,
+        // because NuMediaExtractor::fetchTrackSamples reads sample DATA on every
+        // advance(). See WardenKeyframeDecoder.countSyncSamplesByScan: MUST NEVER
+        // SHIP. It is a one-off correctness assertion, not part of the per-keyframe
+        // pipeline, so it runs BEFORE the wall clock starts — leaving it inside
+        // would have inflated `total_wall_ms` by more than the work being measured.
+        val syncCount = knownSyncCount
 
         val wall0 = System.nanoTime()
-        var setupNs = 0L
-
-        when (path) {
-            WardenColorPath.BIT_PARITY -> {
-                val engine = WardenDetectionEngine(frag(), packed, REF_W, REF_H, path)
-                setupNs = engine.setupNs
-                try {
-                    WardenKeyframeDecoder(videoPath, null).use { dec ->
-                        val body: (WardenKeyframe) -> Unit = { kf ->
-                            t.uploadOrBindNs += engine.uploadYuvPlanes(
-                                kf.planes!![0], kf.rowStrides!![0],
-                                kf.planes[1], kf.rowStrides[1], kf.pixelStrides!![1],
-                                kf.planes[2], kf.rowStrides[2], kf.pixelStrides[2],
-                                kf.width, kf.height
-                            )
-                            t.resolveNs += engine.resolve()
-                            t.shaderNs += engine.evaluate()
-                            val (bits, ns) = engine.readback()
-                            t.readbackNs += ns
-                            if (fires.length() < MAX_RECORDED_FIRES) {
-                                fires.put(
-                                    JSONObject().put("pts_us", kf.presentationTimeUs)
-                                        .put("fires", bitsToHex(bits))
-                                )
-                            }
-                        }
-                        nFrames = if (bySeek) dec.decodeKeyframesBySeek(ptsList!!, limit, body)
-                                  else dec.decodeKeyframes(limit, body)
-                        t.decodeNs = dec.decodeNs
-                    }
-                } finally { engine.release() }
+        WardenKeyframeDecoder(videoPath).use { dec ->
+            val body: (WardenKeyframe) -> Unit = { kf ->
+                val e0 = System.nanoTime()
+                val frame = WardenYuvFrame.of(kf)
+                // Trap 4 — ASSERT the geometry, never rescale it.
+                frame.requireGeometry(REF_W, REF_H)
+                if (nFrames == 0) layout = frame.layoutName()
+                val bits = WardenCpuBaseline.evaluateYuv(frame, packed)
+                t.engineNs += System.nanoTime() - e0
+                if (fires.length() < MAX_RECORDED_FIRES) {
+                    fires.put(
+                        JSONObject().put("pts_us", kf.presentationTimeUs)
+                            .put("fires", bitsToHex(bits))
+                    )
+                }
             }
-            WardenColorPath.ZERO_COPY -> {
-                val engine = WardenDetectionEngine(frag(), packed, REF_W, REF_H, path)
-                setupNs = engine.setupNs
-                try {
-                    WardenSurfaceTextureHost(engine.externalTexId).use { host ->
-                        host.setDefaultBufferSize(REF_W, REF_H)
-                        WardenKeyframeDecoder(videoPath, host.surface).use { dec ->
-                            val body: (WardenKeyframe) -> Unit = { kf ->
-                                // "upload or BIND" — nothing is copied host->device
-                                // here. That IS the zero-copy claim, and the number
-                                // below is what it actually costs.
-                                val b0 = System.nanoTime()
-                                // expectPtsUs: the bind must deliver the keyframe
-                                // that was just decoded, not whatever the
-                                // BufferQueue last coalesced. On Path Z there is
-                                // no other signal that the two agree.
-                                val stMatrix = host.awaitAndBind(
-                                    expectPtsUs = kf.presentationTimeUs
-                                )
-                                t.uploadOrBindNs += System.nanoTime() - b0
-                                // AC7 on Path Z. requireGeometry() only ever ran on
-                                // the UPLOAD paths, and Path Z uploads nothing —
-                                // so a capture that is not REF_W x REF_H was
-                                // silently nearest-neighbour rescaled by
-                                // RESOLVE_OES_FRAG while Path P threw on the same
-                                // input, making AC13's comparison a rescaled frame
-                                // against a crash. setDefaultBufferSize above is
-                                // IGNORED once MediaCodec (the producer) sets the
-                                // buffer size, so it is not a guarantee.
-                                engine.requireZeroCopyGeometry(dec.frameWidth, dec.frameHeight)
-                                t.resolveNs += engine.resolve(stMatrix)
-                                t.shaderNs += engine.evaluate()
-                                val (bits, ns) = engine.readback()
-                                t.readbackNs += ns
-                                if (fires.length() < MAX_RECORDED_FIRES) {
-                                    fires.put(
-                                        JSONObject().put("pts_us", kf.presentationTimeUs)
-                                            .put("fires", bitsToHex(bits))
-                                    )
-                                }
-                            }
-                            nFrames = if (bySeek) dec.decodeKeyframesBySeek(ptsList!!, limit, body)
-                                      else dec.decodeKeyframes(limit, body)
-                            t.decodeNs = dec.decodeNs
-                        }
-                    }
-                } finally { engine.release() }
-            }
-            WardenColorPath.DIRECT_RGB ->
-                throw IllegalArgumentException("DIRECT_RGB is the PNG corpus path, not a video path")
+            nFrames = if (bySeek) dec.decodeKeyframesBySeek(ptsList!!, limit, body)
+                      else dec.decodeKeyframes(limit, body)
+            t.decodeNs = dec.decodeNs
         }
 
         val wallNs = System.nanoTime() - wall0
-        // The filename carries the STRATEGY as well as the colour path: the
-        // decode-strategy comparison re-runs one colour path on a 60-frame subset,
-        // and a shared filename let it silently overwrite the full-capture fire
-        // bits — which is exactly the artifact AC13's Path Z vs Path P parity
-        // comparison depends on.
+        // The filename carries the STRATEGY: the decode-strategy comparison re-runs
+        // on a 60-frame subset, and a shared filename let it silently overwrite the
+        // full-capture fire bits.
         val stratTag = if (bySeek) "seek" else "demux"
-        File(outDir, "timing_fires_${path.name.lowercase()}_${stratTag}_$nFrames.json").writeText(
+        File(outDir, "timing_fires_cpu_${stratTag}_$nFrames.json").writeText(
             JSONObject().put("n_rules", packed.nRules).put("frames", fires).toString()
         )
         val n = maxOf(1, nFrames)
         return JSONObject()
-            .put("color_path", path.name)
+            .put("color_path", "CPU_BT709_LIMITED")
+            .put("decoder_chroma_layout", layout)
             .put("n_keyframes_decoded", nFrames)
             .put("n_sync_samples_reported", syncCount)
             // 🔴 AC0b's binding assertion. 12.1's analogue caught a CFR-duplication
             // regression that would have presented as ~7250 frames instead of 30.
-            //
-            // REVIEW 2026-09-15: this used to read `limit > 0 || nFrames == syncCount`,
-            // which made it UNCONDITIONALLY TRUE on every limited run — the delivered
-            // artifacts show `60 decoded / 1061 reported / matches: true`, an assertion
-            // that asserted nothing while looking like it had. That is the exact
-            // "self-consistent 2 == 2" failure AC0b exists to prevent. A limited run
-            // now asserts against its OWN target, and says so.
+            // It used to read `limit > 0 || nFrames == syncCount`, UNCONDITIONALLY
+            // TRUE on every limited run — an assertion that asserted nothing while
+            // looking like it had. A limited run asserts against its OWN target.
             .put("keyframe_count_assertion", if (limit > 0) "limited-run" else "full-capture")
             .put("keyframe_count_expected", if (limit > 0) minOf(limit, syncCount) else syncCount)
             .put(
@@ -605,188 +510,131 @@ class WardenEngineBench(private val context: Context) {
             )
             .put("ms_per_keyframe", JSONObject()
                 .put("decode", t.decodeNs / 1e6 / n)
-                .put("upload_or_bind", t.uploadOrBindNs / 1e6 / n)
-                .put("resolve", t.resolveNs / 1e6 / n)
-                .put("shader", t.shaderNs / 1e6 / n)
-                .put("readback", t.readbackNs / 1e6 / n)
+                .put("engine", t.engineNs / 1e6 / n)
                 .put("stage_total", t.totalNs / 1e6 / n)
                 .put("wall", wallNs / 1e6 / n)
-                // 🔴 REVIEW 2026-09-15 (D2): `decode` above is NOT a disjoint stage.
-                // WardenKeyframeDecoder ASSIGNS decodeNs = nanoTime() - t0 with t0
-                // fixed at loop entry, snapshotted BEFORE onFrame() — so it nests
-                // every GL stage of frames 0..N-2 inside itself. The tell is that
-                // stage_total (35.125) EXCEEDS wall (33.428); a partition cannot
-                // exceed the whole. These two fields are the disjoint decomposition.
-                .put("decode_excluding_gl", (t.decodeNs - glOnlyNs(t)) / 1e6 / n)
-                .put("gl_total", glOnlyNs(t) / 1e6 / n)
+                // 🔴 `decode` is NOT disjoint from `engine`. WardenKeyframeDecoder
+                // ASSIGNS decodeNs = nanoTime() - t0 with t0 fixed at loop entry and
+                // snapshotted BEFORE onFrame(), so it nests the engine work of frames
+                // 0..N-2 inside itself. The tell is that stage_total EXCEEDS wall; a
+                // partition cannot exceed the whole. THESE two are the disjoint split.
+                .put("decode_excluding_engine", (t.decodeNs - t.engineNs) / 1e6 / n)
+                .put("engine_total", t.engineNs / 1e6 / n)
                 .put(
-                    "gl_share_of_wall",
-                    if (wallNs > 0) glOnlyNs(t).toDouble() / wallNs.toDouble() else 0.0
+                    "engine_share_of_wall",
+                    if (wallNs > 0) t.engineNs.toDouble() / wallNs.toDouble() else 0.0
                 ))
             .put("total_wall_ms", wallNs / 1e6)
-            // AC11 — EXCLUDED from ms_per_keyframe and reported separately. On
-            // device, context creation and shader compile are far more expensive
-            // than on PC, and 12.1 amortized them into its headline.
-            .put("one_off_setup_ms", setupNs / 1e6)
+            // 🔴 STORY 12.4b — `one_off_setup_ms` is STRUCTURALLY ZERO now, and is
+            // reported as an explicit zero with a reason rather than dropped, so
+            // 12.4d does not read a missing field as a measurement that failed. It
+            // used to carry the GPU engine's program build, texture allocation and
+            // AC7 rules self-test. WardenCpuBaseline and WardenColorConvert are
+            // objects; they allocate nothing per run.
+            .put("one_off_setup_ms", 0.0)
+            .put(
+                "one_off_setup_note",
+                "Structurally zero — the CPU engine has no setup. EGL context creation, " +
+                    "reported separately as ac11_one_off_egl_context_ms until Story 12.4b, " +
+                    "is gone for the same reason."
+            )
             .put("decode_strategy", if (bySeek) "AC0b Option A - absolute seek per keyframe"
                                     else "AC0b Option A-prime - single-pass sync-filtered demux")
-            .put("profile_kind", "naive wall-clock, directly comparable to 12.1")
+            .put("profile_kind", "wall-clock; EXACT, not naive — see caveat")
             .put(
                 "caveat",
-                "TWO separate caveats. (1) NESTING: `decode` is NOT disjoint from the " +
-                    "GL stages — decodeNs is assigned from loop entry and snapshotted " +
-                    "before onFrame(), so it contains the upload/resolve/shader/readback " +
-                    "of frames 0..N-2. That is why stage_total EXCEEDS wall. Use " +
-                    "`decode_excluding_gl` + `gl_total` for the disjoint split; the real " +
-                    "engine share of the wall is ~6% (Path Z) / ~7% (Path P), NOT ~1%. " +
-                    "(2) ASYNC: GL work is asynchronous, so this naive per-stage split is " +
-                    "MISATTRIBUTED (12.1 measured the same effect on PC — the timer stops " +
-                    "before the transfer lands and the blocking readback absorbs the tail). " +
-                    "See the forced_completion profile for the split that means what it says."
+                "ONE caveat now, where there were two. (1) NESTING SURVIVES: `decode` is " +
+                    "NOT disjoint from `engine` — decodeNs is assigned from loop entry and " +
+                    "snapshotted before onFrame(), so it contains the engine work of frames " +
+                    "0..N-2. That is why stage_total can EXCEED wall. Use " +
+                    "`decode_excluding_engine` + `engine_total`. (2) ASYNC IS GONE: the old " +
+                    "per-stage split was MISATTRIBUTED because GL work is asynchronous — the " +
+                    "timer stopped before the transfer landed and the blocking readback " +
+                    "absorbed the tail, which is the ONLY reason a forced-completion profile " +
+                    "with a glFinish per stage had to exist. CPU work is synchronous, so " +
+                    "this profile means what it says and `forcedCompletionProfile` is retired."
             )
     }
 
-    /**
-     * The GL-only portion of a timing run: everything the engine did, excluding
-     * decode.
-     *
-     * Exists because [WardenStageTimings.decodeNs] nests the GL stages (see the
-     * `caveat` field above), so `stage_total - decode` is the only honest way to
-     * recover a disjoint decomposition from the numbers already collected.
-     */
-    private fun glOnlyNs(t: WardenStageTimings): Long =
-        t.uploadOrBindNs + t.resolveNs + t.shaderNs + t.readbackNs
-
-    /**
-     * AC11's second profile: `glFinish()` per stage, median of >= [reps].
-     * Reported alongside the naive one, labelled, because 12.1 proved the naive
-     * split misattributes and quoting it as a split was its own review finding.
-     */
-    fun forcedCompletionProfile(
-        packed: WardenPackedRules,
-        videoPath: String,
-        path: WardenColorPath,
-        reps: Int,
-        ptsList: LongArray,
-    ): JSONObject {
-        val upload = ArrayList<Long>(reps)
-        val resolve = ArrayList<Long>(reps)
-        val shader = ArrayList<Long>(reps)
-        val readback = ArrayList<Long>(reps)
-        val engine = WardenDetectionEngine(frag(), packed, REF_W, REF_H, path)
-        try {
-            if (path == WardenColorPath.BIT_PARITY) {
-                WardenKeyframeDecoder(videoPath, null).use { dec ->
-                    dec.decodeKeyframesBySeek(ptsList, reps) { kf ->
-                        val p = kf.planes!!; val s = kf.rowStrides!!; val ps = kf.pixelStrides!!
-                        var t0 = System.nanoTime()
-                        engine.uploadYuvPlanes(
-                            p[0], s[0], p[1], s[1], ps[1], p[2], s[2], ps[2], kf.width, kf.height
-                        )
-                        engine.finish(); upload.add(System.nanoTime() - t0)
-                        t0 = System.nanoTime(); engine.resolve(); engine.finish()
-                        resolve.add(System.nanoTime() - t0)
-                        t0 = System.nanoTime(); engine.evaluate(); engine.finish()
-                        shader.add(System.nanoTime() - t0)
-                        t0 = System.nanoTime(); engine.readback()
-                        readback.add(System.nanoTime() - t0)
-                    }
-                }
-            } else {
-                WardenSurfaceTextureHost(engine.externalTexId).use { host ->
-                    host.setDefaultBufferSize(REF_W, REF_H)
-                    WardenKeyframeDecoder(videoPath, host.surface).use { dec ->
-                        dec.decodeKeyframesBySeek(ptsList, reps) { _ ->
-                            var t0 = System.nanoTime()
-                            val m = host.awaitAndBind(); engine.finish()
-                            upload.add(System.nanoTime() - t0)
-                            t0 = System.nanoTime(); engine.resolve(m); engine.finish()
-                            resolve.add(System.nanoTime() - t0)
-                            t0 = System.nanoTime(); engine.evaluate(); engine.finish()
-                            shader.add(System.nanoTime() - t0)
-                            t0 = System.nanoTime(); engine.readback()
-                            readback.add(System.nanoTime() - t0)
-                        }
-                    }
-                }
-            }
-        } finally { engine.release() }
-        return JSONObject()
-            .put("color_path", path.name)
-            .put("reps", upload.size)
-            .put("profile_kind", "forced completion (glFinish per stage), MEDIAN")
-            .put("median_ms", JSONObject()
-                .put("upload_or_bind", medianMs(upload))
-                .put("resolve", medianMs(resolve))
-                .put("shader", medianMs(shader))
-                .put("readback", medianMs(readback)))
-    }
-
     // -----------------------------------------------------------------------
-    // AC3 — PC-vs-device frame diff. RUN BEFORE ANY RULE PORTING.
+    // AC3 — PC-vs-device frame diff, now of the SHIPPED converter
     // -----------------------------------------------------------------------
 
     /**
-     * Dumps the SAME keyframe of the SAME capture through each available colour
-     * path as a PNG, for an off-device ΔH/ΔS/ΔV diff in OpenCV HSV units against
-     * FFmpeg's rgb24 output.
+     * Converts ONE keyframe of the real capture with [WardenColorConvert] and writes
+     * it as a PNG, for an off-device ΔH/ΔS/ΔV diff in OpenCV HSV units against
+     * FFmpeg's `rgb24` output (`bench/12-2/ac3_frame_diff.py`).
      *
-     * A clean Path P must show ΔH = ΔS = ΔV = 0. If it does not, the YUV->RGB
-     * constants are wrong and every downstream number is unanchored — STOP.
+     * 🔴 STORY 12.4b RE-POINTED THIS. It used to dump `engine.readFrameTexture()` —
+     * what the GPU's `RESOLVE_YUV_FRAG` had written — once per available colour
+     * path. The shader is gone, so this is now evidence about the converter the app
+     * actually ships, which is strictly more useful than evidence about a rejected
+     * one.
+     *
+     * ⚠️ THE EXPECTED RESIDUAL IS NOT ZERO, AND THAT IS NOT A BUG. The converter
+     * samples chroma NEAREST while swscale interpolates, so the two disagree at
+     * every chroma edge BY DESIGN, bounded by the local chroma gradient
+     * (measured ΔS ≈ 2.46, ≤ 3 units of 255). That is an upsampling POLICY
+     * difference, NOT a matrix or range error — a matrix error is unbounded and
+     * affine in the pixel's own chroma. The CONSTANTS are what AC3's stop rule
+     * exists to protect, and they are proved exhaustively elsewhere: offline by
+     * `ac3_numpy_reference.py verify-constants` over all 2^24 triples, and on device
+     * by [colorConstantsCheck] against the same reference's pinned digest.
+     *
+     * ⚠️ Do NOT quote `ac3_frame_diff.json`'s `diagnosis` string. It reads
+     * "MATRIX-ERROR-scale discrepancy (709 vs 601)" for BOTH paths and is a
+     * superseded heuristic label.
+     *
+     * This is a DIAGNOSTIC: it converts a whole 1920x1080 frame, which the bound
+     * path never does (AC0b — rule regions only, ~800 texels of 2,073,600).
      */
-    fun frameDiffDump(packed: WardenPackedRules, videoPath: String, path: WardenColorPath): JSONObject {
-        val engine = WardenDetectionEngine(frag(), packed, REF_W, REF_H, path)
+    fun frameDiffDump(packed: WardenPackedRules, videoPath: String): JSONObject {
         var wrote = false
         var ptsUs = -1L
-        // AC3 diagnostics: the decoder's ACTUAL plane layout. `pixelStride == 2`
-        // means semi-planar NV12, where planes[1] and planes[2] share one
-        // interleaved buffer — the layout that silently corrupts both chroma
-        // channels if uploaded as tightly-packed R8.
         var planeLayout = "n/a"
-        try {
-            if (path == WardenColorPath.BIT_PARITY) {
-                WardenKeyframeDecoder(videoPath, null).use { dec ->
-                    dec.decodeKeyframes(1) { kf ->
-                        val p = kf.planes!!; val s = kf.rowStrides!!; val ps = kf.pixelStrides!!
-                        engine.uploadYuvPlanes(
-                            p[0], s[0], p[1], s[1], ps[1], p[2], s[2], ps[2], kf.width, kf.height
-                        )
-                        planeLayout = "rowStrides=${s.joinToString(",")} " +
-                            "pixelStrides=${ps.joinToString(",")} " +
-                            (if (ps[1] == 2) "SEMI-PLANAR NV12" else "PLANAR")
-                        engine.resolve()
-                        ptsUs = kf.presentationTimeUs
-                        wrote = dumpFrameTex(engine, "framediff_${path.name.lowercase()}.png")
-                    }
-                }
-            } else {
-                WardenSurfaceTextureHost(engine.externalTexId).use { host ->
-                    host.setDefaultBufferSize(REF_W, REF_H)
-                    WardenKeyframeDecoder(videoPath, host.surface).use { dec ->
-                        dec.decodeKeyframes(1) { kf ->
-                            val m = host.awaitAndBind()
-                            engine.resolve(m)
-                            ptsUs = kf.presentationTimeUs
-                            wrote = dumpFrameTex(engine, "framediff_${path.name.lowercase()}.png")
-                        }
-                    }
-                }
+        var strides = "n/a"
+        var convertMs = 0.0
+        WardenKeyframeDecoder(videoPath).use { dec ->
+            dec.decodeKeyframes(1) { kf ->
+                val frame = WardenYuvFrame.of(kf)
+                frame.requireGeometry(REF_W, REF_H)
+                planeLayout = frame.layoutName()
+                strides = "rowStrides=${kf.rowStrides!!.joinToString(",")} " +
+                    "pixelStrides=${kf.pixelStrides!!.joinToString(",")}"
+                val t0 = System.nanoTime()
+                val bgra = frame.convertFrameToBgra()
+                convertMs = (System.nanoTime() - t0) / 1e6
+                ptsUs = kf.presentationTimeUs
+                wrote = dumpBgra(bgra, "framediff_cpu.png")
             }
-        } finally { engine.release() }
+        }
+        // Emitted so the diff has the fire bits of the same frame beside it: a
+        // colour residual that moves no rule and a colour residual that moves one
+        // are different findings, and the PNG alone cannot tell them apart.
         return JSONObject()
-            .put("color_path", path.name)
+            .put("color_path", "CPU_BT709_LIMITED")
             .put("pts_us", ptsUs)
             .put("written", wrote)
             .put("plane_layout", planeLayout)
-            .put("file", "framediff_${path.name.lowercase()}.png")
+            .put("strides", strides)
+            .put("whole_frame_convert_ms", convertMs)
+            .put("n_rules", packed.nRules)
+            .put("file", "framediff_cpu.png")
+            .put(
+                "note",
+                "The SHIPPED converter's output for one real keyframe. Expected residual " +
+                    "against FFmpeg rgb24 is a nearest-vs-swscale chroma upsampling " +
+                    "difference (ΔS ≈ 2.46, ≤ 3 units), NOT a matrix error. " +
+                    "`whole_frame_convert_ms` is the cost the bound path does NOT pay: it " +
+                    "converts rule regions only."
+            )
     }
 
-    /** Reads the resolved BGR frame texture back and writes it as an RGB PNG. */
-    private fun dumpFrameTex(engine: WardenDetectionEngine, name: String): Boolean {
-        val bgra = engine.readFrameTexture() ?: return false
+    /** Writes B,G,R,A bytes as a normal RGB PNG. */
+    private fun dumpBgra(bgra: ByteArray, name: String): Boolean {
+        if (bgra.size < REF_W * REF_H * 4) return false
         val px = IntArray(REF_W * REF_H)
         for (i in px.indices) {
-            // frameTex holds B,G,R in .r,.g,.b — undo it for a normal PNG.
             val b = bgra[i * 4].toInt() and 0xFF
             val g = bgra[i * 4 + 1].toInt() and 0xFF
             val r = bgra[i * 4 + 2].toInt() and 0xFF
@@ -895,30 +743,37 @@ class WardenEngineBench(private val context: Context) {
         }
     }
 
-    fun threadingModel(egl: WardenEglContext): JSONObject = JSONObject()
-        .put("egl_owner_thread", egl.ownerThreadName)
-        .put("egl_owner_thread_id", egl.ownerThreadId)
-        .put("bench_thread", Thread.currentThread().name)
-        .put("is_main_thread", Thread.currentThread() == context.mainLooper.thread)
-        .put(
-            "finding",
-            "EGL contexts are THREAD-bound, not JS-context-bound. This context was " +
-                "created and made current on a plain worker thread with a pbuffer " +
-                "surface: no Activity, no SurfaceView, no UI thread. GL calls, " +
-                "SurfaceTexture.updateTexImage() and the MediaCodec output handling all " +
-                "run on that same thread. architecture.md:2047's rationale (\"the " +
-                "foreground service hosts the main JS context where the JSI binding " +
-                "lives\") is therefore NOT the constraint that governs this engine — " +
-                "thread affinity is. The CONCLUSION survives (a foreground service still " +
-                "hosts the work, because the process must stay alive), but it is now " +
-                "re-derived rather than inherited. 12.3 rewrites the architecture prose."
-        )
+    // Story 12.4b removed `threadingModel(egl)`.
+    //
+    // It reported the EGL context's owner thread and carried AC16's finding: EGL
+    // contexts are THREAD-bound, not JS-context-bound, so the constraint governing
+    // where the engine runs is thread affinity rather than which JS context is
+    // alive. That finding is BANKED in architecture.md (amendment 5d is re-derived,
+    // not inherited) and it does not depend on this function to stay true. There is
+    // no EGL context left to describe, and a "threading model" block reporting only
+    // `Thread.currentThread().name` would assert nothing.
+    //
+    // 🔴 THE CONCLUSION SURVIVES THE REMOVAL: a foreground service still hosts the
+    // work, because the PROCESS must stay alive for a multi-minute decode. That was
+    // always the durable half of the argument.
 
     // -----------------------------------------------------------------------
     // Orchestration
     // -----------------------------------------------------------------------
 
-    fun runAll(mode: String, videoPath: String?, limit: Int, cpuFrames: Int): JSONObject {
+    fun runAll(
+        mode: String,
+        videoPath: String?,
+        limit: Int,
+        /**
+         * Sized the retired `cpugpu` comparison. Story 12.4b left it in the
+         * signature rather than removing it: it is the bridge's fourth positional
+         * argument, `WardenEngineBenchActivity` passes it from an adb extra, and
+         * shifting a positional arity is a silent-miscall hazard for a parameter
+         * nothing reads. Story 12.4c owns this seam next and can drop it there.
+         */
+        @Suppress("UNUSED_PARAMETER") cpuFrames: Int,
+    ): JSONObject {
         val report = JSONObject()
         report.put("story", "12.2")
         report.put("generated_at", System.currentTimeMillis())
@@ -945,16 +800,11 @@ class WardenEngineBench(private val context: Context) {
             return report
         }
 
-        // AC11 explicitly asks for EGL context creation as a SEPARATE one-off cost
-        // ("it is a real number 12.3 wants"). REVIEW 2026-09-15: it was untimed and
-        // appeared in no artifact — `one_off_setup_ms` covers only the engine's own
-        // program build / textures / self-test. Time it here, where it happens once.
-        val eglT0 = System.nanoTime()
-        val egl = WardenEglContext.createOffscreen()
-        val eglSetupMs = (System.nanoTime() - eglT0) / 1e6
+        // 🔴 STORY 12.4b — NO EGL CONTEXT IS CREATED HERE ANY MORE, and
+        // `ac11_one_off_egl_context_ms` is gone with it. AC11 had asked for EGL
+        // context creation as a separate one-off cost by name ("it is a real number
+        // 12.3 wants"); 12.3 used it, and the answer was to stop paying it.
         try {
-            report.put("ac11_one_off_egl_context_ms", eglSetupMs)
-
             val wantsVideo = videoPath != null && File(videoPath).exists()
 
             // The 62 s ground-truth sample-table walk is done ONCE here, timed,
@@ -965,33 +815,53 @@ class WardenEngineBench(private val context: Context) {
             var groundTruth = -1
             var scanMs = 0.0
             if (wantsVideo && (mode == "all" || mode == "timing")) {
-                WardenKeyframeDecoder(videoPath!!, null).use { dec ->
+                WardenKeyframeDecoder(videoPath!!).use { dec ->
                     val t0 = System.nanoTime()
                     groundTruth = dec.countSyncSamplesByScan()
                     scanMs = (System.nanoTime() - t0) / 1e6
                 }
             }
 
-            report.put("ac1_device_profile", deviceProfile(egl, videoPath, groundTruth))
-            report.put("ac16_threading_model", threadingModel(egl))
+            report.put("ac1_device_profile", deviceProfile(videoPath, groundTruth))
 
             val packed = WardenRulePacker.packRules(configJson(), REF_W, REF_H)
             report.put("ac5_lut_cross_check", lutCrossCheck(packed))
+            // Story 12.4b AC2 — runs in EVERY mode, like the LUT cross-check and
+            // for the same reason: it removes an entire class of divergence
+            // before any measurement, and a colour error found here costs a
+            // second instead of a build/flash/run cycle.
+            report.put("ac2_color_constants", colorConstantsCheck())
 
-            val pathsToMeasure = availableColorPaths(egl)
-            report.put("ac0c_paths_measured", JSONArray(pathsToMeasure.map { it.name }))
+            // 🔴 ONE PATH, AND SAY SO RATHER THAN LETTING THE ARRAY SILENTLY SHRINK.
+            //
+            // This used to be `availableColorPaths(egl)` — [ZERO_COPY, BIT_PARITY],
+            // or just [BIT_PARITY] where the OES ESSL3 extension was missing — and
+            // every timing block below looped over it. Story 12.4b removed Path Z
+            // (zero-copy decode into a SurfaceTexture, whose colour conversion was
+            // DRIVER-DEFINED and diverged from bit-parity on 0.888% of decisions,
+            // including 44 of the 69 low-saturation rules) and Path P's GPU resolve.
+            // What remains is the CPU converter.
+            //
+            // 12.4d: `ac11_ac13_timing_naive` is a ONE-element array now. That is a
+            // deletion, not a regression, and it changes what the array MEANS —
+            // pre-12.4b the first element was ZERO_COPY.
+            report.put("ac0c_paths_measured", JSONArray(listOf("CPU_BT709_LIMITED")))
+            report.put(
+                "ac0c_paths_removed",
+                JSONArray(listOf("ZERO_COPY", "BIT_PARITY", "DIRECT_RGB"))
+            )
 
             if (mode == "flushprobe" && wantsVideo) {
                 // §6 of the keyframe-decode-perf research: falsify or confirm the
                 // derived 25.7 ms flush+drain figure BEFORE rewriting anything.
-                WardenKeyframeDecoder(videoPath!!, null).use { dec ->
+                WardenKeyframeDecoder(videoPath!!).use { dec ->
                     val pts = dec.syncSamplePtsListBySeek(200)
                     val probe = dec.decodeProbe(pts, 100)
                     val o = JSONObject()
                     for ((k, v) in probe) o.put(k, v)
                     report.put("decode_probe", o)
                 }
-                WardenKeyframeDecoder(videoPath, null).use { dec ->
+                WardenKeyframeDecoder(videoPath).use { dec ->
                     val idle = dec.flushOnlyProbe(100)
                     val o = JSONObject()
                     for ((k, v) in idle) o.put(k, v)
@@ -1017,11 +887,11 @@ class WardenEngineBench(private val context: Context) {
                 // scans whose results were not guaranteed identical if seek behaviour
                 // drifted, which would silently break the "same 100 keyframes"
                 // premise the whole comparison rests on.
-                val sweepPts = WardenKeyframeDecoder(videoPath, null).use { it.syncSamplePtsListBySeek(200) }
+                val sweepPts = WardenKeyframeDecoder(videoPath).use { it.syncSamplePtsListBySeek(200) }
                 val sweep = JSONArray()
                 var sweepUsableRows = 0
                 for (depth in intArrayOf(1, 2, 4, 8, 16)) {
-                    WardenKeyframeDecoder(videoPath, null).use { dec ->
+                    WardenKeyframeDecoder(videoPath).use { dec ->
                         val o = JSONObject()
                         try {
                             val row = dec.pipelineProbe(sweepPts, 100, depth)
@@ -1055,7 +925,7 @@ class WardenEngineBench(private val context: Context) {
                 }
             }
             if (mode == "seektest" && wantsVideo) {
-                WardenKeyframeDecoder(videoPath!!, null).use { dec ->
+                WardenKeyframeDecoder(videoPath!!).use { dec ->
                     val t0 = System.nanoTime()
                     val landed = dec.seekProbe(4_166_667L, 20)
                     val ms = (System.nanoTime() - t0) / 1e6
@@ -1075,7 +945,7 @@ class WardenEngineBench(private val context: Context) {
                 }
                 // 🔴 The pattern AC0b PRESCRIBED and Story 12.2 rejected. Measured
                 // here for the first time; the amendment shipped without it.
-                WardenKeyframeDecoder(videoPath, null).use { dec ->
+                WardenKeyframeDecoder(videoPath).use { dec ->
                     val groundTruth = dec.countSyncSamplesByScan()
                     val t0 = System.nanoTime()
                     val found = dec.incrementalNextSyncScan()
@@ -1097,19 +967,14 @@ class WardenEngineBench(private val context: Context) {
                                 "inherits the decode path."))
                 }
             }
-            if (mode == "pngdump") {
-                report.put("pngdump", pngDump(packed, "artefact/004_00h00m16s.png"))
-            }
             if (mode == "all" || mode == "parity") {
                 report.put("ac14a_parity", parityRun(packed))
             }
-            if (mode == "all" || mode == "cpugpu") {
-                report.put("ac12_cpu_vs_gpu", cpuVsGpu(packed, cpuFrames))
-            }
             if ((mode == "all" || mode == "framediff") && wantsVideo) {
-                val diffs = JSONArray()
-                for (p in pathsToMeasure) diffs.put(frameDiffDump(packed, videoPath!!, p))
-                report.put("ac3_frame_diff", diffs)
+                report.put(
+                    "ac3_frame_diff",
+                    JSONArray(listOf(frameDiffDump(packed, videoPath!!)))
+                )
             }
             if ((mode == "all" || mode == "timing") && wantsVideo) {
                 // The ground-truth scan ran ONCE, above. The seek-built PTS list is
@@ -1117,7 +982,7 @@ class WardenEngineBench(private val context: Context) {
                 // by list construction; it too is measured outside every wall clock.
                 var ptsList = LongArray(0)
                 var ptsMs = 0.0
-                WardenKeyframeDecoder(videoPath!!, null).use { dec ->
+                WardenKeyframeDecoder(videoPath!!).use { dec ->
                     val t0 = System.nanoTime()
                     ptsList = dec.syncSamplePtsListBySeek()
                     ptsMs = (System.nanoTime() - t0) / 1e6
@@ -1134,25 +999,28 @@ class WardenEngineBench(private val context: Context) {
                             "asserted against. Disagreement means the regular-GOP " +
                             "assumption broke, NOT that keyframes silently went missing."))
 
-                val naive = JSONArray()
-                val forced = JSONArray()
-                for (p in pathsToMeasure) {
-                    naive.put(timingRun(packed, videoPath, p, limit, true, ptsList, groundTruth))
-                    forced.put(forcedCompletionProfile(packed, videoPath, p, FORCED_REPS, ptsList))
-                }
-                report.put("ac11_ac13_timing_naive", naive)
-                report.put("ac11_forced_completion", forced)
+                report.put(
+                    "ac11_ac13_timing_naive",
+                    JSONArray(listOf(
+                        timingRun(packed, videoPath, limit, true, ptsList, groundTruth)
+                    ))
+                )
+                // `ac11_forced_completion` is GONE, not empty. It re-measured each GL
+                // stage behind a glFinish() because asynchronous GL made the naive
+                // split misattribute work. CPU work is synchronous: the naive split
+                // IS the forced one, and publishing both would be two numbers for a
+                // reader to reconcile that can never differ.
 
                 // AC0b - the two decode analogues, measured head to head on the
                 // SAME frames so the choice is evidence, not preference.
                 val nCmp = if (limit > 0) limit else DECODE_COMPARE_FRAMES
                 val decodeCompare = JSONArray()
                 decodeCompare.put(
-                    timingRun(packed, videoPath, pathsToMeasure[0], nCmp, true, ptsList, groundTruth)
+                    timingRun(packed, videoPath, nCmp, true, ptsList, groundTruth)
                         .put("strategy_label", "A: absolute seek per keyframe")
                 )
                 decodeCompare.put(
-                    timingRun(packed, videoPath, pathsToMeasure[0], nCmp, false, ptsList, groundTruth)
+                    timingRun(packed, videoPath, nCmp, false, ptsList, groundTruth)
                         .put("strategy_label", "A-prime: single-pass sync-filtered demux")
                 )
                 report.put("ac0b_decode_strategy_comparison", decodeCompare)
@@ -1163,8 +1031,6 @@ class WardenEngineBench(private val context: Context) {
             report.put("error", t.toString())
             report.put("stack", Log.getStackTraceString(t))
             Log.e(TAG, "bench failed", t)
-        } finally {
-            egl.release()
         }
 
         val f = File(outDir, "report_$mode.json")
@@ -1173,18 +1039,10 @@ class WardenEngineBench(private val context: Context) {
         return report
     }
 
-    /** AC0c — both paths, unless AC2 rules Path Z out on this device. */
-    private fun availableColorPaths(egl: WardenEglContext): List<WardenColorPath> {
-        val z = egl.hasExtension(WardenDetectionEngine.OES_ESSL3_EXTENSION) && probeOesCompiles()
-        return if (z) listOf(WardenColorPath.ZERO_COPY, WardenColorPath.BIT_PARITY)
-        else listOf(WardenColorPath.BIT_PARITY)
-    }
-
     companion object {
         const val REF_W = 1920
         const val REF_H = 1080
         private const val MAX_RECORDED_FIRES = 4000
-        private const val FORCED_REPS = 200
         private const val DECODE_COMPARE_FRAMES = 60
 
         /**
@@ -1202,13 +1060,24 @@ class WardenEngineBench(private val context: Context) {
         )
 
         val BENCH_MODES = setOf(
-            "all", "parity", "cpugpu", "timing", "framediff",
-            "flushprobe", "seektest", "pngdump",
+            "all", "parity", "timing", "framediff", "flushprobe", "seektest",
         )
 
         /** Pinned from lut.py on the PC (Story 12.2 Task 4). */
         const val REFERENCE_LUT_SHA256 =
             "b8287e084937dff08ee9a36bdb144e7d09b4bb414bab88d5fee6ee1b2b7f62c5"
+
+        /**
+         * Story 12.4b AC2 — pinned from `ac3_numpy_reference.shader_model` over
+         * ALL 2^24 (Y, Cb, Cr) triples, uint8 B,G,R, C-order.
+         *
+         * 🔴 Held in lockstep with `REFERENCE_YUV_SWEEP_SHA256` in
+         * `bench/12-2/ac3_numpy_reference.py` by BOTH `colorConvert.test.ts` (CI)
+         * and that script's own `verify-shader-transcription` (offline). A pin
+         * that appears on only one side is a pin that proves nothing.
+         */
+        const val REFERENCE_YUV_SWEEP_SHA256 =
+            "4dd2da47dc76c0b295572188703077e65b8c01c4c366b52fd73d6d6404c34e27"
 
         const val REFERENCE_DEVICE_NOTE =
             "Measured on the Poco X5 Pro 5G (SM7325 / Android 14 / Adreno 642L). AC15: " +

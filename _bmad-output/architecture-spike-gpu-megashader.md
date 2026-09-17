@@ -241,6 +241,8 @@ This is an **upper bound** on the bound configuration, because Option A _removes
 
 **Labelled [P], and used nowhere as the binding number.** It is a construction over three measured parts describing a configuration that **was never run end to end**. Story 12.4 measures it for real.
 
+> ✅ **THE `[P]` GAP IS CLOSED ON CORRECTNESS, 2026-09-17 (Story 12.4b) — and still open on PERFORMANCE (Story 12.4d).** The two halves of `[P]` were different claims. The **correctness** half — "the CPU arm has never been fed MediaCodec output at all; 12.2's AC12 fed it BGRA decoded from labeled PNG Bitmaps" — is now answered: MediaCodec → `WardenColorConvert` → `WardenCpuBaseline` ran over the **full 1061-keyframe capture** against the GPU arm on byte-identical decoder planes, at **0 per-rule disagreements over 142,174 decisions**, with the GPU arm still present to answer. The **performance** half — an end-to-end ms/keyframe for the bound configuration — is **Story 12.4d's** and remains a projection here. See [`apps/mobile/bench/12-4b/REPORT.md`](../apps/mobile/bench/12-4b/REPORT.md).
+
 **🔴 The honesty requirement — what this number covers and what it does not.**
 
 The 44.9 s is a **detection-pass bench**, not an auto-slice run. PERF-002 scopes _auto-slice processing time_. Excluded from every wall clock above, and each of them would add to a real run:
@@ -452,6 +454,7 @@ Mirrors Story 12.2's AC15 block, and extends it with what the verdict itself doe
 - **The three per-classifier accuracy figures are `[U]` — unbacked by any delivered artifact.** See [Measured results](#measured-results).
 - **The engine is chosen, not wired.** Story 12.2 delivered a **bench**. No production code path calls the bound engine today; `gameDetector.ts`, `mapIdentifier.ts`, `blackScreenDetector.ts`, `segmentation.ts` and `processingPipeline.ts` are untouched. **That is Story 12.4's**, and rung-0 is provisional until it lands.
 - **This spike removes no code.** The GLES / EGL surface, the mega-shader and the Path Z / Path P fork are **rejected architecturally**; their physical removal from `apps/mobile/plugins/**` and the `Warden*.kt` sources is **Story 12.4's**. SEC-007 entries 5 / 5a are corrected in place, not deleted — see `architecture.md`.
+  ✅ **DONE 2026-09-17 by Story 12.4b.** `WardenDetectionEngine.kt` (981 lines), `WardenGlUtil.kt` (219 lines), `WardenSurfaceTextureHost`, the `toSurface` decode path, `WardenRulePacker.decodeResults` and the shader-asset emission are deleted; the bench lost `cpugpu`, `pngdump`, `forcedCompletionProfile`, `threadingModel` and its EGL context. **The removal was a SUBSTITUTION, not a deletion:** `WardenColorConvert.kt` ports the bt709 limited-range conversion out of `RESOLVE_YUV_FRAG` first, and was proved before anything was removed. SEC-007 entry 5 now names the bound surface; entry 5a is **resolved as RETAINED** — its condition ("if it turns out to have a consumer") was checked, and `ffmpegKitControl` is one.
 - **Amendment 5c does not lapse.** MediaCodec keeps decode **Android-only by construction** (iOS = VideoToolbox) even with no GLES. The amendment is **re-scoped**, not reverted — see `architecture.md` → `#### iOS Phase 2 deferral`.
 - **No device re-measurement was performed by Story 12.3.** Every number here was measured by Stories 12.1 and 12.2, and is re-verified against their delivered JSON rather than re-collected.
 
@@ -466,7 +469,7 @@ Mirrors Story 12.2's AC15 block, and extends it with what the verdict itself doe
 | **Shorten `TIMEOUT_US` on `dequeueOutputBuffer`** | **~10.6 ms/kf** → ~11.2 s over 1061 kf | Two lines. The probe counts **1.02** `INFO_TRY_AGAIN_LATER` per keyframe against a 10 ms timeout — almost exactly one full sleep each time. |
 | **Stop flushing per keyframe** | **up to ~14.5 ms/kf** → ~15.4 s over 1061 kf | Keep several IDRs in flight. An IDR resets the DPB by definition, so no flush is required for correctness. `flush()` costs 14.5 ms in-loop against 1.8–3.6 ms idle — the expense is the `END_OF_STREAM` → flush transition. |
 | **Replace `countSyncSamplesByScan()`** | avoids a **62.070 s** full-file read | Bench-time assertion that **must never ship**. Take the index from the seek-built list (2.290 s), or read `stss` directly. |
-| **Physically remove the GLES / EGL surface** | — | Plugin + `Warden*.kt` GLES / EGL sources. SEC-007 entry 5 then narrows to MediaCodec-only, and entry 5a's compile-time coordinate is re-evaluated. |
+| ~~**Physically remove the GLES / EGL surface**~~ ✅ **DONE — Story 12.4b, 2026-09-17** | ~1,200 lines of Kotlin + the shader asset | Done **after** the CPU colour converter that replaces it was proved: exhaustively over all 2²⁴ (Y, Cb, Cr) triples on device (bit-identical to the pinned numpy reference), at 0 disagreements over the 2666-frame PNG corpus (357,244 decisions), and at 0 disagreements against the GPU arm over the full capture (142,174 decisions). SEC-007 entry 5 narrowed to MediaCodec-only; **entry 5a RETAINED** — the re-evaluation found a consumer (`ffmpegKitControl`, reached from the `timing` mode 12.4d re-uses). |
 | **Re-measure PERF-002 end to end** | — | Over the real auto-slice pipeline, including segmentation and thumbnail export. Closes the coverage caveat above and resolves provisional rung-0. |
 | **Wire the bound engine into the pipeline** | — | `processingPipeline.ts` and the four detection modules. Retires rung 3. |
 
@@ -480,9 +483,9 @@ Mirrors Story 12.2's AC15 block, and extends it with what the verdict itself doe
 | **9.9b** — iterative zone population for shipping configs | Released. The engine it populates zones for is settled, and the zone data is engine-independent under either arm — the rule semantics are identical (0 disagreements). |
 | **9.10** — PRD / architecture editorial pass | Released. It keeps the **exhaustive** pHash→ROI/HSV prose sweep; this story amended only the ~10 sites its own ACs named. Stale reference-device identities in `architecture.md` are flagged above for it. |
 | **1.13** — hybrid `map_config` delivery / `schema_version` | Released for create-story. |
-| **12.4** — mobile detection consumer rewrite | **Conditional on this verdict, and the rejection changes its content**: it is now a CPU-arm wiring + decode-loop optimisation + GLES-removal story, not a shader-integration story. |
+| **12.4** — mobile detection consumer rewrite | **Conditional on this verdict, and the rejection changes its content**: it is now a CPU-arm wiring + decode-loop optimisation + GLES-removal story, not a shader-integration story. **SPLIT four ways 2026-09-17.** **12.4a** ✅ decode loop — 41.982 → **7.706 ms/keyframe** (5.45×). **12.4b** ✅ CPU colour port + GLES removal — the substitution proved at 0 disagreements, then ~1,200 lines deleted. **12.4c** pipeline wiring + TS consumer rewrite (retires rung 3). **12.4d** end-to-end PERF-002 + ladder close-out (resolves provisional rung-0). |
 
-Behind those, **Epics 5 / 6 / 7** (~20 stories) were _"held behind 12.3 + 12.4"_. **12.3 has landed; only 12.4 remains between them and start.**
+Behind those, **Epics 5 / 6 / 7** (~20 stories) were _"held behind 12.3 + 12.4"_. **12.3 has landed; only 12.4 remains between them and start** — and since the 2026-09-17 split, the gate is specifically **12.4d**. 12.4a and 12.4b are done.
 
 ### Deferred-work items disposed
 

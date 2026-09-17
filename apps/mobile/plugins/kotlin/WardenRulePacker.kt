@@ -370,17 +370,10 @@ object WardenRulePacker {
         return WardenPackedRules(texture, refs, nRules)
     }
 
-    /**
-     * (1, 150, 4) RGBA8 readback -> one bool per rule.
-     *
-     * Threshold is `> 127`, NEVER `== 255`: the shader writes 1.0/0.0 and an
-     * exact-equality test would be hostage to any driver's rounding of 1.0 to
-     * 254. (AC6.)
-     */
-    fun decodeResults(rgba8: ByteArray, nRules: Int): BooleanArray {
-        require(rgba8.size >= nRules * 4) {
-            "readback holds ${rgba8.size / 4} texels, need at least $nRules"
-        }
-        return BooleanArray(nRules) { (rgba8[it * 4].toInt() and 0xFF) > 127 }
-    }
+    // Story 12.4b removed `decodeResults` — the (1, 150, 4) RGBA8 GPU-readback
+    // decoder. It turned `glReadPixels` output into fire bits with a `> 127`
+    // threshold, because the mega-shader wrote 1.0/0.0 and an `== 255` test would
+    // have been hostage to a driver rounding 1.0 to 254. There is no readback and
+    // no driver in the bound path: WardenCpuBaseline returns a BooleanArray
+    // directly.
 }

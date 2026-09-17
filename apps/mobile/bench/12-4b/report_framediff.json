@@ -1,0 +1,92 @@
+{
+ "story": "12.2",
+ "generated_at": 1789650253070,
+ "mode": "framediff",
+ "reference_device_note": "Measured on the Poco X5 Pro 5G (SM7325 \/ Android 14 \/ Adreno 642L). AC15: these are REAL reference-device numbers but they bind NEITHER PERF-002 NOR PERF-010 — both re-baseline with Story 12.3, and PERF-010 is a SOFT target, not a measured floor. The engine brief's <10 s is the aspiration, not an acceptance criterion. Parity figures are an IN-SAMPLE parity target, never accuracy-in-the-world; REL-006's >=95% floor is 9.9b's, instrumented by Tool 9 via 9.16.",
+ "ac1_device_profile": {
+  "android_release": "14",
+  "android_sdk_int": 34,
+  "model": "22101320G",
+  "manufacturer": "Xiaomi",
+  "board": "redwood",
+  "hardware": "qcom",
+  "soc_model": "SM7325",
+  "supported_abis": [
+   "arm64-v8a",
+   "armeabi-v7a",
+   "armeabi"
+  ],
+  "thermal": {
+   "available": true,
+   "status": 0,
+   "status_name": "NONE",
+   "throttled": false,
+   "note": "0 = NONE. Anything above LIGHT means the governor is capping clocks and every ms\/keyframe figure in this report is a throttled measurement, not a capability measurement."
+  },
+  "engine": {
+   "kind": "CPU integer rule evaluation on MediaCodec keyframe decode",
+   "color_conversion": "WardenColorConvert — bt709 limited range, nearest chroma",
+   "gpu_used": false,
+   "note": "architecture.md Decision #13. No EGL context, no GL thread affinity, no LUT texture upload, no readback synchronisation, and no driver-defined colour conversion."
+  },
+  "mediacodec": {
+   "codec_name": "c2.qti.avc.decoder",
+   "is_hardware_accelerated": true,
+   "mime": "video\/avc",
+   "width": 1920,
+   "height": 1080,
+   "duration_us": 4419633333,
+   "sync_sample_count": -1,
+   "sync_sample_count_source": "NOT MEASURED — this profile never runs the 62 s ground-truth walk (Story 12.4a AC3). A bench mode that needs it scans explicitly and passes it in; -1 means no mode in this run asked.",
+   "supported_color_formats": [
+    2130708361,
+    2135033992,
+    19,
+    21,
+    20,
+    39
+   ]
+  }
+ },
+ "ac5_lut_cross_check": {
+  "n_rules": 134,
+  "bytes": 7200,
+  "sha256": "b8287e084937dff08ee9a36bdb144e7d09b4bb414bab88d5fee6ee1b2b7f62c5",
+  "mode_distribution": {
+   "normal": 57,
+   "wrap": 9,
+   "full_circle": 68
+  },
+  "reference_sha256_from_lut_py": "b8287e084937dff08ee9a36bdb144e7d09b4bb414bab88d5fee6ee1b2b7f62c5",
+  "matches_reference": true
+ },
+ "ac2_color_constants": {
+  "triples": 16777216,
+  "sha256": "4dd2da47dc76c0b295572188703077e65b8c01c4c366b52fd73d6d6404c34e27",
+  "reference_sha256_from_numpy": "4dd2da47dc76c0b295572188703077e65b8c01c4c366b52fd73d6d6404c34e27",
+  "matches_reference": true,
+  "total_ms": 24224.804627,
+  "note": "Exhaustive over the WHOLE (Y, Cb, Cr) domain — 16,777,216 triples, bit-for-bit against ac3_numpy_reference.shader_model. A match means the ported ARITHMETIC is right, not merely that the constants are: the literal checks in colorConvert.test.ts and verify-constants cannot distinguish a transcribed operator error. WardenColorConvert computes in fp64 where the shader ran at ESSL highp (fp32); measured on PC the two disagree on 109 of 16,777,216 triples (0.00065%), max 1 unit — 275x rarer than the published-rounding error the BT.709 four-decimal constants already carry, and inside the same envelope."
+ },
+ "ac0c_paths_measured": [
+  "CPU_BT709_LIMITED"
+ ],
+ "ac0c_paths_removed": [
+  "ZERO_COPY",
+  "BIT_PARITY",
+  "DIRECT_RGB"
+ ],
+ "ac3_frame_diff": [
+  {
+   "color_path": "CPU_BT709_LIMITED",
+   "pts_us": 0,
+   "written": true,
+   "plane_layout": "NV12 (semi-planar, U V U V)",
+   "strides": "rowStrides=1920,1920,1920 pixelStrides=1,2,2",
+   "whole_frame_convert_ms": 4228.942759,
+   "n_rules": 134,
+   "file": "framediff_cpu.png",
+   "note": "The SHIPPED converter's output for one real keyframe. Expected residual against FFmpeg rgb24 is a nearest-vs-swscale chroma upsampling difference (ΔS ≈ 2.46, ≤ 3 units), NOT a matrix error. `whole_frame_convert_ms` is the cost the bound path does NOT pay: it converts rule regions only."
+  }
+ ]
+}
