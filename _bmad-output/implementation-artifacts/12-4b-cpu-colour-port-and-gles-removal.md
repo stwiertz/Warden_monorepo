@@ -394,4 +394,5 @@ with both polling identically.
 
 | date | change |
 |---|---|
+| 2026-09-17 | Committed to `main` as **`61cdd8a`** (29 files, +2508 / -2280). `main` is not auto-pushed. |
 | 2026-09-17 | Story 12.4b implemented. CPU colour port proved (AC2 exhaustive 2²⁴ on device; AC3(A) 0/357,244; AC3(B) 0/142,174 over the full capture), then the GLES/EGL surface removed (~1,200 lines). Found and recorded a real latent defect in the deleted GPU arm (last chroma texel read padding as Cr). Architecture cascade closed. Status `in-progress → review`. |
