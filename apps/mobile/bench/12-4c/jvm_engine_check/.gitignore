@@ -1,0 +1,3 @@
+# Build output of run.sh: compiled classes and a 3.1 GB raw I420 dump.
+# Regenerate with run.sh; never commit either.
+build/

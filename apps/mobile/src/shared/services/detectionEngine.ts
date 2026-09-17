@@ -22,7 +22,121 @@
 //     calls resolve to null with a __DEV__ warning, so the existing test surface
 //     never sees the bridge and no test needs a device.
 
-import { NativeModules, Platform } from "react-native";
+import { DeviceEventEmitter, NativeModules, Platform } from "react-native";
+
+// ---------------------------------------------------------------------------
+// Story 12.4c — THE PRODUCTION DETECTION API (AC0a / AC1 / AC2).
+//
+// Everything above this block is the Story 12.2 bench seam and stays a bench
+// seam. What follows is the shipped path: `analyzeSession` is what
+// `processingPipeline.ts` calls, and it is the ONLY way the app reaches the
+// engine — no feature module imports `NativeModules` (INVARIANT:
+// native-modules-only-via-shared-services, verified by grep before delivery).
+// ---------------------------------------------------------------------------
+
+/** One rule of the packed set — the index fire bits are ordered by. */
+export interface EngineRuleRef {
+  texel: number;
+  owning_class: string;
+  zone_id: string;
+  kind: "hud_version" | "in_match" | "map";
+  effective_weight: number;
+}
+
+export interface EngineKeyframeFires {
+  /** MediaCodec presentation timestamp, microseconds. */
+  pts_us: number;
+  /** Fire bits, 4 per hex char, LSB first (`WardenEngineBench.bitsToHex`). */
+  fires: string;
+}
+
+/**
+ * The keyframe index's own account of itself.
+ *
+ * 🔴 IT IS SEEK-DERIVED, SO IT IS A HYPOTHESIS. The honest ground truth is a
+ * 62 s full-file read that must never ship (12.4a AC3), so the native side
+ * REPORTS coverage instead of asserting it and the caller warns. A capture with
+ * an irregular GOP can end the index early, which would otherwise present as
+ * "the last N minutes of my session contain no matches".
+ */
+export interface EngineKeyframeIndex {
+  source: string;
+  n_pts: number;
+  index_ms: number;
+  first_pts_us: number;
+  last_pts_us: number;
+  estimated_gop_us: number;
+  duration_us: number;
+  uncovered_tail_us: number;
+  covers_duration: boolean;
+}
+
+export interface EngineSessionAnalysis {
+  story: "12.4c";
+  kind: "session-analysis";
+  video: string;
+  hud_version: string;
+  n_rules: number;
+  reference_resolution: { width: number; height: number };
+  refs: EngineRuleRef[];
+  frames: EngineKeyframeFires[];
+  n_keyframes: number;
+  keyframes_expected: number;
+  keyframe_count_matches: boolean;
+  keyframe_index: EngineKeyframeIndex;
+  decoder: Record<string, unknown>;
+  decoder_chroma_layout: string;
+  decoder_flush_calls: number;
+  decoder_output_format_changes: number;
+  timing: {
+    wall_ms: number;
+    keyframe_index_ms: number;
+    ms_per_keyframe_wall: number;
+    ms_per_keyframe_decode_excluding_engine: number;
+    ms_per_keyframe_engine: number;
+  };
+}
+
+export interface EngineProgressEvent {
+  requestId: string;
+  keyframesDone: number;
+  keyframesTotal: number;
+}
+
+/** Native-module absence, surfaced as a typed failure rather than a null. */
+export class DetectionEngineUnavailableError extends Error {
+  constructor() {
+    super(
+      "the detection engine native module is not available. It is Android-only " +
+        "by construction (MediaCodec; amendment 5c) and requires a prebuilt dev " +
+        "client — `expo run:android` after `expo prebuild`."
+    );
+    this.name = "DetectionEngineUnavailableError";
+  }
+}
+
+/** The user (or a screen unmount) cancelled the run. NOT a processing failure. */
+export class DetectionAnalysisCancelledError extends Error {
+  constructor(message?: string) {
+    super(message ?? "the session analysis was cancelled");
+    this.name = "DetectionAnalysisCancelledError";
+  }
+}
+
+/** The capture's geometry does not match the config's reference resolution. */
+export class UnsupportedCaptureError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnsupportedCaptureError";
+  }
+}
+
+/** Must match `WardenDetectionEngineModule.EVENT_PROGRESS`. */
+export const ENGINE_PROGRESS_EVENT = "WardenDetectionEngineProgress";
+
+/** Reject codes the native side uses. Matched, so they are an API. */
+const CODE_CANCELLED = "WARDEN_ANALYSIS_CANCELLED";
+const CODE_UNSUPPORTED_GEOMETRY = "WARDEN_UNSUPPORTED_GEOMETRY";
 
 /**
  * The bound pipeline's measured stage split, in ms per keyframe.
@@ -175,13 +289,15 @@ export type BenchMode =
   | "seektest";
 
 interface WardenDetectionEngineNative {
-  runBench(
-    mode: string,
-    video: string | null,
-    limit: number,
-    cpuFrames: number
-  ): Promise<string>;
+  runBench(mode: string, video: string | null, limit: number): Promise<string>;
   describeDevice(): Promise<string>;
+  analyzeSession(
+    requestId: string,
+    videoPath: string,
+    configJson: string,
+    limit: number
+  ): Promise<string>;
+  cancelAnalysis(requestId: string): Promise<boolean>;
 }
 
 const native = NativeModules.WardenDetectionEngine as
@@ -244,17 +360,11 @@ export async function describeDevice(): Promise<EngineDeviceProfile | null> {
 export async function runBench(
   mode: BenchMode = "all",
   video: string | null = null,
-  limit = 0,
-  /**
-   * Retained as the bridge's fourth positional argument. It sized the retired
-   * `cpugpu` comparison and the native side now ignores it; left in place so the
-   * bridge signature does not shift under Story 12.4c, which owns this seam next.
-   */
-  cpuFrames = 400
+  limit = 0
 ): Promise<EngineBenchReport | null> {
   if (unavailable("runBench")) return null;
   try {
-    const raw = await native!.runBench(mode, video, limit, cpuFrames);
+    const raw = await native!.runBench(mode, video, limit);
     return JSON.parse(raw) as EngineBenchReport;
   } catch (error) {
     console.warn("[detectionEngine] runBench failed", error);
@@ -265,4 +375,104 @@ export async function runBench(
 /** True when the native engine bridge is linked into this build. */
 export function isEngineAvailable(): boolean {
   return Platform.OS === "android" && native !== undefined;
+}
+
+export interface AnalyzeSessionOptions {
+  /**
+   * Identifies this run so progress events and cancellation reach the right
+   * one. The pipeline passes the sessionId.
+   */
+  requestId: string;
+  videoPath: string;
+  /**
+   * The config, as JSON TEXT. Map iteration order lives in the string — the
+   * native packer recovers it by scanning the raw text, because
+   * `org.json.JSONObject` is a HashMap. See mapConfig.ts.
+   */
+  configJson: string;
+  /** 0 = the whole capture. Non-zero is for development only. */
+  limit?: number;
+  onProgress?: (event: EngineProgressEvent) => void;
+}
+
+/**
+ * 🔴 THE PRODUCTION DETECTION CALL — ONE NATIVE CALL PER SESSION (AC0a/AC1).
+ *
+ * Decodes every keyframe with MediaCodec and evaluates the packed rules over it
+ * in Kotlin, resolving with the whole fire-bit timeline. It does NOT score: the
+ * three classifier formulas and the phase machine are TypeScript's
+ * (`detectionTimeline.ts`), so the detection semantics live where the tests are.
+ *
+ * Unlike the bench entry points above, this THROWS rather than resolving null.
+ * A bench that cannot run is a reportable fact; a session the user asked to
+ * process that cannot be analysed is an outcome the pipeline must handle — and
+ * `null` at this seam would reach the checkpoint logic as "no matches found".
+ *
+ * Errors worth distinguishing, and distinguished:
+ *   * {@link DetectionAnalysisCancelledError} — the user left; not a failure.
+ *   * {@link UnsupportedCaptureError} — wrong capture geometry for this config.
+ *   * {@link DetectionEngineUnavailableError} — no native module (jest, iOS, a
+ *     build that was never prebuilt).
+ */
+export async function analyzeSession(
+  options: AnalyzeSessionOptions
+): Promise<EngineSessionAnalysis> {
+  if (Platform.OS !== "android" || !native) {
+    throw new DetectionEngineUnavailableError();
+  }
+  const { requestId, videoPath, configJson, limit = 0, onProgress } = options;
+
+  // Subscribed BEFORE the call so no early progress event is missed, and
+  // filtered by requestId so a stale subscription from a previous session
+  // cannot move this one's progress bar.
+  const subscription = onProgress
+    ? DeviceEventEmitter.addListener(
+        ENGINE_PROGRESS_EVENT,
+        (event: EngineProgressEvent) => {
+          if (event?.requestId === requestId) onProgress(event);
+        }
+      )
+    : null;
+
+  try {
+    const raw = await native.analyzeSession(
+      requestId,
+      videoPath,
+      configJson,
+      limit
+    );
+    return JSON.parse(raw) as EngineSessionAnalysis;
+  } catch (error) {
+    const code = (error as { code?: string })?.code;
+    const message = (error as { message?: string })?.message ?? String(error);
+    if (code === CODE_CANCELLED) {
+      throw new DetectionAnalysisCancelledError(message);
+    }
+    if (code === CODE_UNSUPPORTED_GEOMETRY) {
+      throw new UnsupportedCaptureError(message);
+    }
+    throw error;
+  } finally {
+    subscription?.remove();
+  }
+}
+
+/**
+ * Ask the in-flight analysis to stop. Resolves true when the request matched.
+ *
+ * Cooperative and idempotent: the native side polls the flag once per keyframe,
+ * so the worst case is one keyframe (~8 ms) of extra work, and a cancel for a
+ * run that already finished (or for somebody else's run) is a no-op rather than
+ * an error. Never throws — callers reach it from unmount paths.
+ */
+export async function cancelAnalysis(requestId: string): Promise<boolean> {
+  if (Platform.OS !== "android" || !native) return false;
+  try {
+    return await native.cancelAnalysis(requestId);
+  } catch (error) {
+    if (__DEV__) {
+      console.warn("[detectionEngine] cancelAnalysis failed", error);
+    }
+    return false;
+  }
 }

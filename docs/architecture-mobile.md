@@ -4,7 +4,9 @@
 
 ## Executive summary
 
-A React Native (Expo SDK 54) coaching app that ingests a video file, segments it into "rounds" by detecting black-screen + KDA / map-bar transitions, identifies the EVA map per round via perceptual hashing, and lets the coach review, clip, and annotate selected rounds. Detection runs **on-device** (FFmpeg-kit + an OpenCV JSI bridge — pending — and a pHash matcher in pure TS), so a 60–90 minute session can be processed without a server round-trip.
+A React Native (Expo SDK 54) coaching app that ingests a video file, segments it into "rounds" by classifying each keyframe against ROI/HSV zone rules, identifies the EVA map per round from the same rule fires, and lets the coach review, clip, and annotate selected rounds. Detection runs **on-device** — since Story 12.4c that means **one native call per session**: MediaCodec decodes the keyframes in RAM and a Kotlin integer evaluator produces per-rule fire bits, which TypeScript scores. A 60–90 minute session is processed without a server round-trip, and without writing a single frame to disk.
+
+_(Superseded 2026-09-17: this chain used to be "black-screen + KDA / map-bar transitions" and "perceptual hashing" over JPEGs decoded by an OpenCV JSI bridge. The pHash path produced `unknown` map labels on HUD 2.0 footage, which is the hole Story 12.4c closes; `react-native-fast-opencv` was removed from the app in the same story, its last caller having gone.)_
 
 State is split across:
 
@@ -30,7 +32,7 @@ src/features/
   video-processing/       The detection pipeline (heaviest folder)
 src/shared/
   components/             {Button, Card, LoadingSpinner, Toast} + hud/ atoms
-  services/               {database, ffmpeg, opencv, storage} — native bridges
+  services/               {database, ffmpeg, detectionEngine, foregroundService, storage} — native bridges
   types/index.ts          Domain types: Session, MapSegment, ClipExport, AudioComment
   hooks/, utils/
 ```
@@ -90,35 +92,75 @@ These match the SQLite schema 1:1 — see [data-models-mobile.md](./data-models-
 
 ## The processing pipeline
 
-The detection / segmentation / map-id chain lives in [`src/features/video-processing/`](../apps/mobile/src/features/video-processing/). Orchestrated by [processingPipeline.ts](../apps/mobile/src/features/video-processing/processingPipeline.ts) in 4 stages, each gated by an MMKV checkpoint so a relaunched pipeline resumes from the last completed stage.
+The detection / segmentation / map-id chain lives in [`src/features/video-processing/`](../apps/mobile/src/features/video-processing/). Orchestrated by [processingPipeline.ts](../apps/mobile/src/features/video-processing/processingPipeline.ts) in **3 stages** (Story 12.4c: it was 4 — keyframe extraction and detection COLLAPSED), each gated by an MMKV checkpoint so a relaunched pipeline resumes from the last completed stage.
 
 ```
 Stage              Outputs (MMKV keys)                              Progress range
 ──────────────────────────────────────────────────────────────────────────────
-keyframes          (FFmpeg ./keyframes/*.jpg on disk)                 0–30 %
-detection          processing.<sid>.events                            30–70 %
-                   processing.<sid>.gameSegments
-                   processing.<sid>.mapIdentifications
-                   processing.<sid>.duration
-segmentation       processing.<sid>.segmentIds                        70–90 %
+detection          processing.<sid>.schema  (= 2)                      0–70 %
+                   processing.<sid>.gameSegments                    incremental:
+                   processing.<sid>.mapIdentifications              the native call
+                   processing.<sid>.duration                        reports keyframe
+                   processing.<sid>.analysis  (what ran, not the    progress as
+                                               timeline)            device events
+segmentation       processing.<sid>.segmentIds                       70–90 %
                    processing.<sid>.segmentData
                    (rows in SQLite map_segments)
 results            (./results/map_<i>.jpg score-screen thumbs)        90–100 %
                    updates map_segments.result_frame_path
 ```
 
-Detection has two paths driven by GOP info from `getGopInfo(videoPath)`:
+**There is no `keyframes` stage and no `events` key any more**, and a checkpoint written by the old
+shape is DISCARDED on read (`schema !== 2`) rather than resumed — resuming one would skip the only
+stage that now detects anything.
 
-- **shortGop (fast path):** stream every keyframe through `createGameDetector({config, processingResolution}).processFrame(buf, ts)`. KDA/HSV-driven — see [gameDetector.ts](../apps/mobile/src/features/video-processing/gameDetector.ts).
-- **longGop fallback (memory-tight):** two passes. Pass 1 walks every keyframe, collects `saturationMean(buf, teamBarRoi)` only (a single float). `buildSaturationWindowsFromValues` finds windows. Pass 2 re-loads only the buffers inside each window and runs `detectBlackScreensInWindow`. This avoids holding ~600 MB of decoded frames for a 60–90 min session.
+Detection is one call — `analyzeSession(requestId, videoPath, configJson, limit)` through
+[detectionEngine.ts](../apps/mobile/src/shared/services/detectionEngine.ts) — which returns the rule
+index (`refs`) and one hex fire-bit row per keyframe. **There is no GOP branch:** the engine decodes
+keyframes only, by construction, and never holds the frame set, so the `hasShortGop` fork and the
+two-pass black-screen fallback it selected were both deleted.
 
-Both paths emit the same `GameDetectorEvent[]` stream → `pairEventsIntoSegments` → `GameSegmentTimeline[]` → `identifyMapsForSegments` (samples a mid-segment keyframe per segment, pHashes it, looks up against `detection_config.maps`).
+Above the bits, all in TypeScript and all pure:
 
-`buildMapSegments` zips game segments with map IDs into the `MapSegmentData[]` written to SQLite. `extractFrameAt(video, ts, outputPath)` saves a result-screen thumbnail per segment (clamped to `videoDurationMs - 50` to avoid past-EOF reads).
+1. [engineScoring.ts](../apps/mobile/src/features/video-processing/engineScoring.ts) — the **three
+   distinct** classifier formulas (HUD `fires/n` normalized; `in_match` `fires/n` normalized then
+   **hard-binary**; map-ID a **RAW unnormalized** weighted sum vs `identification_threshold`).
+2. [gameDetector.ts](../apps/mobile/src/features/video-processing/gameDetector.ts) — the phase
+   machine, in which **doubt is first-class and doubt HOLDS**: a split vote is emitted as `doubt`
+   but does not advance the machine, so every frame has an emitted state and an internal one, and
+   **spans are cut from the internal state**.
+3. [mapIdentifier.ts](../apps/mobile/src/features/video-processing/mapIdentifier.ts) — one map label
+   per span, from the summed per-frame aggregates; below threshold it is `null`, which is how
+   `unknown` is spelled here.
+4. [detectionTimeline.ts](../apps/mobile/src/features/video-processing/detectionTimeline.ts) —
+   composes the above in Tool 12's order.
 
-`FrameLoader` is injectable so the pipeline lands before the OpenCV JSI binding does. Default loader (`loadFrameFromPath`) **throws** until the native bridge is wired up; tests inject a synthetic loader.
+`buildMapSegments` zips game segments with map IDs into the `MapSegmentData[]` written to SQLite.
+`extractFrameAt(video, ts, outputPath)` saves a score-screen thumbnail per segment at the
+**timing-derived** score screen (the first keyframe after the span that resolved to `score_screen`,
+per `score_screen_duration_ms`), clamped to `videoDurationMs - 50` to avoid past-EOF reads.
 
-## Detection-config cache
+`analyze` is injectable in `RunPipelineOptions`, exactly as `FrameLoader` was: it is what lets the
+pipeline's tests run without a device.
+
+## Map config (v2) — what detection actually reads
+
+[mapConfig.ts](../apps/mobile/src/features/video-processing/mapConfig.ts) owns the **v2** config:
+`assets/detection/map_config.v2.json`, bundled by Metro (62 kB; present on first launch, offline,
+with no I/O), validated against `contracts/map-config.schema.json` via `@warden/contracts`, and
+handed to the native packer **as JSON text** — map iteration order lives in that string, because
+`org.json.JSONObject` is a HashMap and loses it.
+
+`listMapConfigCandidates()` is **the seam Story 1.13 widens** into the hybrid
+stale-while-revalidate Firestore overlay, `schema_version` migration and the per-HUD manifest. HUD
+version is selected **once per session** (`resolveSessionHudVersion`), and an unmatched HUD degrades
+gracefully rather than aborting the session.
+
+## Detection-config cache (v1 — no longer a detection input)
+
+> **Story 12.4c:** the engine reads none of this. It is kept running because the first-launch-offline
+> gate still blocks video processing, and removing `OfflineFirstLaunchError` is **Story 1.13's AC7**,
+> which is engine-agnostic. Its ~20 tests stay green; nothing in the detection path calls it.
 
 [detectionConfigService.ts](../apps/mobile/src/features/video-processing/detectionConfigService.ts) is a stale-while-revalidate cache over Firestore `detection_config/latest`:
 
@@ -147,13 +189,13 @@ A module-level memo (`memoCache`) avoids re-parsing JSON / re-validating on ever
 
 ## Native modules
 
-| Module                                                                           | Purpose                                                                         | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [@wokcito/ffmpeg-kit-react-native](../apps/mobile/src/shared/services/ffmpeg.ts) | Keyframe extraction, frame extraction at timestamp, GOP probing, video duration | **Wired.** Lazy-loaded via `require(...)` to surface a clear error if not present. Log redirection set to `NEVER_PRINT_LOGS` to avoid Metro spam.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| [opencv](../apps/mobile/src/shared/services/opencv.ts) (JSI)                     | `loadFrameFromPath`, `saturationMean`, `scaleRoi`, `FrameBuffer`, `Resolution`  | **Wired.** _(Corrected 2026-09-17, Story 12.4b — this row said "**Stub.** `loadFrameFromPath` throws".)_ `loadFrameFromPath` is a real `react-native-fast-opencv` JSI call: `imread` → BGR `Mat` → `cvtColor` BGR→RGB → `matToBuffer`, with every Mat handle released via `clearBuffers([])` so the native heap does not grow across a long auto-slice run. Tests still inject synthetic loaders. **Whether this module is RETIRED is Story 12.4c's decision, not this row's.**                                                                                                                      |
-| react-native-mmkv                                                                | KV store + Zustand persist storage                                              | Wired (v3 pinned).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| expo-sqlite                                                                      | Durable rows                                                                    | Wired.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| [detectionEngine](../apps/mobile/src/shared/services/detectionEngine.ts)         | `runBench`, `describeDevice`, `isEngineAvailable` — the Kotlin detection engine | **Wired as a bench; NOT yet on the production path.** The **fifth** native module (architecture.md [INVARIANT: native-modules-only-via-shared-services] + SEC-007 entry 5). Android-only by construction (amendment 5c). Bound surface after Story 12.4b: `MediaCodec` + `MediaExtractor` + `WardenColorConvert` (bt709 limited-range YUV→BGR) + `WardenCpuBaseline` (integer rule evaluation) — **no GLES/EGL**, deleted 2026-09-17 once the CPU substitution was proved at 0 disagreements. Legacy `ReactPackage`, not a TurboModule. Wiring it into `processingPipeline.ts` is **Story 12.4c's**. |
+| Module                                                                           | Purpose                                                                                                     | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [@wokcito/ffmpeg-kit-react-native](../apps/mobile/src/shared/services/ffmpeg.ts) | Frame extraction at a timestamp, video duration                                                             | **Wired.** Lazy-loaded via `require(...)` to surface a clear error if not present. Log redirection set to `NEVER_PRINT_LOGS` to avoid Metro spam. **Story 12.4c removed `extractKeyframes` and `getGopInfo`** — the engine decodes keyframes itself, and the GOP branch they served no longer exists.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ~~opencv (JSI)~~ — **REMOVED 2026-09-17, Story 12.4c**                           | —                                                                                                           | **Gone, dependency and all.** `loadFrameFromPath` existed to decode the keyframe JPEGs the old stage 1 wrote to disk; with that stage collapsed into `analyzeSession`, the binding had no callers, so `opencv.ts`, its pure-TS pHash primitives and `react-native-fast-opencv` were deleted together. This retires a native module and SEC-007 entry 2. The results stage uses **FFmpeg's** `extractFrameAt`, never OpenCV.                                                                                                                                                                                                                                                                                                                                                                                                          |
+| react-native-mmkv                                                                | KV store + Zustand persist storage                                                                          | Wired (v3 pinned).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| expo-sqlite                                                                      | Durable rows                                                                                                | Wired.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| [detectionEngine](../apps/mobile/src/shared/services/detectionEngine.ts)         | `analyzeSession`, `cancelAnalysis` (production) + `runBench`, `describeDevice`, `isEngineAvailable` (bench) | **WIRED ON THE PRODUCTION PATH since Story 12.4c** — `processingPipeline.ts`'s detection stage is `analyzeSession`, one call per session, with progress as `WardenDetectionEngineProgress` device events and cooperative cancellation polled once per keyframe. (It was: bench only.) The **fifth** native module (architecture.md [INVARIANT: native-modules-only-via-shared-services] + SEC-007 entry 5). Android-only by construction (amendment 5c). Bound surface after Story 12.4b: `MediaCodec` + `MediaExtractor` + `WardenColorConvert` (bt709 limited-range YUV→BGR) + `WardenCpuBaseline` (integer rule evaluation) — **no GLES/EGL**, deleted 2026-09-17 once the CPU substitution was proved at 0 disagreements. Legacy `ReactPackage`, not a TurboModule. Wiring it into `processingPipeline.ts` is **Story 12.4c's**. |
 
 ## Path traversal hardening
 
@@ -161,19 +203,21 @@ A module-level memo (`memoCache`) avoids re-parsing JSON / re-validating on ever
 
 ## Tests
 
-| Layer          | Suite                                                                                                                                                                                        |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pipeline atoms | `src/features/video-processing/__tests__/` — `blackScreenDetector`, `detectionConfig`, `detectionConfigBootstrap`, `detectionConfigService`, `gameDetector`, `mapIdentifier`, `segmentation` |
-| Video import   | `src/features/video-import/__tests__/` — `useVideoImport`, `videoImportService`                                                                                                              |
-| OpenCV bridge  | `src/shared/services/__tests__/opencv.test.ts`                                                                                                                                               |
-| App-level      | `src/__tests__/`                                                                                                                                                                             |
+| Layer          | Suite                                                                                                                                                                                                                                               |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pipeline atoms | `src/features/video-processing/__tests__/` — `detectionConfig`, `detectionConfigBootstrap`, `detectionConfigService`, `gameDetector`, `mapConfig`, `mapIdentifier`, `processingPipeline`, `segmentation`                                            |
+| Engine parity  | `src/features/video-processing/__tests__/tool12Parity.test.ts` — the TS scoring/phase port against a **generated, committed** fixture of Tool 12's own output, including all 1061 keyframes of a real capture (`apps/mobile/bench/12-4c/REPORT.md`) |
+| Video import   | `src/features/video-import/__tests__/` — `useVideoImport`, `videoImportService`                                                                                                                                                                     |
+| Native seams   | `src/shared/services/__tests__/` — `detectionEngine` (incl. cross-language lockstep guards read off the Kotlin), `colorConvert`, `foregroundService`                                                                                                |
+| App-level      | `src/__tests__/`                                                                                                                                                                                                                                    |
 
 Run with `pnpm --filter mobile test` (jest-expo preset, ESM transformIgnorePatterns widened for RN ecosystem).
 
 ## Known issues / debt
 
 - [`getReactNativePersistence`](../apps/mobile/src/features/auth/firebaseConfig.ts) is removed/relocated in firebase v12. There is a TODO about migrating to `@react-native-firebase/*` for native token refresh + offline auth.
-- OpenCV JSI binding pending — pipeline runs end-to-end in tests via injected `FrameLoader`s only.
+- The engine's on-device half is unverified in CI by construction: jest cannot run Kotlin and there is no instrumentation harness in the repo. The fire bits are held to an independent PC oracle instead (`apps/mobile/bench/12-4c/`), with the MediaCodec half deferred to the epic-end device pass.
+- **`the_rock` fragments into 11 spans** on the reference capture: its `in_match` zones alternate 1.0/0.0 on a ~50 s period, confidently, so doubt-holding cannot merge them. Zone-data behaviour, not port behaviour — Stories 9.9b / 9.16.
 - ESLint not configured for mobile yet (`"lint": "echo 'eslint not configured for mobile yet'"`).
 - `EXPO_PUBLIC_AUTH_BYPASS` env var must be removed before shipping.
 - mobile `.env.example` still describes the legacy `users/{uid}.isPaid` schema even though `subscriptionService.ts` reads `status` + `current_period_end`. Update before Phase 6 sign-off.

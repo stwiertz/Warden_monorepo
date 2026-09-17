@@ -99,7 +99,7 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 
 The FRs that drive the most architectural surface area:
 
-- `mobile-AUTO-SLICE-001/002` depend on OpenCV JSI binding shipping as a real binding; currently a tested-via-injection stub (`apps/mobile/src/shared/services/opencv.ts` `loadFrameFromPath` throws). This is the single largest V1 technical risk and is the principal trigger for the architecture's load-bearing first task — the pre-PRD performance spike.
+- `mobile-AUTO-SLICE-001/002` **no longer depend on OpenCV at all** (**superseded 2026-09-17 by Story 12.4c**; the sentence below is kept as the audit trail of what this risk WAS). Detection is `analyzeSession`: MediaCodec keyframe decode plus a Kotlin integer rule evaluator, reached only through `apps/mobile/src/shared/services/detectionEngine.ts`, with `react-native-fast-opencv` removed from the app entirely. ~~They depend on the OpenCV JSI binding shipping as a real binding; currently a tested-via-injection stub (`apps/mobile/src/shared/services/opencv.ts` `loadFrameFromPath` throws). This is the single largest V1 technical risk and is the principal trigger for the architecture's load-bearing first task — the pre-PRD performance spike.~~
 - `cross-ENTITLEMENT-001` defines a six-state model whose transitions and triggering events are architecture-owned; payment-failed grace duration is parameterized; day-31 offline-cache expiry behavior is crisp.
 - `cross-MAP-CONFIG-DELIVERY-001` explicitly defers to architecture (Decision #2; moat-shaping — Firestore-fetched preserves the "ship new maps without a release" lever, Metro-bundled fully closes the device for privacy).
 - `cross-SCHEMA-001/002` fix `packages/contracts/` as the binding mechanism; web wiring (Decision #6) and `user-doc` schema reconciliation (Decision #1) close the remaining gaps.
@@ -1573,14 +1573,16 @@ Warden_monorepo/
 │   │       │   │   └── usePlayback.ts
 │   │       │   └── video-processing/                        Detection pipeline (FFmpeg → game/black-screen → maps)
 │   │       │       ├── ProcessingScreen.tsx
-│   │       │       ├── processingPipeline.ts                4-stage MMKV checkpointing orchestrator
-│   │       │       ├── detectionConfig.ts                   Zod schema + validateDetectionConfig
+│   │       │       ├── processingPipeline.ts                3-stage MMKV checkpointing orchestrator (12.4c: keyframes+detection COLLAPSED into one native call)
+│   │       │       ├── mapConfig.ts                         [12.4c] Bundled map_config.v2.json + zod validation + per-session HUD-version selection; the seam Story 1.13 widens
+│   │       │       ├── engineScoring.ts                     [12.4c] Port of Tool 12 scoring.py — the THREE per-classifier formulas over the engine's fire bits
+│   │       │       ├── detectionTimeline.ts                 [12.4c] Fire bits → per-keyframe timeline, spans, segments, map IDs (pure)
+│   │       │       ├── detectionConfig.ts                   v1 pHash-era Firestore config (NOT a detection input since 12.4c; retired with Story 1.13's AC7)
 │   │       │       ├── detectionConfigService.ts            Stale-while-revalidate (bundled fallback per Decision #2)
 │   │       │       ├── detectionConfigBootstrap.ts          Reads bundled asset on first launch (Decision #2)
-│   │       │       ├── blackScreenDetector.ts               Long-GOP fallback (2-pass team-bar saturation)
-│   │       │       ├── gameDetector.ts                      Short-GOP KDA/HSV detector
-│   │       │       ├── mapIdentifier.ts                     pHash matcher against map_config
-│   │       │       ├── segmentation.ts                      START/END pair → MapSegment timeline
+│   │       │       ├── gameDetector.ts                      [12.4c] Port of Tool 12 phases.py — binary in_match + doubt-HOLDS phase machine (was: short-GOP KDA/HSV detector)
+│   │       │       ├── mapIdentifier.ts                     [12.4c] Per-span RAW weighted zone aggregate vs identification_threshold (was: pHash matcher)
+│   │       │       ├── segmentation.ts                      Spans + map IDs → MapSegment rows; lobby/transition merged into not_in_match
 │   │       │       ├── segmentRepository.ts                 SQLite map_segments writer
 │   │       │       └── useVideoProcessing.ts
 │   │       ├── shared/                                      Cross-feature primitives
@@ -1595,8 +1597,8 @@ Warden_monorepo/
 │   │       │   │   ├── analytics.ts                         [NEW] Telemetry wrapper with payload allowlist (Decision #9 / Invariant 3)
 │   │       │   │   ├── errorReporting.ts                    [NEW per UX-DR5] mailto formatter → support@warden.team; manual fallback for OBS-003 (Story 8.2; FU-1)
 │   │       │   │   ├── database.ts                          expo-sqlite singleton
-│   │       │   │   ├── ffmpeg.ts                            FFmpeg-kit wrapper + assertSafeSessionId
-│   │       │   │   ├── opencv.ts                            JSI binding (post-spike: real binding; pre-spike: stub throws)
+│   │       │   │   ├── ffmpeg.ts                            FFmpeg-kit wrapper + assertSafeSessionId (12.4c: extractKeyframes/getGopInfo REMOVED — the engine decodes)
+│   │       │   │   ├── detectionEngine.ts                   Sole JS entry to the native engine: analyzeSession (production) + the 12.2 bench seam
 │   │       │   │   └── storage.ts                           react-native-mmkv typed wrapper + Zustand StateStorage adapter
 │   │       │   ├── types/index.ts                           Domain types: Session, MapSegment, ClipExport, AudioComment
 │   │       │   └── utils/
@@ -1763,11 +1765,12 @@ Every FR in the PRD has a binding implementation location. Where multiple files 
 
 **Session Import & Auto-Slicing (`mobile-IMPORT-001/002`, `mobile-AUTO-SLICE-001..004`):**
 - `apps/mobile/src/features/video-import/videoImportService.ts` — `mobile-IMPORT-001/002` (DocumentPicker + MP4 validation + session insert).
-- `apps/mobile/src/features/video-processing/processingPipeline.ts` — orchestrator (4-stage MMKV checkpointing).
-- `apps/mobile/src/features/video-processing/gameDetector.ts` — `mobile-AUTO-SLICE-001` (round-boundary KDA/HSV detector; short-GOP path).
-- `apps/mobile/src/features/video-processing/blackScreenDetector.ts` — `mobile-AUTO-SLICE-001` (long-GOP fallback; 2-pass team-bar saturation).
-- `apps/mobile/src/features/video-processing/mapIdentifier.ts` — `mobile-AUTO-SLICE-002/003` (pHash matching; `unknown` fallback).
-- `apps/mobile/src/features/video-processing/segmentation.ts` — pair events into segments; lobby exclusion `mobile-AUTO-SLICE-004`.
+- `apps/mobile/src/features/video-processing/processingPipeline.ts` — orchestrator (**3-stage** MMKV checkpointing since Story 12.4c; keyframe extraction and detection collapsed into one native call).
+- `apps/mobile/src/shared/services/detectionEngine.ts` — `mobile-AUTO-SLICE-001` (**`analyzeSession`: the one per-session native call** — MediaCodec keyframe decode + Kotlin rule evaluation, progress as device events, cancellable).
+- `apps/mobile/src/features/video-processing/gameDetector.ts` — `mobile-AUTO-SLICE-001` (binary `in_match` classifier + the doubt-HOLDS phase machine; **the KDA/HSV detector and the long-GOP black-screen fallback were DELETED by Story 12.4c** — the engine decodes keyframes only, so the GOP branch had no meaning. `mobile-AUTO-SLICE-001`'s "reduced sampling on weak hardware" clause re-attaches to ladder rung 1 step 1b, keyframe decimation).
+- `apps/mobile/src/features/video-processing/mapIdentifier.ts` — `mobile-AUTO-SLICE-002/003` (per-span RAW weighted zone aggregate vs `identification_threshold`; below it, `mapName: null` — which is how `unknown` is spelled on this surface, rendered "Unknown map" with navigation intact).
+- `apps/mobile/src/features/video-processing/mapConfig.ts` — `cross-MAP-CONFIG-DELIVERY-001` (Metro-bundled `map_config.v2.json`, validated against `contracts/map-config.schema.json`; **Story 1.13 widens `listMapConfigCandidates()` into the Firestore overlay**).
+- `apps/mobile/src/features/video-processing/segmentation.ts` — spans + map IDs → segment rows; lobby exclusion `mobile-AUTO-SLICE-004` (lobby and transition are merged into `not_in_match` by design).
 - `apps/mobile/plugins/with-foreground-service.js` — keeps pipeline alive in background (Decision: Brownfield Item 6).
 
 **Card View & Triage (`mobile-CARD-001..005`):**
@@ -2127,7 +2130,7 @@ Scope: the **mobile artifact**. The tooling surface is carved out (`moderngl`, S
 | # | Module / SDK | Added by | What it is | Network egress |
 |---|---|---|---|---|
 | 1 | **FFmpeg** (`@wokcito/ffmpeg-kit-react-native`) | pre-V1 | Local video decode/transcode. | **None.** Local file I/O only. |
-| 2 | **OpenCV** (`react-native-fast-opencv`) | pre-V1 | Local frame analysis. | **None.** |
+| 2 | ~~**OpenCV** (`react-native-fast-opencv`)~~ — **REMOVED 2026-09-17, Story 12.4c** | pre-V1 | **The dependency is gone from `apps/mobile/package.json`.** Its only runtime call site was `opencv.ts`'s `loadFrameFromPath`, which existed to decode the keyframe JPEGs the old pipeline wrote to disk. Story 12.4c collapsed that stage into `analyzeSession` (MediaCodec decode + Kotlin evaluation, in RAM), leaving the binding with **no callers**: `opencv.ts` and its pure-TS pHash primitives (`phash`, `hammingDistance`, `cropToGrayscale`, `resizeGrayscale`) were deleted with their consumer. The results stage uses **FFmpeg's** `extractFrameAt`, never OpenCV. **This retires a native module and this allowlist line.** | — |
 | 3 | **MMKV** (`react-native-mmkv`) | Story 1.2 | On-device key/value cache + checkpoints. | **None.** |
 | 4 | **SQLite** (`expo-sqlite`) | pre-V1 | On-device durable rows (REL-002). | **None.** |
 | 5 | **MediaCodec detection engine** (`team.warden.mobile.Warden*`) — *GLES/EGL REMOVED 2026-09-17, Story 12.4b* | **Story 12.2** | **NOT a third-party SDK** — a first-party Kotlin wrapper over AOSP **platform** APIs. **Bound surface (Decision #13): `android.media.MediaCodec` + `android.media.MediaExtractor`, plus a plain Kotlin integer rule evaluator (`WardenCpuBaseline`) and colour converter (`WardenColorConvert`).** That is the whole of it. **`android.opengl.GLES30` / `EGL14` / `SurfaceTexture` are gone** — Story 12.4b deleted `WardenDetectionEngine.kt` (981 lines), `WardenGlUtil.kt` (219 lines), `WardenSurfaceTextureHost`, the shader-asset emission and every GL call site, after proving the CPU substitution at 0 disagreements (see the amendment below). Emitted by `apps/mobile/plugins/with-detection-engine.js`; sole JS access via `apps/mobile/src/shared/services/detectionEngine.ts` ([INVARIANT: native-modules-only-via-shared-services](#mobile-native-modules)). Listed because the invariant above requires the entry, not because a vendor SDK was introduced. | **None.** No socket, no HTTP client, no telemetry. Reads a local capture and a local `map_config`; writes JSON to the app's own `getExternalFilesDir`. |

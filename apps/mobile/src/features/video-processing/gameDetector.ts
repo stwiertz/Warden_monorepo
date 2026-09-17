@@ -1,196 +1,263 @@
-// Story 7.5 — Game state detector.
+// Story 12.4c (AC6 / AC9) — the game-state detector, rewritten onto the v2
+// engine. The TypeScript port of Tool 12's `phases.py`.
 //
-// Reads the kda + notkda ROIs of each frame and runs a 2-state machine that
-// emits START / END / SCORE_SCREEN events:
-//   - kda ROI must contain ≥ min_ratio fraction of "near-white" pixels
-//     (sat ≤ sat_max AND val ≥ val_min in HSV-8U) — that is, the KDA digits
-//     of the gameplay HUD are visible.
-//   - notkda ROI mean grayscale must be < hud_brightness_max — i.e. the dark
-//     HUD strip is on screen, not a bright menu/lobby.
-// Both conditions must hold to count the frame as "in game".
+// 🔴 WHAT THIS REPLACED. Until 12.4c this file was Story 7.5's KDA detector: a
+// white-pixel-ratio + HSV classifier over the `kda`/`notkda` ROIs of a decoded
+// JPEG, behind a debounced two-state FSM (`start_confirm_frames` /
+// `end_confirm_frames`) emitting START / END / SCORE_SCREEN events. All of it is
+// gone: the v1 config's ROIs and thresholds do not exist in the v2 schema, the
+// engine no longer produces a `FrameBuffer` to classify, and
+// `thresholds.score_offset_s` is SUPERSEDED by the config's
+// `score_screen_duration_ms` (15000).
 //
-// The state machine debounces noisy frames via start_confirm_frames /
-// end_confirm_frames: a transition only fires after that many consecutive
-// frames agree. START is timestamped at the FIRST confirming frame; END is
-// timestamped at the LAST in-game frame seen before the run of off frames.
-// On END the detector also emits a SCORE_SCREEN event at endTs + score_offset_s.
+// What replaces it is the BINARY `in_match` classifier (engineScoring.ts) plus
+// the phase machine below. The debounce is gone too, and not by omission: it was
+// a per-frame confirmation counter over ~1 s keyframes, while this machine works
+// on ~4.2 s keyframes and gets its stability from doubt-holding and the
+// score-screen window instead.
 //
-// The detector is stateful and per-session; create one with createGameDetector
-// and feed frames in chronological order via processFrame.
+// ───────────────────────────────────────────────────────────────────────────────
+// 🔴 DOUBT IS FIRST-CLASS, AND DOUBT *HOLDS*. (Epic 12 constraint E4.)
+//
+// The in_match score is `fires / n_im` — with the 3 shipped in_match zones it
+// quantizes to {0, 1/3, 2/3, 1}. A UNANIMOUS vote is confident; a SPLIT vote is
+// doubt. Formally `doubt iff |ratio - threshold| < doubtMargin`, default 0.2;
+// `doubtMargin = 0` disables doubt and reproduces Story 9.13 exactly.
+//
+// A doubtful frame is EMITTED as `doubt` — never rounded to the nearest class —
+// and it does NOT advance the machine: the internal state HOLDS, so the
+// surrounding reliable context (the confident frames that opened the span, the
+// score-screen timer armed by a confident falling edge) is what gives the
+// doubtful stretch its meaning. One forward pass; holding uses only what is
+// already known, never lookahead.
+//
+// 🔴 CONSEQUENTLY EVERY FRAME HAS TWO STATES: an emitted one (which may be
+// `doubt`) and an internal one (which never is). **SPANS ARE CUT FROM THE
+// INTERNAL STATE.** Get this wrong and every in_match -> doubt -> in_match blip
+// shreds one match into two segments.
+// ───────────────────────────────────────────────────────────────────────────────
 
-import type { DetectionConfig } from "./detectionConfig";
-import type { GameDetectorEvent } from "./types";
-import {
-  grayscaleMean,
-  hsvWhitePixelRatio,
-  scaleRoi,
-  type FrameBuffer,
-  type Resolution,
-} from "../../shared/services/opencv";
+export const STATE_IN_MATCH = "in_match";
+export const STATE_SCORE_SCREEN = "score_screen";
+export const STATE_NOT_IN_MATCH = "not_in_match";
+export const STATE_DOUBT = "doubt";
 
-export type GameState = "not_in_game" | "in_game";
+/**
+ * Story 9.13's enum EXTENDED with `doubt`, not mapped onto an existing member:
+ * mapping it to `not_in_match` is exactly the "forced to the nearest class" that
+ * E4 forbids, and it would make an unreliable frame indistinguishable from a
+ * confidently-negative one downstream.
+ */
+export type PhaseState =
+  | typeof STATE_IN_MATCH
+  | typeof STATE_SCORE_SCREEN
+  | typeof STATE_NOT_IN_MATCH
+  | typeof STATE_DOUBT;
 
-export interface GameDetectorOptions {
-  config: DetectionConfig;
-  // Resolution of the FrameBuffers fed to processFrame. Defaults to the
-  // config's reference resolution, in which case ROIs are used as-is.
-  processingResolution?: Resolution;
+/** The internal state can never be `doubt`. */
+export type InternalPhaseState = Exclude<PhaseState, typeof STATE_DOUBT>;
+
+export type InMatchCall = "yes" | "no" | "doubt";
+
+/** Split-vote band around the in_match threshold. 0 disables doubt (9.13 parity). */
+export const DEFAULT_DOUBT_MARGIN = 0.2;
+
+/**
+ * in_match score -> `yes` | `no` | `doubt`. PURE.
+ *
+ * `doubtMargin = 0` collapses this to Tool 9's hard-binary call.
+ */
+export function inMatchCall(
+  ratio: number,
+  opts: { threshold?: number; doubtMargin?: number } = {}
+): InMatchCall {
+  const threshold = opts.threshold ?? 0.5;
+  const doubtMargin = opts.doubtMargin ?? DEFAULT_DOUBT_MARGIN;
+  if (doubtMargin > 0 && Math.abs(ratio - threshold) < doubtMargin) {
+    return "doubt";
+  }
+  return ratio > 0 && ratio >= threshold ? "yes" : "no";
 }
 
-export interface GameDetector {
-  processFrame(frame: FrameBuffer, timestampMs: number): GameDetectorEvent[];
-  // Called when no more frames will be supplied. If the detector is still in
-  // "in_game" at that moment, emit a synthetic END (+ SCORE_SCREEN) at the
-  // last-seen in-game timestamp so we don't drop a trailing segment.
-  flush(): GameDetectorEvent[];
-  getState(): GameState;
-}
-
-export function createGameDetector(opts: GameDetectorOptions): GameDetector {
-  const { config } = opts;
-  const refRes = config.reference_resolution;
-  const procRes = opts.processingResolution ?? refRes;
-  const kdaRoi = scaleRoi(config.roi_zones.kda, refRes, procRes);
-  const notkdaRoi = scaleRoi(config.roi_zones.notkda, refRes, procRes);
-
-  const startConfirm = Math.max(1, Math.floor(config.thresholds.start_confirm_frames));
-  const endConfirm = Math.max(1, Math.floor(config.thresholds.end_confirm_frames));
-  const satMax = config.thresholds.sat_max;
-  const valMin = config.thresholds.val_min;
-  const minRatio = config.thresholds.min_ratio;
-  const hudBrightnessMax = config.thresholds.hud_brightness_max;
-  const scoreOffsetMs = Math.round(config.thresholds.score_offset_s * 1000);
-
-  let state: GameState = "not_in_game";
-  let pending: GameState | null = null;
-  let pendingCount = 0;
-  let pendingFirstTs = 0; // timestamp of the first frame in the pending run
-  let lastInGameTs = 0; // timestamp of the last frame the detector classified in-game
-
-  function classify(frame: FrameBuffer): GameState {
-    const ratio = hsvWhitePixelRatio(frame, kdaRoi, satMax, valMin);
-    const hudGray = grayscaleMean(frame, notkdaRoi);
-    return ratio >= minRatio && hudGray < hudBrightnessMax
-      ? "in_game"
-      : "not_in_game";
-  }
-
-  function processFrame(
-    frame: FrameBuffer,
-    timestampMs: number
-  ): GameDetectorEvent[] {
-    const observed = classify(frame);
-
-    if (observed === state) {
-      // Reset any in-flight transition: we got a frame that confirms the
-      // current state, so the previous candidate run is no longer credible.
-      pending = null;
-      pendingCount = 0;
-      if (state === "in_game") lastInGameTs = timestampMs;
-      return [];
-    }
-
-    if (pending !== observed) {
-      pending = observed;
-      pendingCount = 1;
-      pendingFirstTs = timestampMs;
-    } else {
-      pendingCount++;
-    }
-
-    const required = observed === "in_game" ? startConfirm : endConfirm;
-    if (pendingCount < required) {
-      return [];
-    }
-
-    if (observed === "in_game") {
-      // Transition into in_game: fire START at the first confirming frame.
-      state = "in_game";
-      lastInGameTs = timestampMs;
-      pending = null;
-      pendingCount = 0;
-      return [{ type: "START", timestamp_ms: pendingFirstTs }];
-    }
-
-    // Transition out: END is the last in-game frame's timestamp.
-    state = "not_in_game";
-    pending = null;
-    pendingCount = 0;
-    const endTs = lastInGameTs;
-    return [
-      { type: "END", timestamp_ms: endTs },
-      { type: "SCORE_SCREEN", timestamp_ms: endTs + scoreOffsetMs },
-    ];
-  }
-
-  function flush(): GameDetectorEvent[] {
-    if (state !== "in_game") return [];
-    const endTs = lastInGameTs;
-    state = "not_in_game";
-    pending = null;
-    pendingCount = 0;
-    return [
-      { type: "END", timestamp_ms: endTs },
-      { type: "SCORE_SCREEN", timestamp_ms: endTs + scoreOffsetMs },
-    ];
-  }
-
-  return {
-    processFrame,
-    flush,
-    getState: () => state,
-  };
+export interface PhaseResolver {
+  /** One keyframe -> its EMITTED state. Advances the machine unless doubtful. */
+  push(timestampMs: number, call: InMatchCall): PhaseState;
+  /** The INTERNAL state — never `doubt`. Spans are cut from this. */
+  state(): InternalPhaseState;
+  /** Timestamp of the last confident falling edge, or null. */
+  fallingTs(): number | null;
 }
 
 /**
- * Pair START and END events into game segments. Robust to extra START or
- * END events (drops unmatched ones) and to flushed end-of-stream END.
- * SCORE_SCREEN events are recorded alongside their parent segment so the
- * orchestrator knows where to extract the result frame.
+ * Streaming phase state machine with first-class doubt.
+ *
+ * Inherited unchanged from Story 9.13 apart from doubt: `in_match` rising ->
+ * span; falling -> `score_screen` for `scoreScreenDurationMs`; then
+ * `not_in_match`.
+ */
+export function createPhaseResolver(scoreScreenDurationMs: number): PhaseResolver {
+  const dur = Math.trunc(scoreScreenDurationMs);
+  let state: InternalPhaseState = STATE_NOT_IN_MATCH;
+  let falling: number | null = null;
+
+  const windowElapsed = (ts: number): boolean =>
+    falling === null ? true : ts - falling >= dur;
+
+  return {
+    push(timestampMs: number, call: InMatchCall): PhaseState {
+      const ts = Math.trunc(timestampMs);
+
+      if (call === "doubt") {
+        // HOLD. The score-screen timer, if armed, keeps running underneath — a
+        // doubtful frame does not stop the clock.
+        if (state === STATE_SCORE_SCREEN && windowElapsed(ts)) {
+          state = STATE_NOT_IN_MATCH;
+        }
+        return STATE_DOUBT;
+      }
+
+      const inMatch = call === "yes";
+
+      if (state === STATE_IN_MATCH) {
+        if (inMatch) {
+          state = STATE_IN_MATCH;
+        } else {
+          // Falling edge. Elapsed time since the falling edge is 0 BY
+          // DEFINITION on this frame, so a zero-length window is already over
+          // and a positive one makes this frame the FIRST score_screen frame.
+          // (`phases.py` records why this is correct rather than the "latent
+          // bug" the story text flagged in `video_test.py`.)
+          falling = ts;
+          state = dur <= 0 ? STATE_NOT_IN_MATCH : STATE_SCORE_SCREEN;
+        }
+      } else if (state === STATE_SCORE_SCREEN) {
+        if (inMatch) {
+          state = STATE_IN_MATCH; // rising edge aborts the score window
+        } else if (windowElapsed(ts)) {
+          state = STATE_NOT_IN_MATCH;
+        } else {
+          state = STATE_SCORE_SCREEN;
+        }
+      } else {
+        state = inMatch ? STATE_IN_MATCH : STATE_NOT_IN_MATCH;
+      }
+
+      return state;
+    },
+    state: () => state,
+    fallingTs: () => falling,
+  };
+}
+
+export interface PhaseInputFrame {
+  timestampMs: number;
+  call: InMatchCall;
+}
+
+export interface ResolvedPhases {
+  /** The timeline. May contain `doubt`. */
+  emitted: PhaseState[];
+  /** What spans are cut from. Never contains `doubt`. */
+  internal: InternalPhaseState[];
+}
+
+/** One forward pass over the keyframes. */
+export function resolvePhases(
+  frames: readonly PhaseInputFrame[],
+  scoreScreenDurationMs: number
+): ResolvedPhases {
+  const resolver = createPhaseResolver(scoreScreenDurationMs);
+  const emitted: PhaseState[] = [];
+  const internal: InternalPhaseState[] = [];
+  for (const frame of frames) {
+    emitted.push(resolver.push(frame.timestampMs, frame.call));
+    internal.push(resolver.state());
+  }
+  return { emitted, internal };
+}
+
+export interface PhaseSpan {
+  startFrame: number;
+  endFrame: number;
+}
+
+/**
+ * Maximal `in_match` runs over the INTERNAL states.
+ *
+ * Post-hoc run detection over the already-resolved list (still one pass, not a
+ * second pass over the video). Naturally handles a mid-match start, a span still
+ * open at EOF, and a rising edge during a score window splitting two runs.
+ */
+export function spansFromStates(
+  internal: readonly InternalPhaseState[]
+): PhaseSpan[] {
+  const spans: PhaseSpan[] = [];
+  let runStart: number | null = null;
+  let lastIdx = 0;
+  for (let i = 0; i < internal.length; i++) {
+    if (internal[i] === STATE_IN_MATCH) {
+      if (runStart === null) runStart = i;
+      lastIdx = i;
+    } else if (runStart !== null) {
+      spans.push({ startFrame: runStart, endFrame: lastIdx });
+      runStart = null;
+    }
+  }
+  if (runStart !== null) spans.push({ startFrame: runStart, endFrame: lastIdx });
+  return spans;
+}
+
+/**
+ * A match, in wall-clock time.
+ *
+ * Shape preserved from Story 7.5 (`startMs` / `endMs` / `scoreScreenMs`) so
+ * `segmentation.ts`, `segmentRepository` and the results stage keep working —
+ * only the way the numbers are DERIVED changed.
  */
 export interface GameSegmentTimeline {
   startMs: number;
   endMs: number;
+  /**
+   * Where to grab the result thumbnail.
+   *
+   * 🔴 TIMING-DERIVED, NOT A DETECTED CLASS (9.9c). It is the timestamp of the
+   * first keyframe the machine resolved to `score_screen` — the confident
+   * falling edge — because that is where the score screen IS by the config's own
+   * `score_screen_duration_ms` contract. Story 7.5 used
+   * `endMs + thresholds.score_offset_s * 1000`, a v1 threshold that no longer
+   * exists.
+   *
+   * Falls back to `endMs` when there is no falling edge at all: a span still
+   * open at EOF, or `score_screen_duration_ms = 0`. The results stage then
+   * grabs the last in-match frame, which still leaves the segment a thumbnail.
+   */
   scoreScreenMs: number;
 }
 
-export function pairEventsIntoSegments(
-  events: GameDetectorEvent[]
+/**
+ * Spans + per-keyframe timestamps/states -> match segments.
+ *
+ * `internal` is required, not optional: the score-screen frame is found from the
+ * internal states, and passing the emitted ones would place the thumbnail on a
+ * doubtful frame.
+ */
+export function buildGameSegments(
+  timestampsMs: readonly number[],
+  internal: readonly InternalPhaseState[],
+  spans: readonly PhaseSpan[]
 ): GameSegmentTimeline[] {
-  const segments: GameSegmentTimeline[] = [];
-  let openStart: number | null = null;
-  let pendingEnd: number | null = null;
-
-  for (const ev of events) {
-    if (ev.type === "START") {
-      // A second START with no END in between: keep the earliest one (that
-      // matches the "first confirming frame" semantics from the detector).
-      if (openStart === null) openStart = ev.timestamp_ms;
-    } else if (ev.type === "END") {
-      pendingEnd = ev.timestamp_ms;
-    } else if (ev.type === "SCORE_SCREEN") {
-      if (openStart !== null && pendingEnd !== null) {
-        segments.push({
-          startMs: openStart,
-          endMs: pendingEnd,
-          scoreScreenMs: ev.timestamp_ms,
-        });
-        openStart = null;
-        pendingEnd = null;
-      }
-    }
-  }
-
-  // If an END was emitted without a trailing SCORE_SCREEN (shouldn't happen
-  // with the detector above, but defend against malformed event streams),
-  // close the segment with no score-screen offset.
-  if (openStart !== null && pendingEnd !== null) {
-    segments.push({
-      startMs: openStart,
-      endMs: pendingEnd,
-      scoreScreenMs: pendingEnd,
-    });
-  }
-
-  return segments;
+  return spans.map((span) => {
+    const startMs = timestampsMs[span.startFrame];
+    const endMs = timestampsMs[span.endFrame];
+    // The falling edge is ALWAYS the frame right after the span — spans are cut
+    // from the internal states, so `internal[endFrame + 1]` is by construction
+    // the first frame that left `in_match`. Searching further would find a LATER
+    // match's score window and hang this segment's thumbnail on it.
+    const after = span.endFrame + 1;
+    const scoreScreenMs =
+      after < internal.length && internal[after] === STATE_SCORE_SCREEN
+        ? timestampsMs[after]
+        : endMs;
+    return { startMs, endMs, scoreScreenMs };
+  });
 }

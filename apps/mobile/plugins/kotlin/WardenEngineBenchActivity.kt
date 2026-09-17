@@ -22,12 +22,13 @@ import android.util.Log
 //   adb shell am start -n team.warden.mobile/.WardenEngineBenchActivity \
 //     --es mode all \
 //     --es video /sdcard/warden12_2/capture.mp4 \
-//     --ei limit 0 --ei cpuFrames 400
+//     --ei limit 0
 //
 // The work runs on a WORKER THREAD, not the UI thread. Story 12.2 used that to
 // show its EGL context needed no Activity (AC16); since Story 12.4b the harness
 // is CPU + MediaCodec only. The Activity is only an adb-reachable entry point.
-// `cpuFrames` is read and passed on but unused since 12.4b (see runAll).
+// Story 12.4c removed the `cpuFrames` extra: it was read and passed on but inert
+// since 12.4b, and the whole positional-arity chain came off in one edit.
 class WardenEngineBenchActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,7 +41,6 @@ class WardenEngineBenchActivity : Activity() {
         val mode = intent.getStringExtra("mode") ?: "all"
         val video = intent.getStringExtra("video")
         val limit = intent.getIntExtra("limit", 0)
-        val cpuFrames = intent.getIntExtra("cpuFrames", 400)
 
         // 🔴 REVIEW 2026-09-15: a configuration change (no orientation lock is
         // declared, and this ignored savedInstanceState) re-entered onCreate and
@@ -54,14 +54,14 @@ class WardenEngineBenchActivity : Activity() {
             return
         }
 
-        Log.i(TAG, "BENCH START mode=$mode video=$video limit=$limit cpuFrames=$cpuFrames")
+        Log.i(TAG, "BENCH START mode=$mode video=$video limit=$limit")
         // Keep the screen on: a display timeout mid-run drops the process's
         // priority and changes the very clocks being measured.
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val app = applicationContext
         Thread({
             try {
-                val report = WardenEngineBench(app).runAll(mode, video, limit, cpuFrames)
+                val report = WardenEngineBench(app).runAll(mode, video, limit)
                 // Logged in chunks: logcat truncates a single line around 4 kB and a
                 // silently-cut JSON report reads as a corrupt run.
                 val s = report.toString()

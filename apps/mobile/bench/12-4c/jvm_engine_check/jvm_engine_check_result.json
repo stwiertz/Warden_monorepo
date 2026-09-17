@@ -1,0 +1,12 @@
+{
+ "frames": 1061,
+ "rule_frame_decisions": 142174,
+ "frames_with_disagreement": 0,
+ "total_disagreements": 0,
+ "exact_parity": true,
+ "story": "12.4c",
+ "kind": "jvm-engine-parity",
+ "video": "2026-04-27 22-05-34.mp4",
+ "n_rules": 134,
+ "note": "The SHIPPED Kotlin (WardenRulePacker + WardenColorConvert + WardenCpuBaseline, compiled from plugins/kotlin/ verbatim) vs the PC oracle over the full capture, on a desktop JVM. Planes come from FFmpeg, NOT MediaCodec, and are fed through WardenYuvFrame with I420 strides \u2014 the MediaCodec half (device strides, NV12 pixelStride 2) is the epic-end device pass."
+}

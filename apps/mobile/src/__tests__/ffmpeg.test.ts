@@ -50,10 +50,10 @@ describe("ffmpeg service — JS wrapper contract (no native module)", () => {
     jest.doMock("@wokcito/ffmpeg-kit-react-native", () => {
       throw new Error("module not found");
     }, { virtual: true });
-    const { extractKeyframes } = require("../shared/services/ffmpeg");
-    await expect(extractKeyframes("/v.mp4", "sess")).rejects.toThrow(
-      /FFmpeg native module not available/
-    );
+    const { extractFrameAt } = require("../shared/services/ffmpeg");
+    await expect(
+      extractFrameAt("/v.mp4", 1000, "/out/frame.jpg")
+    ).rejects.toThrow(/FFmpeg native module not available/);
   });
 
   it("throws clear error when module loads but exports are misshapen", async () => {
@@ -62,19 +62,21 @@ describe("ffmpeg service — JS wrapper contract (no native module)", () => {
       () => ({ /* missing FFmpegKit + FFprobeKit */ }),
       { virtual: true }
     );
-    const { extractKeyframes } = require("../shared/services/ffmpeg");
-    await expect(extractKeyframes("/v.mp4", "sess")).rejects.toThrow(
-      /exports missing/
-    );
+    const { extractFrameAt } = require("../shared/services/ffmpeg");
+    await expect(
+      extractFrameAt("/v.mp4", 1000, "/out/frame.jpg")
+    ).rejects.toThrow(/exports missing/);
   });
 
-  it("uses executeWithArguments (no shell tokenization) for keyframe extraction", async () => {
+  // Story 12.4c re-pointed this from `extractKeyframes` (deleted with the
+  // JPEG-to-disk stage) onto `extractFrameAt`, which is now the ONLY FFmpeg
+  // call that takes a user-supplied video path. The property under test is the
+  // one that matters for a path the user picked from their gallery: it is passed
+  // as a discrete argv token, never interpolated into a shell-tokenized string.
+  it("uses executeWithArguments (no shell tokenization) for frame extraction", async () => {
     const executeWithArguments = jest.fn().mockResolvedValue({
       getReturnCode: async () => ({ isValueSuccess: () => true }),
       getOutput: async () => "",
-      getAllLogs: async () => [
-        { getMessage: () => "[showinfo @ 0x0] n:0 pts_time:1.234" },
-      ],
     });
     jest.doMock(
       "@wokcito/ffmpeg-kit-react-native",
@@ -85,19 +87,11 @@ describe("ffmpeg service — JS wrapper contract (no native module)", () => {
       { virtual: true }
     );
 
-    // Pretend the file was written so we get the timestamp pairing path.
-    const fileSystem = require("expo-file-system");
-    fileSystem.Directory.mockImplementation(() => ({
-      exists: true,
-      create: jest.fn(),
-      delete: jest.fn(),
-      list: jest.fn(() => [{ name: "frame_0001.jpg" }]),
-    }));
-
-    const { extractKeyframes } = require("../shared/services/ffmpeg");
-    const result = await extractKeyframes(
+    const { extractFrameAt } = require("../shared/services/ffmpeg");
+    const out = await extractFrameAt(
       '/sd/My "Quoted" Video.mp4',
-      "sess"
+      12_500,
+      "/tmp/cache/processing/sess/results/map_0.jpg"
     );
 
     expect(executeWithArguments).toHaveBeenCalledTimes(1);
@@ -106,8 +100,9 @@ describe("ffmpeg service — JS wrapper contract (no native module)", () => {
     // into a shell-tokenized command string.
     expect(args).toContain('/sd/My "Quoted" Video.mp4');
     expect(args.join(" ")).not.toMatch(/"\/sd\/My/); // no surrounding quotes added
-    expect(result).toEqual([
-      { path: "file:///tmp/cache/processing/sess/keyframes/frame_0001.jpg", timestampMs: 1234 },
-    ]);
+    // The seek timestamp is seconds with ms precision, before -i.
+    expect(args[args.indexOf("-ss") + 1]).toBe("12.500");
+    expect(args.indexOf("-ss")).toBeLessThan(args.indexOf("-i"));
+    expect(out).toBe("/tmp/cache/processing/sess/results/map_0.jpg");
   });
 });

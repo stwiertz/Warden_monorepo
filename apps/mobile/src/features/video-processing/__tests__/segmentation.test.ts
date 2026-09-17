@@ -12,16 +12,19 @@ describe("buildMapSegments", () => {
       { startMs: 1000, endMs: 5000, scoreScreenMs: 19500 },
       { startMs: 25000, endMs: 30000, scoreScreenMs: 44500 },
     ];
+    // Story 12.4c: the identification rows carry the span's RAW weighted
+    // aggregate and the keyframe range it covers, not a pHash and a Hamming
+    // distance. `mapName: null` is still how `unknown` is spelled.
     const ids: MapIdentificationResult[] = [
-      { segmentIndex: 0, mapName: "ascent", hash: "ffaa", hammingDistance: 4 },
-      { segmentIndex: 1, mapName: null, hash: "0000", hammingDistance: null },
+      { segmentIndex: 0, mapName: "atlantis", confidence: 44, startFrame: 1, endFrame: 4 },
+      { segmentIndex: 1, mapName: null, confidence: 0, startFrame: 7, endFrame: 9 },
     ];
     expect(buildMapSegments(segments, ids)).toEqual([
       {
         mapIndex: 0,
         startTimeMs: 1000,
         endTimeMs: 5000,
-        mapName: "ascent",
+        mapName: "atlantis",
         resultFramePath: null,
       },
       {

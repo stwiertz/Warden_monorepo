@@ -1,170 +1,197 @@
+// Story 12.4c — the phase machine's own behaviours.
+//
+// The Tool-12 PARITY of this module lives in `tool12Parity.test.ts`, where every
+// expectation is generated from `phases.py`. This suite covers what a fixture
+// cannot: the boundaries and the segment shapes the pipeline depends on, stated
+// as their own assertions so a regression names itself.
+//
+// Story 7.5's suite tested `createGameDetector` (a KDA white-pixel ratio behind
+// a debounced two-state FSM) and `pairEventsIntoSegments`. Both are gone with
+// the v1 config they read; see gameDetector.ts's header.
+
 import {
-  createGameDetector,
-  pairEventsIntoSegments,
+  buildGameSegments,
+  createPhaseResolver,
+  DEFAULT_DOUBT_MARGIN,
+  inMatchCall,
+  resolvePhases,
+  spansFromStates,
+  type InternalPhaseState,
 } from "../gameDetector";
-import type { DetectionConfig } from "../detectionConfig";
-import type { FrameBuffer } from "../../../shared/services/opencv";
-import type { GameDetectorEvent } from "../types";
 
-// Build a 16x16 RGB frame. The kda ROI lives in the top-left 8x8, the
-// notkda ROI in the bottom-right 8x8 — so we can independently set them.
-const FRAME_SIZE = 16;
+const KF = 4167; // the capture's keyframe interval, ms
 
-function buildFrame(opts: {
-  kdaWhite: boolean; // top-left 8x8 white-on-black or all dark
-  notkdaDark: boolean; // bottom-right 8x8 dark or bright
-}): FrameBuffer {
-  const data = new Uint8ClampedArray(FRAME_SIZE * FRAME_SIZE * 3);
-  for (let y = 0; y < FRAME_SIZE; y++) {
-    for (let x = 0; x < FRAME_SIZE; x++) {
-      const i = (y * FRAME_SIZE + x) * 3;
-      const inKda = x < 8 && y < 8;
-      const inNotkda = x >= 8 && y >= 8;
-      let v = 0;
-      if (inKda && opts.kdaWhite) v = 255;
-      else if (inNotkda) v = opts.notkdaDark ? 30 : 200;
-      data[i] = v;
-      data[i + 1] = v;
-      data[i + 2] = v;
-    }
-  }
-  return { data, width: FRAME_SIZE, height: FRAME_SIZE };
-}
-
-function buildConfig(overrides?: Partial<DetectionConfig["thresholds"]>): DetectionConfig {
-  return {
-    version: 1,
-    reference_resolution: { width: FRAME_SIZE, height: FRAME_SIZE },
-    roi_zones: {
-      minimap: { x: 0, y: 0, width: 1, height: 1 },
-      vertical: { x: 0, y: 0, width: 1, height: 1 },
-      team_bar: { x: 0, y: 0, width: 1, height: 1 },
-      kda: { x: 0, y: 0, width: 8, height: 8 },
-      notkda: { x: 8, y: 8, width: 8, height: 8 },
-      map_name: { x: 0, y: 0, width: 1, height: 1 },
-    },
-    thresholds: {
-      brightness_threshold: 15,
-      start_confirm_frames: 2,
-      end_confirm_frames: 3,
-      sat_max: 12,
-      val_min: 230,
-      min_ratio: 0.01,
-      team_bar_min_sat: 25,
-      hud_brightness_max: 100,
-      score_offset_s: 14.5,
-      collision_threshold: 12,
-      ...overrides,
-    },
-    maps: {},
-  };
-}
-
-const inGame = buildFrame({ kdaWhite: true, notkdaDark: true });
-const offGame = buildFrame({ kdaWhite: false, notkdaDark: false });
-
-describe("createGameDetector", () => {
-  it("emits no events on the very first in-game frame (start_confirm_frames=2)", () => {
-    const detector = createGameDetector({ config: buildConfig() });
-    const events = detector.processFrame(inGame, 1000);
-    expect(events).toEqual([]);
-    expect(detector.getState()).toBe("not_in_game");
+describe("inMatchCall — the doubt band", () => {
+  it("treats a unanimous vote as confident and a split vote as doubt", () => {
+    // 3 in_match zones quantize the score to {0, 1/3, 2/3, 1}.
+    expect(inMatchCall(0)).toBe("no");
+    expect(inMatchCall(1)).toBe("yes");
+    expect(inMatchCall(1 / 3)).toBe("doubt");
+    expect(inMatchCall(2 / 3)).toBe("doubt");
   });
 
-  it("emits START at the first confirming frame after start_confirm_frames consecutive in-game frames", () => {
-    const detector = createGameDetector({ config: buildConfig() });
-    expect(detector.processFrame(inGame, 1000)).toEqual([]);
-    const events = detector.processFrame(inGame, 2000);
-    expect(events).toEqual([{ type: "START", timestamp_ms: 1000 }]);
-    expect(detector.getState()).toBe("in_game");
+  it("doubtMargin = 0 disables doubt entirely (Story 9.13 parity)", () => {
+    expect(inMatchCall(1 / 3, { doubtMargin: 0 })).toBe("no");
+    expect(inMatchCall(2 / 3, { doubtMargin: 0 })).toBe("yes");
+    // Exactly at the threshold: `ratio >= threshold` is inclusive.
+    expect(inMatchCall(0.5, { doubtMargin: 0 })).toBe("yes");
   });
 
-  it("does NOT emit START when the candidate run is broken before confirm_frames is reached", () => {
-    const detector = createGameDetector({ config: buildConfig() });
-    expect(detector.processFrame(inGame, 1000)).toEqual([]);
-    // off frame breaks the run
-    expect(detector.processFrame(offGame, 1500)).toEqual([]);
-    expect(detector.processFrame(inGame, 2000)).toEqual([]);
-    // Two consecutive in-game now from 2000 ⇒ START at 2000
-    expect(detector.processFrame(inGame, 3000)).toEqual([
-      { type: "START", timestamp_ms: 2000 },
-    ]);
+  it("is a band around the threshold, not a fixed pair of values", () => {
+    expect(DEFAULT_DOUBT_MARGIN).toBe(0.2);
+    expect(inMatchCall(0.31)).toBe("doubt");
+    expect(inMatchCall(0.29)).toBe("no");
+    expect(inMatchCall(0.69)).toBe("doubt");
+    expect(inMatchCall(0.71)).toBe("yes");
   });
 
-  it("emits END+SCORE_SCREEN at the last in-game timestamp after end_confirm_frames consecutive off frames", () => {
-    const detector = createGameDetector({ config: buildConfig() });
-    detector.processFrame(inGame, 1000);
-    detector.processFrame(inGame, 2000); // → START @ 1000
-    detector.processFrame(inGame, 3000); // last in-game @ 3000
-    expect(detector.processFrame(offGame, 4000)).toEqual([]);
-    expect(detector.processFrame(offGame, 5000)).toEqual([]);
-    const events = detector.processFrame(offGame, 6000);
-    expect(events).toEqual([
-      { type: "END", timestamp_ms: 3000 },
-      // 3000 + 14.5*1000 = 17500
-      { type: "SCORE_SCREEN", timestamp_ms: 17500 },
-    ]);
-    expect(detector.getState()).toBe("not_in_game");
-  });
-
-  it("flush() emits END+SCORE_SCREEN if state ends in_game (trailing segment)", () => {
-    const detector = createGameDetector({ config: buildConfig() });
-    detector.processFrame(inGame, 1000);
-    detector.processFrame(inGame, 2000); // START
-    detector.processFrame(inGame, 3000);
-    const flushed = detector.flush();
-    expect(flushed).toEqual([
-      { type: "END", timestamp_ms: 3000 },
-      { type: "SCORE_SCREEN", timestamp_ms: 17500 },
-    ]);
-    expect(detector.getState()).toBe("not_in_game");
-  });
-
-  it("flush() is a no-op when not in a game", () => {
-    const detector = createGameDetector({ config: buildConfig() });
-    expect(detector.flush()).toEqual([]);
-  });
-
-  it("requires both kda and notkda predicates simultaneously (HUD must also be dark)", () => {
-    const detector = createGameDetector({ config: buildConfig() });
-    // KDA bright but HUD strip also bright (a menu) ⇒ NOT in game.
-    const kdaBrightHudBright = buildFrame({
-      kdaWhite: true,
-      notkdaDark: false,
-    });
-    expect(detector.processFrame(kdaBrightHudBright, 1000)).toEqual([]);
-    expect(detector.processFrame(kdaBrightHudBright, 2000)).toEqual([]);
-    expect(detector.getState()).toBe("not_in_game");
+  it("never calls a zero score in-match, even at threshold 0", () => {
+    // `ratio > 0 && ratio >= threshold` — no zone fired, so there is nothing to
+    // be confident about.
+    expect(inMatchCall(0, { threshold: 0, doubtMargin: 0 })).toBe("no");
   });
 });
 
-describe("pairEventsIntoSegments", () => {
-  it("pairs START → END → SCORE_SCREEN triples in order", () => {
-    const events: GameDetectorEvent[] = [
-      { type: "START", timestamp_ms: 1000 },
-      { type: "END", timestamp_ms: 5000 },
-      { type: "SCORE_SCREEN", timestamp_ms: 19500 },
-      { type: "START", timestamp_ms: 25000 },
-      { type: "END", timestamp_ms: 30000 },
-      { type: "SCORE_SCREEN", timestamp_ms: 44500 },
-    ];
-    const segments = pairEventsIntoSegments(events);
-    expect(segments).toEqual([
-      { startMs: 1000, endMs: 5000, scoreScreenMs: 19500 },
-      { startMs: 25000, endMs: 30000, scoreScreenMs: 44500 },
+describe("createPhaseResolver — doubt holds, the clock does not stop", () => {
+  it("holds the internal state through a doubtful frame", () => {
+    const r = createPhaseResolver(15_000);
+    r.push(0, "yes");
+    expect(r.state()).toBe("in_match");
+    expect(r.push(KF, "doubt")).toBe("doubt");
+    expect(r.state()).toBe("in_match");
+  });
+
+  it("keeps the score-screen timer running underneath a doubtful frame", () => {
+    const r = createPhaseResolver(10_000);
+    r.push(0, "yes");
+    r.push(KF, "no"); // falling edge -> score_screen
+    expect(r.state()).toBe("score_screen");
+    expect(r.push(KF + 4_000, "doubt")).toBe("doubt");
+    expect(r.state()).toBe("score_screen");
+    // 10 s after the falling edge the window is over even though the only
+    // frames since were doubtful.
+    expect(r.push(KF + 10_000, "doubt")).toBe("doubt");
+    expect(r.state()).toBe("not_in_match");
+  });
+
+  it("cannot open a span from doubt alone", () => {
+    const r = createPhaseResolver(15_000);
+    expect(r.push(0, "doubt")).toBe("doubt");
+    expect(r.state()).toBe("not_in_match");
+  });
+
+  it("makes the falling-edge frame the FIRST score_screen frame", () => {
+    // Elapsed time since the falling edge is 0 by definition on that frame, so
+    // `0 >= dur` is the correct evaluation of "is the window already over?".
+    const r = createPhaseResolver(15_000);
+    r.push(0, "yes");
+    expect(r.push(KF, "no")).toBe("score_screen");
+    expect(r.fallingTs()).toBe(KF);
+  });
+
+  it("skips score_screen entirely when the duration is 0", () => {
+    const r = createPhaseResolver(0);
+    r.push(0, "yes");
+    expect(r.push(KF, "no")).toBe("not_in_match");
+  });
+
+  it("lets a rising edge abort the score window", () => {
+    const r = createPhaseResolver(15_000);
+    r.push(0, "yes");
+    r.push(KF, "no");
+    expect(r.push(2 * KF, "yes")).toBe("in_match");
+  });
+});
+
+describe("spansFromStates", () => {
+  const states = (...s: InternalPhaseState[]) => s;
+
+  it("cuts maximal in_match runs", () => {
+    expect(
+      spansFromStates(
+        states(
+          "not_in_match",
+          "in_match",
+          "in_match",
+          "score_screen",
+          "not_in_match",
+          "in_match"
+        )
+      )
+    ).toEqual([
+      { startFrame: 1, endFrame: 2 },
+      { startFrame: 5, endFrame: 5 },
     ]);
   });
 
-  it("drops a trailing START with no END", () => {
-    const events: GameDetectorEvent[] = [
-      { type: "START", timestamp_ms: 1000 },
-      { type: "END", timestamp_ms: 5000 },
-      { type: "SCORE_SCREEN", timestamp_ms: 19500 },
-      { type: "START", timestamp_ms: 25000 },
-    ];
-    const segments = pairEventsIntoSegments(events);
-    expect(segments).toEqual([
-      { startMs: 1000, endMs: 5000, scoreScreenMs: 19500 },
+  it("closes a span still open at EOF rather than dropping it", () => {
+    expect(spansFromStates(states("in_match", "in_match"))).toEqual([
+      { startFrame: 0, endFrame: 1 },
     ]);
+  });
+
+  it("returns nothing for a session with no match at all", () => {
+    expect(spansFromStates(states("not_in_match", "score_screen"))).toEqual([]);
+  });
+});
+
+describe("buildGameSegments — where the thumbnail timestamp comes from", () => {
+  it("uses the first score_screen frame after the span (timing-derived)", () => {
+    const timestamps = [0, KF, 2 * KF, 3 * KF, 4 * KF];
+    const internal = [
+      "not_in_match",
+      "in_match",
+      "in_match",
+      "score_screen",
+      "not_in_match",
+    ] as InternalPhaseState[];
+    const spans = spansFromStates(internal);
+    expect(buildGameSegments(timestamps, internal, spans)).toEqual([
+      { startMs: KF, endMs: 2 * KF, scoreScreenMs: 3 * KF },
+    ]);
+  });
+
+  it("falls back to the last in-match frame when there is no score screen", () => {
+    // An EOF-open span: the match was still running when the capture ended, so
+    // there is no falling edge to derive a score screen from. The results stage
+    // still gets a usable timestamp rather than `undefined`.
+    const timestamps = [0, KF, 2 * KF];
+    const internal = ["not_in_match", "in_match", "in_match"] as InternalPhaseState[];
+    expect(
+      buildGameSegments(timestamps, internal, spansFromStates(internal))
+    ).toEqual([{ startMs: KF, endMs: 2 * KF, scoreScreenMs: 2 * KF }]);
+  });
+
+  it("never hangs one segment's thumbnail on a later match's score screen", () => {
+    // Two matches back to back with the score window aborted by the rising edge:
+    // the first segment must fall back to its own end, not reach forward.
+    const timestamps = [0, KF, 2 * KF, 3 * KF];
+    const internal = [
+      "in_match",
+      "in_match",
+      "not_in_match",
+      "in_match",
+    ] as InternalPhaseState[];
+    const segments = buildGameSegments(
+      timestamps,
+      internal,
+      spansFromStates(internal)
+    );
+    expect(segments).toHaveLength(2);
+    expect(segments[0].scoreScreenMs).toBe(KF);
+  });
+});
+
+describe("resolvePhases — one forward pass", () => {
+  it("returns an emitted timeline that may contain doubt and an internal one that never does", () => {
+    const frames = [
+      { timestampMs: 0, call: "yes" as const },
+      { timestampMs: KF, call: "doubt" as const },
+      { timestampMs: 2 * KF, call: "yes" as const },
+    ];
+    const { emitted, internal } = resolvePhases(frames, 15_000);
+    expect(emitted).toEqual(["in_match", "doubt", "in_match"]);
+    expect(internal).toEqual(["in_match", "in_match", "in_match"]);
+    expect(spansFromStates(internal)).toEqual([{ startFrame: 0, endFrame: 2 }]);
   });
 });

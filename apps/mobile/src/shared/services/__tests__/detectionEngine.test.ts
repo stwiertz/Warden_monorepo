@@ -49,13 +49,35 @@ import path from "path";
 
 const mockRunBench = jest.fn();
 const mockDescribeDevice = jest.fn();
+const mockAnalyzeSession = jest.fn();
+const mockCancelAnalysis = jest.fn();
 
 let mockPlatformOS = "android";
 let mockNativePresent = true;
 
+// A minimal DeviceEventEmitter, so the progress-subscription contract can be
+// exercised: listeners are captured, `remove()` is observable, and an event can
+// be delivered from the "native" side mid-call.
+const mockListeners: Array<{
+  event: string;
+  handler: (payload: unknown) => void;
+  removed: boolean;
+}> = [];
+
 jest.mock("react-native", () => ({
   get Platform() {
     return { OS: mockPlatformOS, Version: 34 };
+  },
+  DeviceEventEmitter: {
+    addListener: (event: string, handler: (payload: unknown) => void) => {
+      const entry = { event, handler, removed: false };
+      mockListeners.push(entry);
+      return {
+        remove: () => {
+          entry.removed = true;
+        },
+      };
+    },
   },
   get NativeModules() {
     return mockNativePresent
@@ -63,6 +85,8 @@ jest.mock("react-native", () => ({
           WardenDetectionEngine: {
             runBench: (...args: unknown[]) => mockRunBench(...args),
             describeDevice: (...args: unknown[]) => mockDescribeDevice(...args),
+            analyzeSession: (...args: unknown[]) => mockAnalyzeSession(...args),
+            cancelAnalysis: (...args: unknown[]) => mockCancelAnalysis(...args),
           },
         }
       : {};
@@ -80,6 +104,7 @@ function loadModule(): DetectionEngineModule {
 describe("detectionEngine wrapper (Story 12.2)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockListeners.length = 0;
     mockPlatformOS = "android";
     mockNativePresent = true;
     jest.spyOn(console, "warn").mockImplementation(() => {});
@@ -117,14 +142,38 @@ describe("detectionEngine wrapper (Story 12.2)", () => {
   });
 
   it("passes bench arguments through in the documented order", async () => {
+    // Story 12.4c dropped the 4th positional argument (`cpuFrames`): it sized
+    // the retired `cpugpu` comparison, was inert from 12.4b, and the whole
+    // chain — Kotlin bench, RN module, bench Activity and this seam — came off
+    // in one edit so nothing can call the old shape.
     mockRunBench.mockResolvedValue(JSON.stringify({ story: "12.2", mode: "timing" }));
-    await loadModule().runBench("timing", "/sdcard/warden12_2/capture.mp4", 100, 400);
+    await loadModule().runBench("timing", "/sdcard/warden12_2/capture.mp4", 100);
     expect(mockRunBench).toHaveBeenCalledWith(
       "timing",
       "/sdcard/warden12_2/capture.mp4",
-      100,
-      400
+      100
     );
+  });
+
+  it("keeps the bench bridge arity in lockstep with the Kotlin @ReactMethod", () => {
+    // Same cross-language guard as BENCH_MODES, for the argument list this story
+    // shortened. A TS seam passing four arguments to a three-parameter
+    // @ReactMethod does not fail loudly — the legacy bridge drops the extra.
+    const kotlin = fs.readFileSync(
+      path.resolve(__dirname, "../../../../plugins/kotlin/WardenDetectionEngineModule.kt"),
+      "utf8"
+    );
+    expect(kotlin).toMatch(
+      /fun runBench\(mode: String, video: String\?, limit: Int, promise: Promise\)/
+    );
+    const ts = fs.readFileSync(path.resolve(__dirname, "../detectionEngine.ts"), "utf8");
+    // Comments stripped before the check: both files RECORD the removal in
+    // prose, and that record is the point — what must not come back is the
+    // argument.
+    const strip = (src: string) =>
+      src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    expect(strip(kotlin)).not.toMatch(/cpuFrames/);
+    expect(strip(ts)).not.toMatch(/cpuFrames/);
   });
 
   // These two replace a test that mocked `keyframe_count_matches: true` and then
@@ -238,5 +287,190 @@ describe("detectionEngine wrapper (Story 12.2)", () => {
   it("never rejects when the bridge returns malformed JSON", async () => {
     mockRunBench.mockResolvedValue("{not json");
     await expect(loadModule().runBench("all")).resolves.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 12.4c — the PRODUCTION seam. Different contract from the bench above,
+// deliberately: `analyzeSession` THROWS where the bench entry points resolve
+// null. A probe that cannot run is a reportable fact; a session the user asked
+// to process that cannot be analysed is an outcome the pipeline must handle, and
+// a `null` here would reach the checkpoint logic as "no matches found".
+// ---------------------------------------------------------------------------
+
+describe("analyzeSession — the production detection call (Story 12.4c)", () => {
+  const ANALYSIS = {
+    story: "12.4c",
+    n_rules: 3,
+    refs: [],
+    frames: [{ pts_us: 0, fires: "7" }],
+    n_keyframes: 1,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockListeners.length = 0;
+    mockPlatformOS = "android";
+    mockNativePresent = true;
+    jest.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("passes the request id, path, config text and limit in that order", async () => {
+    mockAnalyzeSession.mockResolvedValue(JSON.stringify(ANALYSIS));
+    const result = await loadModule().analyzeSession({
+      requestId: "sess-1",
+      videoPath: "/sd/video.mp4",
+      configJson: '{"hud_version":"v2"}',
+      limit: 0,
+    });
+    expect(mockAnalyzeSession).toHaveBeenCalledWith(
+      "sess-1",
+      "/sd/video.mp4",
+      '{"hud_version":"v2"}',
+      0
+    );
+    expect(result).toEqual(ANALYSIS);
+  });
+
+  it("keeps the analyze bridge signature in lockstep with the Kotlin", () => {
+    const kotlin = fs.readFileSync(
+      path.resolve(__dirname, "../../../../plugins/kotlin/WardenDetectionEngineModule.kt"),
+      "utf8"
+    );
+    // The argument ORDER is the contract: the legacy bridge marshals
+    // positionally, so a reordering type-checks on both sides and mistypes
+    // silently at run time.
+    expect(kotlin).toMatch(
+      /fun analyzeSession\(\s*requestId: String,\s*videoPath: String,\s*configJson: String,\s*limit: Int,\s*promise: Promise,?\s*\)/
+    );
+    expect(kotlin).toMatch(/fun cancelAnalysis\(requestId: String, promise: Promise\)/);
+    // NativeEventEmitter needs these on a legacy module, or every subscribe logs
+    // a warning that reads like a broken bridge.
+    expect(kotlin).toMatch(/fun addListener\(/);
+    expect(kotlin).toMatch(/fun removeListeners\(/);
+  });
+
+  it("keeps the progress event name in lockstep with the Kotlin constant", () => {
+    const kotlin = fs.readFileSync(
+      path.resolve(__dirname, "../../../../plugins/kotlin/WardenDetectionEngineModule.kt"),
+      "utf8"
+    );
+    const constant = /const val EVENT_PROGRESS = "([A-Za-z]+)"/.exec(kotlin);
+    expect(constant).not.toBeNull();
+    expect(loadModule().ENGINE_PROGRESS_EVENT).toBe(constant![1]);
+  });
+
+  it("delivers progress for THIS request and ignores another run's", async () => {
+    const seen: number[] = [];
+    mockAnalyzeSession.mockImplementation(async () => {
+      // The native side emits while the promise is in flight.
+      for (const l of mockListeners) {
+        l.handler({ requestId: "someone-else", keyframesDone: 999, keyframesTotal: 1000 });
+        l.handler({ requestId: "sess-1", keyframesDone: 12, keyframesTotal: 100 });
+      }
+      return JSON.stringify(ANALYSIS);
+    });
+    await loadModule().analyzeSession({
+      requestId: "sess-1",
+      videoPath: "/sd/video.mp4",
+      configJson: "{}",
+      onProgress: (e) => seen.push(e.keyframesDone),
+    });
+    // A stale subscription from a previous session must not move this one's bar.
+    expect(seen).toEqual([12]);
+  });
+
+  it("removes its progress subscription on success AND on failure", async () => {
+    mockAnalyzeSession.mockResolvedValue(JSON.stringify(ANALYSIS));
+    const mod = loadModule();
+    await mod.analyzeSession({
+      requestId: "sess-1",
+      videoPath: "/v.mp4",
+      configJson: "{}",
+      onProgress: () => {},
+    });
+    expect(mockListeners.every((l) => l.removed)).toBe(true);
+
+    mockAnalyzeSession.mockRejectedValue(new Error("decoder wedged"));
+    await expect(
+      mod.analyzeSession({
+        requestId: "sess-2",
+        videoPath: "/v.mp4",
+        configJson: "{}",
+        onProgress: () => {},
+      })
+    ).rejects.toThrow("decoder wedged");
+    // A leaked listener per failed run would accumulate for the life of the JS
+    // context and keep calling a dead screen's setState.
+    expect(mockListeners.every((l) => l.removed)).toBe(true);
+  });
+
+  it("maps the native cancel code onto a typed, non-failure error", async () => {
+    const mod = loadModule();
+    mockAnalyzeSession.mockRejectedValue(
+      Object.assign(new Error("cancelled after 12 of 1061 keyframes"), {
+        code: "WARDEN_ANALYSIS_CANCELLED",
+      })
+    );
+    await expect(
+      mod.analyzeSession({ requestId: "s", videoPath: "/v.mp4", configJson: "{}" })
+    ).rejects.toBeInstanceOf(mod.DetectionAnalysisCancelledError);
+  });
+
+  it("maps an unsupported capture geometry onto its own error type", async () => {
+    const mod = loadModule();
+    mockAnalyzeSession.mockRejectedValue(
+      Object.assign(new Error("the capture is 2560x1440"), {
+        code: "WARDEN_UNSUPPORTED_GEOMETRY",
+      })
+    );
+    await expect(
+      mod.analyzeSession({ requestId: "s", videoPath: "/v.mp4", configJson: "{}" })
+    ).rejects.toBeInstanceOf(mod.UnsupportedCaptureError);
+  });
+
+  it("rethrows any other native failure unchanged", async () => {
+    const mod = loadModule();
+    mockAnalyzeSession.mockRejectedValue(
+      Object.assign(new Error("no output for 5000 ms"), {
+        code: "WARDEN_ANALYSIS_FAILED",
+      })
+    );
+    await expect(
+      mod.analyzeSession({ requestId: "s", videoPath: "/v.mp4", configJson: "{}" })
+    ).rejects.toThrow("no output for 5000 ms");
+  });
+
+  it("throws rather than resolving null when the bridge is absent", async () => {
+    mockNativePresent = false;
+    const mod = loadModule();
+    await expect(
+      mod.analyzeSession({ requestId: "s", videoPath: "/v.mp4", configJson: "{}" })
+    ).rejects.toBeInstanceOf(mod.DetectionEngineUnavailableError);
+    expect(mockAnalyzeSession).not.toHaveBeenCalled();
+  });
+
+  it("throws off android without touching the bridge (amendment 5c)", async () => {
+    mockPlatformOS = "ios";
+    const mod = loadModule();
+    await expect(
+      mod.analyzeSession({ requestId: "s", videoPath: "/v.mp4", configJson: "{}" })
+    ).rejects.toBeInstanceOf(mod.DetectionEngineUnavailableError);
+    expect(mockAnalyzeSession).not.toHaveBeenCalled();
+  });
+
+  it("never throws from cancelAnalysis — it is reached from unmount paths", async () => {
+    mockCancelAnalysis.mockResolvedValue(true);
+    await expect(loadModule().cancelAnalysis("sess-1")).resolves.toBe(true);
+
+    mockCancelAnalysis.mockRejectedValue(new Error("bridge gone"));
+    await expect(loadModule().cancelAnalysis("sess-1")).resolves.toBe(false);
+
+    mockNativePresent = false;
+    await expect(loadModule().cancelAnalysis("sess-1")).resolves.toBe(false);
   });
 });

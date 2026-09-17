@@ -136,7 +136,12 @@ class WardenProcessingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun stageToText(stage: String?): String = when (stage) {
-        "keyframes" -> "Extraction des images-clés"
+        // Story 12.4c COLLAPSED the "keyframes" stage into "detection": the
+        // engine decodes and evaluates in one native call, so there is no stage
+        // in which keyframes exist but are not yet analysed. The key is left
+        // mapped so a mid-processing app update whose JS still pushes the old
+        // stage shows text rather than the fallback.
+        "keyframes" -> "Analyse des images"
         "detection" -> "Analyse des images"
         "segmentation" -> "Segmentation des parties"
         "results" -> "Extraction des miniatures"

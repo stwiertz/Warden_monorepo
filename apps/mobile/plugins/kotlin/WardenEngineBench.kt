@@ -814,14 +814,13 @@ class WardenEngineBench(private val context: Context) {
         mode: String,
         videoPath: String?,
         limit: Int,
-        /**
-         * Sized the retired `cpugpu` comparison. Story 12.4b left it in the
-         * signature rather than removing it: it is the bridge's fourth positional
-         * argument, `WardenEngineBenchActivity` passes it from an adb extra, and
-         * shifting a positional arity is a silent-miscall hazard for a parameter
-         * nothing reads. Story 12.4c owns this seam next and can drop it there.
-         */
-        @Suppress("UNUSED_PARAMETER") cpuFrames: Int,
+        // 🔴 STORY 12.4c DROPPED THE 4th POSITIONAL ARG (`cpuFrames`). It sized the
+        // retired `cpugpu` comparison, was inert from 12.4b, and 12.4b kept it only
+        // because shifting a positional arity under a live bridge is a silent-miscall
+        // hazard. 12.4c owns that seam: `runBench` is re-declared here, in the RN
+        // module, in `WardenEngineBenchActivity` and in `detectionEngine.ts` in ONE
+        // edit, so nothing can call the old shape. The `--ei cpuFrames` adb extra is
+        // now ignored rather than read and discarded.
     ): JSONObject {
         val report = JSONObject()
         report.put("story", "12.4b")

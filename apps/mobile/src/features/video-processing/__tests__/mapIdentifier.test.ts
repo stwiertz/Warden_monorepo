@@ -1,107 +1,116 @@
-import { createMapIdentifier } from "../mapIdentifier";
-import {
-  cropToGrayscale,
-  phash,
-  type FrameBuffer,
-} from "../../../shared/services/opencv";
-import type { DetectionConfig } from "../detectionConfig";
+// Story 12.4c — per-span map identification, and the cross-language label pin.
+//
+// Story 7.5's suite tested `createMapIdentifier` (DCT pHash + Hamming against
+// `DetectionConfig.maps`). That path is gone; see mapIdentifier.ts's header.
 
-const FRAME_SIZE = 64;
+import fs from "fs";
+import path from "path";
 
-function buildFrame(fill: (x: number, y: number) => number): FrameBuffer {
-  const data = new Uint8ClampedArray(FRAME_SIZE * FRAME_SIZE * 3);
-  for (let y = 0; y < FRAME_SIZE; y++) {
-    for (let x = 0; x < FRAME_SIZE; x++) {
-      const i = (y * FRAME_SIZE + x) * 3;
-      const v = fill(x, y);
-      data[i] = v;
-      data[i + 1] = v;
-      data[i + 2] = v;
-    }
-  }
-  return { data, width: FRAME_SIZE, height: FRAME_SIZE };
-}
+import { aggregateSpanScores, identifySpanMap, MAP_LABELS } from "../mapIdentifier";
 
-function fingerprintOf(frame: FrameBuffer): string {
-  const gray = cropToGrayscale(frame, {
-    x: 0,
-    y: 0,
-    width: FRAME_SIZE,
-    height: FRAME_SIZE,
-  });
-  return phash(gray);
-}
+describe("aggregateSpanScores", () => {
+  const perFrame = [
+    { artefact: 3, atlantis: 0 },
+    { artefact: 4, atlantis: 1 },
+    { artefact: 0, atlantis: 5 },
+    { artefact: 2, atlantis: 0 },
+  ];
 
-function buildConfig(maps: Record<string, string>): DetectionConfig {
-  return {
-    version: 1,
-    reference_resolution: { width: FRAME_SIZE, height: FRAME_SIZE },
-    roi_zones: {
-      minimap: { x: 0, y: 0, width: 1, height: 1 },
-      vertical: { x: 0, y: 0, width: 1, height: 1 },
-      team_bar: { x: 0, y: 0, width: 1, height: 1 },
-      kda: { x: 0, y: 0, width: 1, height: 1 },
-      notkda: { x: 0, y: 0, width: 1, height: 1 },
-      map_name: { x: 0, y: 0, width: FRAME_SIZE, height: FRAME_SIZE },
-    },
-    thresholds: {
-      brightness_threshold: 15,
-      start_confirm_frames: 2,
-      end_confirm_frames: 3,
-      sat_max: 12,
-      val_min: 230,
-      min_ratio: 0.01,
-      team_bar_min_sat: 25,
-      hud_brightness_max: 100,
-      score_offset_s: 14.5,
-      collision_threshold: 12,
-    },
-    maps,
-  };
-}
-
-describe("createMapIdentifier", () => {
-  it("matches a frame against its own fingerprint with Hamming distance 0", () => {
-    const frame = buildFrame((x, y) => (x * 4 + y * 7) & 0xff);
-    const config = buildConfig({ ascent: fingerprintOf(frame) });
-    const identifier = createMapIdentifier({ config });
-    const result = identifier.identify(frame);
-    expect(result.match).toEqual({ mapName: "ascent", hammingDistance: 0 });
-  });
-
-  it("returns null when no fingerprint is within collision_threshold", () => {
-    const target = buildFrame((x, y) => (x * 4 + y * 7) & 0xff);
-    const decoy = buildFrame((x, y) => (x < 32 ? 0 : 255) ^ (y < 32 ? 255 : 0));
-    const config = buildConfig({ decoy: fingerprintOf(decoy) });
-    const identifier = createMapIdentifier({ config });
-    const result = identifier.identify(target);
-    expect(result.match).toBeNull();
-    // Hash is still returned so the orchestrator can log it.
-    expect(result.hash).toMatch(/^[0-9a-f]{16}$/);
-  });
-
-  it("picks the lowest-distance map when multiple fingerprints are within threshold", () => {
-    const target = buildFrame((x, y) => (x * 4 + y * 7) & 0xff);
-    const config = buildConfig({
-      // Same fingerprint registered under two map names — both within
-      // threshold, but the first encountered with the lowest distance wins.
-      ascent: fingerprintOf(target),
-      bind: fingerprintOf(target),
+  it("sums the per-frame aggregates over the span's frames only", () => {
+    expect(aggregateSpanScores(perFrame, 1, 2)).toEqual({
+      artefact: 4,
+      atlantis: 6,
     });
-    const identifier = createMapIdentifier({ config });
-    const result = identifier.identify(target);
-    expect(result.match?.mapName).toBe("ascent");
-    expect(result.match?.hammingDistance).toBe(0);
   });
 
-  it("ignores fingerprints with mismatched lengths", () => {
-    const frame = buildFrame((x) => x * 4);
-    const config = buildConfig({
-      malformed: "abcd", // 4 hex chars vs the 16 the hasher emits
-      good: fingerprintOf(frame),
+  it("includes both endpoints", () => {
+    expect(aggregateSpanScores(perFrame, 0, 0)).toEqual({ artefact: 3, atlantis: 0 });
+    expect(aggregateSpanScores(perFrame, 0, 3).artefact).toBe(9);
+  });
+
+  it("survives a span that runs past the end of the frame list", () => {
+    // A span is cut from the same list it aggregates over, so this cannot
+    // happen today — but silently reading `undefined.entries` if it ever did
+    // would crash a 73-minute run at the last segment.
+    expect(aggregateSpanScores(perFrame, 3, 99)).toEqual({ artefact: 2, atlantis: 0 });
+  });
+});
+
+describe("identifySpanMap", () => {
+  const cfg = { identificationThreshold: 0.6 };
+
+  it("picks the highest aggregate", () => {
+    expect(identifySpanMap({ artefact: 4, atlantis: 17 }, cfg)).toEqual({
+      mapName: "atlantis",
+      confidence: 17,
+      scores: { artefact: 4, atlantis: 17 },
     });
-    const identifier = createMapIdentifier({ config });
-    const result = identifier.identify(frame);
-    expect(result.match?.mapName).toBe("good");
+  });
+
+  it("returns unknown below the identification threshold", () => {
+    // mobile-AUTO-SLICE-003: below the recognition threshold the segment is
+    // `unknown` — spelled `null` on this surface — and navigation stays
+    // available. NOT an error, and NOT the nearest class (E4).
+    const id = identifySpanMap({ artefact: 0.4 }, cfg);
+    expect(id.mapName).toBeNull();
+    expect(id.confidence).toBe(0.4);
+  });
+
+  it("returns unknown when nothing fired at all, whatever the threshold", () => {
+    expect(identifySpanMap({ artefact: 0, atlantis: 0 }, cfg).mapName).toBeNull();
+    expect(
+      identifySpanMap({ artefact: 0 }, { identificationThreshold: 0 }).mapName
+    ).toBeNull();
+  });
+
+  it("returns unknown for an empty aggregate", () => {
+    expect(identifySpanMap({}, cfg).mapName).toBeNull();
+  });
+
+  it("breaks a tie by CONFIG order — the first key wins", () => {
+    // Tool 12's `_run_video` uses Python's `max()`, which returns the first
+    // maximal key in dict (config) order. This is deliberately a DIFFERENT
+    // tie-break from the per-frame classifier's (zone count, then MAP_LABELS
+    // order) — reproducing one of them twice would change the other's answers.
+    expect(identifySpanMap({ the_rock: 8, artefact: 8 }, cfg).mapName).toBe(
+      "the_rock"
+    );
+  });
+});
+
+describe("MAP_LABELS — the cross-language pin", () => {
+  // The same pattern the BENCH_MODES lockstep uses: jest cannot run Python, but
+  // it can hold the two sides of a contract together. The ORDER is load-bearing
+  // (it is `_argmax_with_threshold`'s secondary tie-break), so a re-ordering in
+  // either language must fail here rather than quietly relabel a tied segment.
+  const labelsPy = path.join(
+    __dirname,
+    "..",
+    "..",
+    "..",
+    "..",
+    "..",
+    "tooling",
+    "tools",
+    "common",
+    "labels.py"
+  );
+
+  it("matches tools/common/labels.py exactly, including order", () => {
+    const source = fs.readFileSync(labelsPy, "utf8");
+    const block = source.match(/MAP_LABELS\s*=\s*\[([\s\S]*?)\]/);
+    expect(block).not.toBeNull();
+    const fromPython = Array.from(block![1].matchAll(/"([a-z0-9_]+)"/g)).map(
+      (m) => m[1]
+    );
+    expect(fromPython).toHaveLength(14);
+    expect(MAP_LABELS).toEqual(fromPython);
+  });
+
+  it("includes bastion, which has no config entry yet", () => {
+    // The list is the label VOCABULARY, not the configured maps: the shipped
+    // v2 config carries 13 maps. Dropping bastion here would shift every later
+    // label's index and change tie-breaks.
+    expect(MAP_LABELS).toContain("bastion");
   });
 });

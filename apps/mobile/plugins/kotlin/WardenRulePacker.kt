@@ -73,6 +73,24 @@ data class WardenPackedRules(
     val refs: List<WardenRuleRef>,
     val nRules: Int,
     /**
+     * Per-rule `min_ratio` at **float64** — the precision the Python reference
+     * compares at (Story 12.4c, closing the 12.1-review item the bound engine
+     * inherited).
+     *
+     * 🔴 WHY A SECOND COPY OF A VALUE THAT IS ALREADY IN [texture]: the texture is
+     * float32 because it was born as a GL texture, so `texture[...]` holds
+     * `min_ratio` ROUNDED TO float32. `roi_detection_tester.zone_fires_on_frame`
+     * compares `count / size >= min_ratio` in float64. The two disagree whenever a
+     * `min_ratio` and an achievable `count/area` collide under float32 rounding
+     * (`min_ratio = 0.33333334` on a 3-px rect with `count = 1`: float64 says
+     * no-fire, float32 says fire). Unreachable with today's shipped 0.3 — every
+     * shipped rule uses it — which is exactly why it was deferred twice and why it
+     * is worth closing before someone authors a boundary value in `zone_picker`.
+     *
+     * Not part of [toByteArray]: lut.py's bytes do not hold it.
+     */
+    val minRatios: DoubleArray,
+    /**
      * The frame geometry the rects were clamped to. Carried with the rules so an
      * evaluator can assert it rather than trust every caller to remember
      * (Story 12.4b trap 4). Not part of [toByteArray]: lut.py's bytes do not hold it.
@@ -326,6 +344,7 @@ object WardenRulePacker {
         }
 
         val refs = ArrayList<WardenRuleRef>(nRules)
+        val minRatios = DoubleArray(nRules)
         for ((i, entry) in zones.withIndex()) {
             val (z, owningClass, kind) = entry
             val r = clampRect(
@@ -365,7 +384,10 @@ object WardenRulePacker {
             // bench — including AC5's byte-for-byte LUT cross-check, the very
             // check designed to catch a Kotlin/Python packing divergence, because
             // the Kotlin side died before producing any bytes to compare.
-            texture[base + 10] = z.optDouble("min_ratio", PY_DEFAULT_MIN_RATIO).toFloat()
+            val minRatio = z.optDouble("min_ratio", PY_DEFAULT_MIN_RATIO)
+            texture[base + 10] = minRatio.toFloat()
+            // The float64 original, for the comparison the evaluator actually makes.
+            minRatios[i] = minRatio
             texture[base + 11] = b.mode.toFloat()
 
             val weightOverride =
@@ -374,7 +396,7 @@ object WardenRulePacker {
 
             refs.add(WardenRuleRef(i, owningClass, z.getString("id"), kind, effectiveWeight))
         }
-        return WardenPackedRules(texture, refs, nRules, frameW, frameH)
+        return WardenPackedRules(texture, refs, nRules, minRatios, frameW, frameH)
     }
 
     // Story 12.4b removed `decodeResults` — the (1, 150, 4) RGBA8 GPU-readback

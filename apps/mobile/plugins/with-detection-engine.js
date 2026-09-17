@@ -17,7 +17,8 @@
 //
 // What it emits (Story 12.4b removed the shader asset — see below):
 //   1. RN-agnostic Kotlin sources implementing the LUT packer, the keyframe
-//      decoder, the colour converter, the CPU rule evaluator and the bench.
+//      decoder, the colour converter, the CPU rule evaluator, the bench and —
+//      since Story 12.4c — the production per-session analyzer.
 //   2. A thin RN bridge (module + ReactPackage) — the trigger only; no engine
 //      logic lives in it, so the measurement code and the future runtime module
 //      are the same code (AC0a's closing clause).
@@ -74,6 +75,8 @@ const KOTLIN_FILES = [
   "WardenColorConvert.kt",
   "WardenKeyframeDecoder.kt",
   "WardenEngineBench.kt",
+  // Story 12.4c — the PRODUCTION analysis entry point (the bench is not it).
+  "WardenSessionAnalyzer.kt",
   "WardenDetectionEngineModule.kt",
   "WardenDetectionEnginePackage.kt",
   "WardenEngineBenchActivity.kt",
@@ -122,7 +125,7 @@ function withEngineSources(config) {
         // added to or renamed in KOTLIN_FILES must be reflected here in the SAME
         // edit — `ColorConvert` was added by Story 12.4b alongside the file.
         // The FGS plugin's WardenProcessing*.kt are deliberately not matched.
-        if (!/^Warden(DetectionEngine|Engine|GlUtil|RulePacker|CpuBaseline|ColorConvert|KeyframeDecoder).*\.kt$/.test(existing)) {
+        if (!/^Warden(DetectionEngine|Engine|GlUtil|RulePacker|CpuBaseline|ColorConvert|KeyframeDecoder|SessionAnalyzer).*\.kt$/.test(existing)) {
           continue;
         }
         if (owned.has(existing)) continue;

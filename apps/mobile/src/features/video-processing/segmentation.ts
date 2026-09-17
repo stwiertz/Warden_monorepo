@@ -9,9 +9,22 @@ import type { GameSegmentTimeline } from "./gameDetector";
 import type { MapIdentificationResult, MapSegmentData } from "./types";
 
 /**
- * Combine paired game segments with their per-segment map identifications
- * into the row shape segmentRepository persists. `mapName` is null when the
- * identifier returned no fingerprint within the collision threshold.
+ * Combine game segments with their per-segment map identifications into the row
+ * shape segmentRepository persists.
+ *
+ * Story 12.4c changed where both inputs come from, not what this does:
+ *   * the segments are cut from the phase machine's INTERNAL states, so a
+ *     doubtful keyframe mid-match does not split one match into two rows;
+ *   * the score screen is TIMING-derived from `score_screen_duration_ms` rather
+ *     than detected as a class, and it lives on the segment, not here;
+ *   * `mapName` is null when the span's aggregate did not clear
+ *     `identification_threshold` — that null IS `mobile-AUTO-SLICE-003`'s
+ *     `map_name = "unknown"` on this surface, and Card View renders it as
+ *     "Unknown map" with navigation intact (REL-006: graceful degradation, not a
+ *     blocking error).
+ *
+ * `mobile-AUTO-SLICE-004` still holds: lobby and transition are merged into
+ * `not_in_match` by design, so neither ever becomes a row.
  */
 export function buildMapSegments(
   segments: GameSegmentTimeline[],

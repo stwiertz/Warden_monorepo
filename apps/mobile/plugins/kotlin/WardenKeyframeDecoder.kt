@@ -933,6 +933,19 @@ class WardenKeyframeDecoder(
     }
 
     private fun configureCodec() {
+        // 🔴 STORY 12.4c — RELEASE BEFORE REPLACE (deferred item from the 12.4a
+        // review, homed here because this file now serves a SHIPPING path).
+        // This used to overwrite `codec` unconditionally, leaking the previous
+        // MediaCodec on any instance that decodes twice — and the pipelined loop
+        // ends in end-of-stream state, so a reused codec would also produce no
+        // output and then wedge for 5 s. Nothing in production reaches it twice
+        // (the analyzer builds one decoder per session inside `use {}`), but the
+        // bench modes do run several probes per instance.
+        codec?.let { stale ->
+            try { stale.stop() } catch (_: Throwable) {}
+            stale.release()
+            codec = null
+        }
         val mime = format.getString(MediaFormat.KEY_MIME)!!
         val c = MediaCodec.createDecoderByType(mime)
         // 🔴 PATH P, AND NOW THE ONLY PATH. Flexible YUV 4:2:0 so getOutputImage()
@@ -1127,9 +1140,36 @@ class WardenKeyframeDecoder(
                     "(${ImageFormat.YUV_420_888}) — WardenColorConvert reads 8-bit 4:2:0 only."
             )
         }
+        // 🔴 STORY 12.4c — THE CROP RECT IS NO LONGER IGNORED (deferred item from
+        // the 12.4b review). `img.width/height` can be the CODED geometry, which
+        // for a 1080p stream is legitimately 1920x1088 on some codecs: the rules
+        // are packed for 1920x1080, so `requireGeometry` would fail on EVERY frame
+        // with a message about the config rather than about the buffer. The crop
+        // rect is the displayed region, and that is what the zone coordinates mean.
+        //
+        // A non-zero crop ORIGIN is refused rather than honoured: `bgrAt` indexes
+        // planes from 0, so every rule would silently shift by the origin. No
+        // capture we have seen does this, which is exactly why it must throw
+        // instead of being handled by a translation nothing has ever tested.
+        val crop = img.cropRect
         val planes = img.planes
-        val w = img.width
-        val h = img.height
+        var w = img.width
+        var h = img.height
+        if (crop != null && !crop.isEmpty) {
+            if (crop.left != 0 || crop.top != 0) {
+                img.close()
+                throw IllegalStateException(
+                    "codec output image has a non-zero crop origin " +
+                        "(${crop.left},${crop.top}) ${crop.width()}x${crop.height()} in a " +
+                        "${img.width}x${img.height} buffer. Rule rects are absolute at the " +
+                        "reference resolution and the planes are indexed from 0, so every " +
+                        "rule would be offset by the crop origin — plausible-looking wrong " +
+                        "detections rather than an error."
+                )
+            }
+            w = crop.width()
+            h = crop.height()
+        }
         val out = Array(3) { i ->
             val src = planes[i].buffer
             val copy = ByteBuffer.allocateDirect(src.remaining())

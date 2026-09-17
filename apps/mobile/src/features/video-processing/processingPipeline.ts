@@ -1,95 +1,135 @@
 // Story 7.5 — Processing pipeline orchestration.
+// Story 12.4c — REWIRED ONTO THE BOUND DETECTION ENGINE.
 //
-// Runs the full detection chain for a session:
-//   1. Extract keyframes (Story 2.2 — FFmpeg).
-//   2. Probe GOP interval (FFprobe). Branch on the result:
-//        - shortGop: feed every keyframe through `gameDetector` (KDA/HSV).
-//        - longGop : feed every keyframe through the two-pass black-screen
-//                    fallback in blackScreenDetector.
-//      Both paths emit the same `GameDetectorEvent[]` stream.
-//   3. Pair START/END events into game segments. For each segment, sample a
-//      mid-segment keyframe and run `mapIdentifier` (pHash). Persist the
-//      identified maps alongside the segments.
-//   4. Save `MapSegmentData[]` rows via segmentRepository.
-//   5. Extract one full-resolution score-screen frame per segment at
-//      `endTs + score_offset_s`, clamped to video duration. Persist its
-//      path on the segment row.
-//   6. Mark the session `ready` (or `error` on any failure).
+// 🔴 STAGES 1 AND 2 COLLAPSED INTO ONE NATIVE CALL.
 //
-// Crash recovery: each stage writes its outputs to MMKV under
-// `processing.<sessionId>.<field>` so that a relaunched pipeline can pick up
-// from the last completed checkpoint. Detection-stage outputs are stored as
-// `events`, `gameSegments`, and `mapIdentifications`.
+// Before: FFmpeg extracted every keyframe to `./keyframes/*.jpg` ON DISK (0-30%),
+// then detection re-loaded each JPEG through `loadFrameFromPath` ->
+// `react-native-fast-opencv` -> pure-TS detectors (30-70%), branching on
+// `getGopInfo().hasShortGop` into either the KDA detector or a two-pass
+// black-screen fallback.
 //
-// Frame loading: detectors take a `FrameLoader` so the pipeline doesn't
-// hard-depend on a real JPEG decoder. The default loader calls
-// `loadFrameFromPath` (which throws until the native binding lands), so in
-// tests the loader is overridden to return synthetic FrameBuffers. The
-// shape lets the rest of the pipeline land while the OpenCV native module
-// is still pending integration.
+// Now: `analyzeSession` decodes the keyframes in RAM via MediaCodec and evaluates
+// the packed rules in Kotlin, returning one fire-bit row per keyframe. There is
+// no JPEG, no disk round-trip, no per-frame bridge crossing, and no GOP branch
+// (the engine decodes keyframes ONLY, by construction). What remains in JS is
+// scoring and phase resolution, which is where the product semantics belong.
+//
+// The stages are now:
+//   1. detection    — one native call: decode + evaluate + score + resolve phases
+//   2. segmentation — spans zipped with map IDs, persisted to SQLite
+//   3. results      — one score-screen thumbnail per segment (FFmpeg, unchanged)
+//
+// 🔴 EVERYTHING THIS FILE ALREADY GUARANTEED IS STILL GUARANTEED (AC7), and none
+// of it is restated by the engine work:
+//   * the foreground-service lifecycle: start INSIDE the try, stop in `finally`,
+//     owner-token stop, and one `updateForegroundServiceStage` per stage
+//     transition through the single `reportProgress` funnel (Story 1.2's
+//     JS-push contract);
+//   * MMKV checkpoint resume — with a NEW key set, and an explicit migration for
+//     checkpoints written by the old shape (see CHECKPOINT_SCHEMA);
+//   * error semantics: stage-boundary catch -> session `error` -> rethrow, with
+//     checkpoints DELIBERATELY NOT cleared so the user can retry;
+//   * progress monotonicity, and it got BETTER rather than worse: the native
+//     call reports keyframe progress as device events, so the longest stage is
+//     now incremental where the old `detection` stage reported only 0 then 100;
+//   * the results stage's clamp to `videoDurationMs - 50` and its best-effort
+//     thumbnail tolerance;
+//   * `assertSafeSessionId` / path-traversal hardening — every on-disk path
+//     still goes through `getProcessingDir(sessionId)`, and the engine adds no
+//     new on-disk path at all (it writes nothing).
 
 import {
-  extractKeyframes,
   extractFrameAt,
-  getGopInfo,
   getProcessingDir,
   getVideoDuration,
 } from "../../shared/services/ffmpeg";
-import {
-  loadFrameFromPath,
-  saturationMean,
-  scaleRoi,
-  type FrameBuffer,
-  type Resolution,
-} from "../../shared/services/opencv";
 import { getSession, updateSessionStatus } from "../session/sessionRepository";
-import {
-  insertMapSegments,
-  updateResultFramePath,
-} from "./segmentRepository";
+import { insertMapSegments, updateResultFramePath } from "./segmentRepository";
 import { storage } from "../../shared/services/storage";
 import {
   startForegroundService,
   stopForegroundService,
   updateForegroundServiceStage,
 } from "../../shared/services/foregroundService";
-import { getDetectionConfig } from "./detectionConfigService";
 import {
-  createGameDetector,
-  pairEventsIntoSegments,
-  type GameSegmentTimeline,
-} from "./gameDetector";
-import { createMapIdentifier } from "./mapIdentifier";
-import {
-  buildSaturationWindowsFromValues,
-  detectBlackScreensInWindow,
-  type FrameSample,
-} from "./blackScreenDetector";
+  analyzeSession as analyzeSessionNative,
+  cancelAnalysis,
+  DetectionAnalysisCancelledError,
+  type EngineSessionAnalysis,
+} from "../../shared/services/detectionEngine";
+import { buildSessionDetection } from "./detectionTimeline";
 import { buildMapSegments } from "./segmentation";
-import type { DetectionConfig } from "./detectionConfig";
+import {
+  getPrimaryMapConfig,
+  summariseClassifiers,
+  type MapConfigCandidate,
+} from "./mapConfig";
+import type { GameSegmentTimeline } from "./gameDetector";
 import type {
-  GameDetectorEvent,
-  KeyframeInfo,
   MapIdentificationResult,
   MapSegmentData,
   ProcessingStage,
   ProgressCallback,
 } from "./types";
 
-export type FrameLoader = (path: string) => Promise<FrameBuffer>;
+/**
+ * The seam every test runs through, replacing Story 7.5's injectable
+ * `FrameLoader`.
+ *
+ * That seam is why the pipeline's tests never needed a device, and losing it
+ * would have taken the whole test surface with it — so the native call is
+ * injectable in exactly the same shape.
+ */
+export type SessionAnalyzer = typeof analyzeSessionNative;
 
 export interface RunPipelineOptions {
   onProgress?: ProgressCallback;
-  // Defaults to the production loader, which throws until OpenCV is wired up.
-  // Tests inject a synthetic loader.
-  loadFrame?: FrameLoader;
-  // Defaults to the cached DetectionConfig from Story 7.4. Tests inject one
-  // directly to avoid touching Firestore + MMKV.
-  detectionConfig?: DetectionConfig;
-  // Resolution of the FrameBuffers returned by the loader. Defaults to the
-  // detection config's reference resolution (no scaling).
-  processingResolution?: Resolution;
+  /** Defaults to the native engine. Tests inject a synthetic analysis. */
+  analyze?: SessionAnalyzer;
+  /** Defaults to the bundled v2 config (Story 1.13 widens the source). */
+  mapConfig?: MapConfigCandidate;
+  /**
+   * 0 = the whole capture. Development only — a limited run produces a
+   * truncated timeline and must never be a shipped default.
+   */
+  keyframeLimit?: number;
+  /** `doubt_margin`; 0 disables doubt and reproduces Story 9.13 exactly. */
+  doubtMargin?: number;
 }
+
+/**
+ * 🔴 THE CHECKPOINT SHAPE CHANGED, SO IT IS VERSIONED.
+ *
+ * The old pipeline wrote `stage` values of `keyframes | detection | segmentation
+ * | results`, plus `events` (GameDetectorEvent[], a type that no longer exists)
+ * and `mapIdentifications` rows carrying pHash `hash`/`hammingDistance` fields.
+ * Resuming a v1 checkpoint into this pipeline would either skip the only stage
+ * that now does any detection, or feed pHash-era rows into segmentation.
+ *
+ * So: a checkpoint without `CHECKPOINT_SCHEMA` is DISCARDED and its payload keys
+ * are deleted, and the session re-runs from the start. That is a real upgrade
+ * path (an app update mid-processing is not hypothetical), it costs one analysis
+ * of a session the user had not finished anyway, and it is the only option that
+ * cannot produce a silently wrong timeline.
+ */
+export const CHECKPOINT_SCHEMA = 2;
+
+/** Payload keys the pipeline owns under `processing.<sessionId>.*`. */
+const CHECKPOINT_KEYS = [
+  "stage",
+  "schema",
+  "gameSegments",
+  "mapIdentifications",
+  "duration",
+  "segmentIds",
+  "segmentData",
+  "analysis",
+  "perf002",
+  // v1 keys, listed so the migration can delete them. `events` was the old
+  // detector's START/END/SCORE_SCREEN stream; nothing writes it any more.
+  "events",
+] as const;
 
 function checkpointKey(sessionId: string, field: string): string {
   return `processing.${sessionId}.${field}`;
@@ -97,26 +137,61 @@ function checkpointKey(sessionId: string, field: string): string {
 
 function saveCheckpoint(sessionId: string, stage: ProcessingStage): void {
   storage.setString(checkpointKey(sessionId, "stage"), stage);
+  storage.setNumber(checkpointKey(sessionId, "schema"), CHECKPOINT_SCHEMA);
 }
 
+/**
+ * The last fully-completed stage, or null.
+ *
+ * Returns null — after clearing the stale payload — for any checkpoint written
+ * by a pipeline older than {@link CHECKPOINT_SCHEMA}, including the `keyframes`
+ * stage that no longer exists.
+ */
 export function getCheckpoint(sessionId: string): ProcessingStage | null {
-  return (
-    (storage.getString(checkpointKey(sessionId, "stage")) as ProcessingStage) ??
-    null
-  );
+  const stage = storage.getString(checkpointKey(sessionId, "stage")) as
+    | ProcessingStage
+    | undefined;
+  if (!stage) return null;
+  const schema = storage.getNumber(checkpointKey(sessionId, "schema")) ?? 0;
+  if (schema !== CHECKPOINT_SCHEMA || !isKnownStage(stage)) {
+    if (__DEV__) {
+      console.warn(
+        `[processingPipeline] discarding checkpoint for ${sessionId}: stage=` +
+          `${stage} schema=${schema} (this build writes schema ` +
+          `${CHECKPOINT_SCHEMA}). The session re-runs from the start.`
+      );
+    }
+    clearCheckpoint(sessionId);
+    return null;
+  }
+  return stage;
+}
+
+function isKnownStage(value: string): value is ProcessingStage {
+  return value === "detection" || value === "segmentation" || value === "results";
 }
 
 function clearCheckpoint(sessionId: string): void {
-  storage.delete(checkpointKey(sessionId, "stage"));
+  for (const field of CHECKPOINT_KEYS) {
+    storage.delete(checkpointKey(sessionId, field));
+  }
 }
 
+/**
+ * Stage -> overall 0-100.
+ *
+ * Re-ranged for the collapsed stages. Detection owns 0-70 because it IS the
+ * multi-minute stage (decode + evaluate over every keyframe) and it is now
+ * genuinely incremental: the native call reports keyframe progress, so the bar
+ * moves throughout instead of jumping 0 -> 100 the way the old detection stage
+ * did.
+ */
 function stageToOverallProgress(
   stage: ProcessingStage,
   stageProgress: number
 ): number {
   const stageRanges: Record<ProcessingStage, [number, number]> = {
-    keyframes: [0, 30],
-    detection: [30, 70],
+    detection: [0, 70],
     segmentation: [70, 90],
     results: [90, 100],
   };
@@ -125,123 +200,20 @@ function stageToOverallProgress(
 }
 
 /**
- * Run the gameDetector or the long-GOP black-screen fallback over every
- * keyframe. Both paths stream — buffers are loaded one at a time and
- * dropped immediately so a 60–90 min session doesn't hold ~600 MB+ of
- * decoded frames in RAM. The long-GOP path runs two passes; Pass 1 keeps
- * only a saturation float per keyframe, Pass 2 re-loads only the indices
- * inside high-saturation windows.
+ * Cancel the analysis in flight for `sessionId`, if any.
+ *
+ * 🔴 DELIBERATELY NOT WIRED TO SCREEN UNMOUNT. Cancelling when the user leaves
+ * the screen would contradict Story 1.2's whole reason for existing: the
+ * foreground service is there so a multi-minute run SURVIVES backgrounding (J2).
+ * This is the seam for an explicit "stop processing" action, and for a caller
+ * that knows the run is no longer wanted — not for navigation.
+ *
+ * The pipeline then throws {@link DetectionAnalysisCancelledError}, which is NOT
+ * treated as a processing failure: the session keeps its checkpoint and its
+ * previous status, and a later run resumes.
  */
-export async function detectGameEvents(
-  keyframes: KeyframeInfo[],
-  config: DetectionConfig,
-  loadFrame: FrameLoader,
-  hasShortGop: boolean,
-  processingResolution: Resolution | undefined
-): Promise<GameDetectorEvent[]> {
-  if (hasShortGop) {
-    const detector = createGameDetector({ config, processingResolution });
-    const events: GameDetectorEvent[] = [];
-    for (const kf of keyframes) {
-      const buf = await loadFrame(kf.path);
-      events.push(...detector.processFrame(buf, kf.timestampMs));
-    }
-    events.push(...detector.flush());
-    return events;
-  }
-
-  // Long-GOP fallback. Pass 1: collect saturation values without retaining
-  // buffers.
-  const refRes = config.reference_resolution;
-  const procRes = processingResolution ?? refRes;
-  const teamBarRoi = scaleRoi(config.roi_zones.team_bar, refRes, procRes);
-  const satValues: number[] = [];
-  for (const kf of keyframes) {
-    const buf = await loadFrame(kf.path);
-    satValues.push(saturationMean(buf, teamBarRoi));
-  }
-
-  const windows = buildSaturationWindowsFromValues(satValues, keyframes, config);
-
-  // Pass 2: re-load only the buffers within each window.
-  const events: GameDetectorEvent[] = [];
-  for (const w of windows) {
-    const samples: FrameSample[] = [];
-    for (let i = w.startIndex; i <= w.endIndex; i++) {
-      samples.push({
-        timestampMs: keyframes[i].timestampMs,
-        buffer: await loadFrame(keyframes[i].path),
-      });
-    }
-    events.push(
-      ...detectBlackScreensInWindow(samples, w, { config, processingResolution })
-    );
-  }
-  return events;
-}
-
-/**
- * For each game segment, sample a keyframe near the middle and run the map
- * identifier. Returns one MapIdentificationResult per segment (mapName = null
- * when no fingerprint was within the collision threshold; AC 8).
- */
-export async function identifyMapsForSegments(
-  segments: GameSegmentTimeline[],
-  keyframes: KeyframeInfo[],
-  config: DetectionConfig,
-  loadFrame: FrameLoader,
-  processingResolution: Resolution | undefined
-): Promise<MapIdentificationResult[]> {
-  const identifier = createMapIdentifier({
-    config,
-    processingResolution,
-  });
-  const results: MapIdentificationResult[] = [];
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
-    const midTs = (seg.startMs + seg.endMs) / 2;
-    const kf = nearestKeyframe(keyframes, midTs);
-    if (!kf) {
-      results.push({
-        segmentIndex: i,
-        mapName: null,
-        hash: "",
-        hammingDistance: null,
-      });
-      continue;
-    }
-    const buffer = await loadFrame(kf.path);
-    const outcome = identifier.identify(buffer);
-    if (outcome.match === null) {
-      console.warn(
-        `[mapIdentifier] segment ${i} (${seg.startMs}-${seg.endMs}ms) — no fingerprint within collision threshold (hash=${outcome.hash})`
-      );
-    }
-    results.push({
-      segmentIndex: i,
-      mapName: outcome.match?.mapName ?? null,
-      hash: outcome.hash,
-      hammingDistance: outcome.match?.hammingDistance ?? null,
-    });
-  }
-  return results;
-}
-
-function nearestKeyframe(
-  keyframes: KeyframeInfo[],
-  targetMs: number
-): KeyframeInfo | null {
-  if (keyframes.length === 0) return null;
-  let best = keyframes[0];
-  let bestDelta = Math.abs(best.timestampMs - targetMs);
-  for (let i = 1; i < keyframes.length; i++) {
-    const d = Math.abs(keyframes[i].timestampMs - targetMs);
-    if (d < bestDelta) {
-      best = keyframes[i];
-      bestDelta = d;
-    }
-  }
-  return best;
+export async function cancelProcessing(sessionId: string): Promise<boolean> {
+  return cancelAnalysis(sessionId);
 }
 
 /**
@@ -269,12 +241,15 @@ export async function runProcessingPipeline(
     console.log(`[PERF-002] sessionId=${sessionId} start`);
   }
 
+  // Unchanged and deliberate: a missing session throws BEFORE the try, so no
+  // foreground service is started, none is stopped, and no status is written for
+  // a session that does not exist.
   const session = await getSession(sessionId);
   if (!session) throw new Error(`Session ${sessionId} not found`);
 
-  const { onProgress, loadFrame = loadFrameFromPath } = options;
-  const config = options.detectionConfig ?? (await getDetectionConfig());
-  const processingResolution = options.processingResolution;
+  const { onProgress, analyze = analyzeSessionNative } = options;
+  const mapConfig = options.mapConfig ?? getPrimaryMapConfig();
+  const classifiers = summariseClassifiers(mapConfig);
 
   await updateSessionStatus(sessionId, "processing");
 
@@ -299,18 +274,11 @@ export async function runProcessingPipeline(
     await startForegroundService(sessionId);
 
     const lastStage = getCheckpoint(sessionId);
-    let keyframes: KeyframeInfo[] = [];
     let videoDurationMs = 0;
 
-    // Checkpoint semantics: lastStage is the LAST FULLY-COMPLETED stage. A
-    // crash before any stage's saveCheckpoint leaves lastStage pointing at
-    // the prior stage (or null), so on resume the corresponding block re-
-    // runs from scratch — but completed stages are skipped.
-    const keyframesDone =
-      lastStage === "keyframes" ||
-      lastStage === "detection" ||
-      lastStage === "segmentation" ||
-      lastStage === "results";
+    // Checkpoint semantics are unchanged: lastStage is the LAST FULLY-COMPLETED
+    // stage, so a crash before a stage's saveCheckpoint re-runs that stage from
+    // scratch while completed stages are skipped.
     const detectionDone =
       lastStage === "detection" ||
       lastStage === "segmentation" ||
@@ -319,71 +287,97 @@ export async function runProcessingPipeline(
       lastStage === "segmentation" || lastStage === "results";
     const resultsDone = lastStage === "results";
 
-    if (!keyframesDone) {
-      reportProgress("keyframes", 0);
-      videoDurationMs = await getVideoDuration(session.video_file_path);
-      keyframes = await extractKeyframes(session.video_file_path, sessionId, {
-        totalDurationMs: videoDurationMs,
-        onProgress: (pct) => reportProgress("keyframes", pct),
-      });
-      saveCheckpoint(sessionId, "keyframes");
-      reportProgress("keyframes", 100);
-      __perfMark(`keyframes_done_count=${keyframes.length}`);
-    }
-
     if (!detectionDone) {
       reportProgress("detection", 0);
 
-      if (keyframes.length === 0) {
-        videoDurationMs = await getVideoDuration(session.video_file_path);
-        keyframes = await extractKeyframes(session.video_file_path, sessionId, {
-          totalDurationMs: videoDurationMs,
-          onProgress: (pct) => reportProgress("keyframes", pct),
-        });
+      // The duration is probed here rather than during keyframe extraction —
+      // the stage that used to own it no longer exists — and it is still needed
+      // by the results stage's past-EOF clamp.
+      videoDurationMs = await getVideoDuration(session.video_file_path);
+
+      const analysis: EngineSessionAnalysis = await analyze({
+        requestId: sessionId,
+        videoPath: session.video_file_path,
+        configJson: mapConfig.rawJson,
+        limit: options.keyframeLimit ?? 0,
+        onProgress: (event) => {
+          if (event.keyframesTotal > 0) {
+            reportProgress(
+              "detection",
+              Math.min(
+                100,
+                Math.round((event.keyframesDone / event.keyframesTotal) * 100)
+              )
+            );
+          }
+        },
+      });
+
+      const detection = buildSessionDetection(analysis, mapConfig, classifiers, {
+        doubtMargin: options.doubtMargin,
+      });
+      const gameSegments = detection.segments;
+      const mapIdentifications = detection.identifications;
+
+      if (!analysis.keyframe_index.covers_duration && __DEV__) {
+        console.warn(
+          `[processingPipeline] the keyframe index stops ` +
+            `${(analysis.keyframe_index.uncovered_tail_us / 1e6).toFixed(1)}s ` +
+            `before the end of the capture (GOP estimate ` +
+            `${(analysis.keyframe_index.estimated_gop_us / 1e6).toFixed(2)}s). ` +
+            "The index is seek-derived and stops at the first step that fails to " +
+            "advance, so an irregular GOP truncates it — matches after that point " +
+            "are not detected."
+        );
+      }
+      if (!detection.hud.matched && __DEV__) {
+        console.warn(
+          `[processingPipeline] HUD-version selection did not match ` +
+            `${mapConfig.hudVersion} (mean confidence ` +
+            `${detection.hud.meanConfidence.toFixed(2)} over ` +
+            `${detection.hud.sampledKeyframes} keyframes). Analysing with it ` +
+            "anyway — below-floor behaviour is graceful degradation, not a " +
+            "blocking error (REL-006)."
+        );
       }
 
-      const gop = await getGopInfo(session.video_file_path);
-      const events = await detectGameEvents(
-        keyframes,
-        config,
-        loadFrame,
-        gop.hasShortGop,
-        processingResolution
-      );
-      const gameSegments = pairEventsIntoSegments(events);
-      const mapIdentifications = await identifyMapsForSegments(
-        gameSegments,
-        keyframes,
-        config,
-        loadFrame,
-        processingResolution
-      );
-
-      storage.setObject(checkpointKey(sessionId, "events"), events);
-      storage.setObject(
-        checkpointKey(sessionId, "gameSegments"),
-        gameSegments
-      );
+      storage.setObject(checkpointKey(sessionId, "gameSegments"), gameSegments);
       storage.setObject(
         checkpointKey(sessionId, "mapIdentifications"),
         mapIdentifications
       );
       storage.setNumber(checkpointKey(sessionId, "duration"), videoDurationMs);
+      // A compact record of WHAT ran, not the timeline: 1061 rows of per-frame
+      // state would be the largest thing this app ever puts in MMKV, and nothing
+      // resumes from them.
+      storage.setObject(checkpointKey(sessionId, "analysis"), {
+        hudVersion: detection.hud.hudVersion,
+        hudConfidence: detection.hud.meanConfidence,
+        keyframes: analysis.n_keyframes,
+        keyframeCountMatches: analysis.keyframe_count_matches,
+        coversDuration: analysis.keyframe_index.covers_duration,
+        engineMsPerKeyframe: analysis.timing.ms_per_keyframe_engine,
+        wallMs: analysis.timing.wall_ms,
+      });
 
       saveCheckpoint(sessionId, "detection");
       reportProgress("detection", 100);
       if (__DEV__) {
-        const startCount = events.filter((e) => e.type === "START").length;
-        const endCount = events.filter((e) => e.type === "END").length;
-        const scoreCount = events.filter(
-          (e) => e.type === "SCORE_SCREEN"
-        ).length;
         console.log(
-          `[PERF-009] sessionId=${sessionId} events START=${startCount} END=${endCount} SCORE=${scoreCount} segments=${gameSegments.length} mapIDs=${mapIdentifications.length} gop_avg_s=${gop.averageGopSeconds.toFixed(2)} hasShortGop=${gop.hasShortGop}`
+          `[PERF-009] sessionId=${sessionId} keyframes=${detection.stats.keyframes} ` +
+            `in_match=${detection.stats.inMatchFrames} ` +
+            `score_screen=${detection.stats.scoreScreenFrames} ` +
+            `not_in_match=${detection.stats.notInMatchFrames} ` +
+            `doubt=${detection.stats.doubtFrames} ` +
+            `segments=${gameSegments.length} ` +
+            `unknownMaps=${detection.stats.unknownMapSegments} ` +
+            `hud=${detection.hud.hudVersion} ` +
+            `engine_ms_per_kf=${analysis.timing.ms_per_keyframe_engine.toFixed(3)} ` +
+            `layout=${analysis.decoder_chroma_layout}`
         );
       }
       __perfMark(
-        `detection_done_segments=${gameSegments.length}_events=${events.length}`
+        `detection_done_segments=${gameSegments.length}_keyframes=${detection.stats.keyframes}`
       );
     }
 
@@ -444,6 +438,9 @@ export async function runProcessingPipeline(
 
       for (let i = 0; i < segmentData.length; i++) {
         const seg = segmentData[i];
+        // The score-screen timestamp is now TIMING-DERIVED (the first keyframe
+        // the phase machine resolved to `score_screen`), not `endTs +
+        // score_offset_s`. The clamp below is unchanged and still load-bearing.
         const scoreScreenMs = gameSegments[i]?.scoreScreenMs ?? seg.endTimeMs;
         // Clamp the offset to the last available frame. If the clamp swallows
         // the entire offset, log a warning but still try to capture *some*
@@ -453,7 +450,7 @@ export async function runProcessingPipeline(
           const clamped = Math.max(seg.endTimeMs, videoDurationMs - 50);
           if (clamped - seg.endTimeMs < 1000) {
             console.warn(
-              `[results] segment ${i}: score_offset_s clamped from ${frameTimestamp}ms to ${clamped}ms (video ends at ${videoDurationMs}ms)`
+              `[results] segment ${i}: score-screen timestamp clamped from ${frameTimestamp}ms to ${clamped}ms (video ends at ${videoDurationMs}ms)`
             );
           }
           frameTimestamp = clamped;
@@ -534,6 +531,15 @@ export async function runProcessingPipeline(
       } catch (persistErr) {
         console.warn(`[PERF-002] mmkv persist (error path) failed:`, persistErr);
       }
+    }
+    // 🔴 CANCELLATION IS NOT A FAILURE. The user left the screen; the session
+    // keeps whatever status it had before this run and its checkpoint, so the
+    // next run resumes instead of restarting. Marking it `error` would make a
+    // deliberate act look like a broken app — and `error` is a terminal state in
+    // the session list.
+    if (error instanceof DetectionAnalysisCancelledError) {
+      await updateSessionStatus(sessionId, session.status);
+      throw error;
     }
     await updateSessionStatus(sessionId, "error");
     throw error;

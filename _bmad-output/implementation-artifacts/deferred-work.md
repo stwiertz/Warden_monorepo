@@ -170,7 +170,7 @@ Work Story 12.3 found while amending the ~10 sites its ACs named, and deliberate
 because AC12 fences the exhaustive prose sweep to Story 9.10 and all production code to Story 12.4.
 
 - **🔴 `hash_validator.py` DOES NOT EXIST, and `architecture.md` still references it four times** (`_bmad-output/architecture.md`) — the file was retired by Story 9.11; `apps/tooling/tools/` contains no `hash_validator.py`. Amendment **5f is complete** (all three of its named sites — the NFR-driver line, the spike-scope accuracy floor, and the NFR-coverage reliability line — now name **Tool 9 via Story 9.16**). But four *other* references survive, and **one of them makes the same claim 5f exists to refute**: the project-tree listing annotates it *"Tool 4 — accuracy reporter (**REL-006 regression suite**)"*. The other three are the brownfield-testing note, a `snake_case.py` naming example, and the FR-to-structure mapping for `tooling-VALIDATE-001/002`. **Flagged, not fixed — Story 9.10's sweep**, since fixing the tree row means deciding whether to delete it, which is retired-tooling bookkeeping rather than an instrument correction. **Left as a live gap deliberately, and recorded here so it is not lost.**
-- **`min_ratio` float32-vs-float64 comparison** (carried from the 12.1 review, above) — **still open and now inherited by the bound engine.** The CPU arm compares at Kotlin precision while `lut.py` packs at float64. The 0-disagreement parity result did not surface it because no shipped `min_ratio` sits on an achievable boundary in this corpus. **Story 12.4's**, when it wires `WardenCpuBaseline` into the pipeline.
+- ~~**`min_ratio` float32-vs-float64 comparison**~~ **CLOSED 2026-09-17 BY STORY 12.4c.** `WardenPackedRules` now carries a `minRatios: DoubleArray` alongside the float32 texture, and `WardenCpuBaseline.evaluateWith` compares `count.toDouble() / area.toDouble() >= packed.minRatios[i]` — the precision `roi_detection_tester.zone_fires_on_frame` compares at. The texture stays float32 because it was born a GL texture; the comparison no longer reads it. **Behaviour-neutral on the shipped config** (all 134 rules use `min_ratio = 0.3`, which is why this was deferrable twice), and verified so: the JVM parity harness re-ran the full capture through the patched evaluator at **0 disagreements / 142,174 decisions** against the PC oracle. It is closed BEFORE someone authors a boundary value in `zone_picker`, not after.
 - **PERF-002 has not been measured end to end.** The re-baseline published by 12.3 covers the **detection pass only** — segmentation, thumbnail export and the rest of the auto-slice pipeline are unmeasured. **Story 12.4 must re-measure over the real pipeline** before PERF-002 is treated as closed, and before provisional rung-0 resolves.
 - **Ladder rung 2 has no instrument.** PERF-003 / PERF-004 have never been measured and the surfaces do not exist. Arming the rung means building a view-mode / cold-start timing instrument, which **no story currently owns**; 12.3 labelled the trigger `UN-INSTRUMENTED` rather than pretending otherwise. Natural home: **Stories 5.4 / 5.5 / 6.6**, with the surfaces.
 - **The three per-classifier accuracy figures remain unbacked by any artifact** — see the open 12.2 item above (`Re-run pc_reference.py compare`). 12.3 carries them labelled **[U]** and does not rest any conclusion on them.
@@ -201,7 +201,7 @@ pass. **None of them puts the 12.4a result in doubt** — `flush()` is gone from
 1061/1061 on all three runs, fire rows bit-identical.
 
 - **No `try`/`finally` around a dequeued input buffer or the `Image` in `imageToKeyframe`** (`apps/mobile/plugins/kotlin/WardenKeyframeDecoder.kt:599-612`, `:1023-1042`) — `dequeueInputBuffer` transfers ownership at `:599` and the only way to hand it back is `queueInputBuffer` at `:612`; `seekToVerifiedSyncSample` can throw twice in between, and `readSampleData < 0` throws a third time. Symmetrically, `imageToKeyframe` closes the `Image` only on the success path, so a null `getOutputImage` or an OOM in `allocateDirect` leaks the `Image` *and* skips `releaseOutputBuffer`. Bounded today only by every caller wrapping the decoder in `use {}`, which nothing enforces and no KDoc states. Pre-existing pattern throughout the file. Correct home: **a hardening pass on this file, or 12.4b** while it is already restructuring the same functions.
-- **`configureCodec()` has no idempotence guard, and the pipelined path leaves the codec in end-of-stream state** (`WardenKeyframeDecoder.kt:849-863`) — it unconditionally creates a codec and overwrites the field. No caller invokes a decode twice on one instance today (the k-sweep builds a fresh decoder per depth inside `use {}`), so nothing leaks in practice. But the pipelined loop queues `END_OF_STREAM` and never calls `flush()` or `stop()`, so even with a guard added, a reused instance would produce no output and wedge for 5 s. Correct home: **12.4b or 12.4c**, whichever first makes this a shipping path with a lifecycle beyond one bench run.
+- **`configureCodec()` has no idempotence guard, and the pipelined path leaves the codec in end-of-stream state** (`WardenKeyframeDecoder.kt`) — **HALF-CLOSED 2026-09-17 BY STORY 12.4c:** `configureCodec` now stops and releases any existing codec before creating the next, so the leak is gone and a second decode on one instance gets a fresh codec. **The end-of-stream half stands as a design fact, not a defect:** the pipelined loop queues `END_OF_STREAM` and never flushes, so a decoder instance is single-use by construction. The production analyzer builds one decoder per session inside `use {}`, which is the lifecycle this shape wants. Correct home if it ever needs to be reusable: whoever needs two decodes per instance.
 - **A zero-size non-EOS output orphans its PTS in `inFlight` permanently** (`WardenKeyframeDecoder.kt:646-657`) — the `else` branch releases the buffer and, when not EOS, does nothing; the PTS is never removed, effective pipeline depth shrinks by one for the rest of the run, and the eventual diagnosis is the EOS throw asserting "the decoder dropped queued IDRs" without listing which PTS were stranded. Fails loud, but misattributed. Correct home: **the same hardening pass**.
 - **`TIMEOUT_US` is class-wide, lowered 10x on one path's measurement** (`WardenKeyframeDecoder.kt:1067`) — AC1's justification is specific and correct for the EOS-terminated structure, but the constant is consumed by `decodeKeyframes` (A-prime), `decodeProbe` and the retained Surface-legacy loop as well. On A-prime, whose own KDoc says it "can legitimately go a while without output while the extractor skips hundreds of non-sync samples", this converts a 100 Hz poll into a 1000 Hz one on a battery-powered device. A per-path timeout was the scoped change. Correct home: **12.4b**, which deletes the Surface path and can decide whether A-prime keeps its own.
 - **The duration-expressed wedge caps assume every spin costs a full `TIMEOUT_US`** (`WardenKeyframeDecoder.kt:1079-1086`) — true where a spin is a pure `dequeueOutputBuffer` timeout, false in `decodeKeyframes`, the very loop the KDoc cites as the reason `MAX_SPINS_BEFORE_EOS` stays generous: its spin body also runs `advance()`, which reads sample DATA in batches of 8 at milliseconds per call. In that scenario the bail-out budget grew roughly 10x in real work rather than staying at the asserted 20 s. The budget is expressed in time but still *enforced* in polls. Correct home: **the same hardening pass**.
@@ -210,14 +210,68 @@ pass. **None of them puts the 12.4a result in doubt** — `flush()` is gone from
 - **The k-sweep rebuilds the PTS list per depth instead of hoisting it** (`WardenEngineBench.kt:1009`) — `dec.syncSamplePtsListBySeek(200)` runs inside the depth loop, five times at ~2.3 s each, so the five rows are not guaranteed to be over an identical list if seek behaviour drifts between iterations. The sweep's whole value is that the five depths are compared free of run-to-run spread. Correct home: **whoever next re-runs the sweep**.
 - **🔴 Re-run `flushprobe` + `timing` on the reference device to re-evidence 12.4a's numbers against the POST-REVIEW code** (`apps/mobile/plugins/kotlin/WardenKeyframeDecoder.kt`, `WardenEngineBench.kt`) — `/bmad-code-review 12.4a` applied 26 patches on 2026-09-17, **after** every artifact in `apps/mobile/bench/12-4a/` was captured. The bench JSON therefore describes the pre-patch code. **`:app:compileDebugKotlin` passes; nothing has been executed on hardware.** The patches are defensive and are *expected* to be behaviour-neutral on `c2.qti.avc.decoder` — the EOS PTS moved `0L → Long.MAX_VALUE` but this codec reports EOS on a zero-size buffer so that branch was never live; the new duplicate-PTS, `size <= 0` and format-changed guards throw only on inputs the reference capture does not contain; `pipelineProbe`'s `decoded` now counts matched frames only, which is identical when `pts_mismatches == 0`, as it was on all three runs. **Expected is not measured, and this is an evidence story.** What a re-run must reproduce: `decode_probe` wall **33.442 ms/kf**, k-sweep **k=8 = 7.706** with k=1 still wedging, full-capture BIT_PARITY **~10 592 ms**, **1061/1061**, and `compare_fire_rows.py` still **0 disagreements**. It should also newly populate `max_observed_in_flight` — if that comes back **< 8**, then k=8 and k=16 were the same run and the flat sweep rows were a hardware ceiling, not a knee. Correct home: **Story 12.4b's first device pass**, which rebuilds and reflashes anyway. Per [[feedback_batch_manual_checks_epic_end]] this is not a reason to hold 12.4a.
 
+## Deferred BY Story 12.4c (logged 2026-09-17, at delivery)
+
+The engine is wired. These are what wiring it surfaced and did not touch — each one fenced by AC13,
+or needing a device, or belonging to a story that owns the data rather than the code.
+
+- **🔴 `the_rock` FRAGMENTS INTO 11 SPANS ON THE REFERENCE CAPTURE, AND THE PORT IS NOT WHY.** The
+  oracle's timeline over `2026-04-27 22-05-34.mp4` cuts 18 spans for what looks like 9 matches:
+  between **3620.8 s and 4054.2 s** the `in_match` score alternates between **exactly 1.0 and exactly
+  0.0** on a ~50 s period — all three in_match zones agreeing each time. Those are CONFIDENT votes,
+  so **doubt-holding cannot merge them**: the machine sees a clean falling edge, runs the 15 s score
+  window, and reopens on the next rising edge. The TS port reproduces Tool 12 exactly here
+  (`tool12Parity.test.ts` asserts all 1061 keyframes and all 18 spans), and Tool 12 reproduces
+  Tool 9 — so this is the shipped **zone data** on that map/mode, not the engine. **Product
+  consequence worth knowing before Epic 5 builds on these rows: one match can reach Card View as
+  eleven segments.** Correct home: **Story 9.9b** (zone population / retune) with **9.16** as the
+  instrument; AC13 fences retuning out of 12.4c, and "fixing it while wiring it" is exactly how a
+  parity result stops meaning anything. Evidence: `apps/mobile/bench/12-4c/REPORT.md` §4.
+- **🔴 The keyframe index is seek-derived, so a capture with an irregular GOP can be analysed
+  SHORT** (`WardenKeyframeDecoder.syncSamplePtsListBySeek`) — it estimates the GOP from the first two
+  keyframes, steps it, and stops at the first step that fails to advance. The honest ground truth
+  (`countSyncSamplesByScan`) is a **62 s full-file read that must never ship** (12.4a AC3), so 12.4c
+  **reports** coverage instead of asserting it: `keyframe_index.covers_duration` rides in the
+  analysis JSON and the pipeline logs a warning when the index stops more than ~2 GOPs short. Nobody
+  has yet run a genuinely irregular-GOP capture through it. Correct home: **Story 12.4d**, which owns
+  the end-to-end measurement, or whoever first hits a non-OBS capture.
+- **A non-1080p capture is refused, not rescaled** (`WardenSessionAnalyzer` →
+  `WARDEN_UNSUPPORTED_GEOMETRY`). Zone coordinates are absolute at `reference_resolution`, and
+  rescaling would evaluate every rule against resampled pixels — Tool 9 resizes the whole frame with
+  `INTER_AREA` before evaluating, which is a different pipeline, not a flag. The old pipeline
+  accepted any resolution via `scaleRoi`, so this is a **narrowing**: a 1440p or 720p recording now
+  fails with a clear message instead of producing plausible-looking wrong detections. Correct home: a
+  future story that either ships per-resolution configs or ports Tool 9's resize — it is a capability,
+  not a bug.
+- **`analyzeSession` holds the whole timeline in memory and crosses the bridge once.** 1061
+  keyframes × 34 hex chars ≈ 36 kB, so this is comfortable today; a 4-hour capture at a 1 s GOP would
+  be ~500 kB of JSON in one string. Bounded, but not streamed. Correct home: whoever first needs
+  multi-hour captures.
+- **Progress events are fire-and-forget and unacknowledged.** A dead JS context (app killed while the
+  FGS keeps the process alive) silently drops them; the analysis still completes and the promise
+  still resolves. Deliberate — an analysis must not fail because a notification could not be
+  delivered — but it means the progress bar is not a liveness signal.
+- **The Reader-App pre-commit gate named by AC16 DOES NOT EXIST** (`apps/mobile/scripts/reader-app-gate.sh`).
+  There is no such file anywhere in the repo, and `.husky/pre-commit` runs `npx prettier --check .`
+  and nothing else. `cross-READER-APP-001`'s CI gate (direct-import bans, transitive-dep scan,
+  pricing-string bans, i18n scan) is **Phase 7 work that has not been done**, so AC16 was not
+  runnable as written. What 12.4c ran instead: `pnpm --filter mobile ls --depth=Infinity` grepped for
+  monetization packages (stripe / paddle / revenuecat / billing / purchase / paypal / in-app) — **no
+  matches**, and the story REMOVED a dependency rather than adding one. Correct home: **Phase 7 / the
+  story that builds the gate.**
+- **`format:check` does not cover `apps/mobile` AT ALL.** AC15's note says it "does cover your
+  `apps/mobile` diff, which is what matters here" — that is **wrong**: `.prettierignore`'s last entry
+  is a bare `apps/mobile/`, added when the legacy repo was imported ("Imported codebases preserve
+  their original formatting until explicitly modernized"). So a green `pnpm format:check` says
+  nothing about any file this story wrote. Correct home: whoever modernizes the mobile formatting —
+  it is a one-line `.prettierignore` change plus a large reformat, which is not a detection story's
+  to make.
+
 ## Deferred from: code review of 12-4b-cpu-colour-port-and-gles-removal (2026-09-17)
 
 `/bmad-code-review 12.4b` against commit `61cdd8a`, code-only diff, three layers. The story's patch and decision items are in its **Review Findings** section. The items below are either pre-existing, off the bound path (8-bit NV12 at exactly 1920×1080, crop origin 0,0), or need a device or fixture.
 
-- **The crop rect is ignored; geometry comes from `img.width/height`** (`apps/mobile/plugins/kotlin/WardenKeyframeDecoder.kt:1118`). This is pre-existing Path P behaviour, but Path P is now the only colour path.
-  - A codec that returns a 1920×1088 aligned buffer fails `requireGeometry` on every frame.
-  - A crop rect with a non-zero origin shifts every rule silently.
-  - Natural home: 12.4c, when the pipeline is wired.
+- ~~**The crop rect is ignored; geometry comes from `img.width/height`**~~ **CLOSED 2026-09-17 BY STORY 12.4c.** `imageToKeyframe` now takes its geometry from `img.cropRect` when that rect is non-empty, so a codec handing back a 1920×1088 coded buffer for a 1080p stream is read as 1920×1080 instead of failing `requireGeometry` on every frame with a message about the config. A crop rect with a **non-zero origin** is REFUSED with its own message rather than honoured: `bgrAt` indexes planes from 0, so every rule would shift silently, and a translation nothing has ever tested is not better than a loud error. ⚠️ **Not observed on a device** — the reference codec returns (0,0,1920,1080) and this path was exercised only by reasoning; the epic-end device pass is where it is seen.
 - **The A′ single-pass loop has no spin cap on `INFO_OUTPUT_FORMAT_CHANGED` / `INFO_OUTPUT_BUFFERS_CHANGED`** (`WardenKeyframeDecoder.kt:1053`). A codec that keeps returning them busy-spins forever. The pipelined loop has an `else -> ++spins > MAX_SPINS` guard.
 - **The bound loop ignores the EOS flag on a data-bearing output** (`WardenKeyframeDecoder.kt:686-712`). If a keyframe was dropped, this ends in the generic 5 s "no output" throw rather than the precise "END_OF_STREAM after X of Y" message.
 - **Odd width/height is rejected with a misleading "short plane" error** (`apps/mobile/plugins/kotlin/WardenColorConvert.kt:161-187`). `chromaWidth/Height` round up, while the codec's plane limit rounds down. Unreachable at 1920×1080.

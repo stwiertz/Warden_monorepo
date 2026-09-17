@@ -153,7 +153,13 @@ object WardenCpuBaseline {
 
             val vLo = tex[base + 8].toInt()
             val vHi = tex[base + 9].toInt()
-            val minRatio = tex[base + 10]
+            // 🔴 float64, from [WardenPackedRules.minRatios] and NOT from the
+            // float32 texture (Story 12.4c). `zone_fires_on_frame` compares at
+            // float64; reading `tex[base + 10]` compared a float32-rounded
+            // threshold against a float32 ratio and could fire where the reference
+            // does not. Unreachable on the shipped config (min_ratio is 0.3 on all
+            // 134 rules), so this is behaviour-neutral today and correct tomorrow.
+            val minRatio = packed.minRatios[i]
             val mode = tex[base + 11].toInt()
 
             val area = rw * rh
@@ -190,7 +196,7 @@ object WardenCpuBaseline {
                 k++
             }
 
-            val ratio = if (area > 0) count.toFloat() / area.toFloat() else 0.0f
+            val ratio = if (area > 0) count.toDouble() / area.toDouble() else 0.0
             // `>=`, not `>` — matching zone_fires_on_frame and the shader's
             // step(min_ratio, ratio). A 0-area rect yields ratio 0.0 and is fed
             // through the same test rather than special-cased.

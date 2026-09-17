@@ -14,8 +14,10 @@ interface UseVideoProcessingReturn {
   startProcessing: () => void;
 }
 
+// Story 12.4c removed the "keyframes" label with the stage: extraction and
+// detection are one native call now, so "Extracting keyframes" would have named
+// a step the user can no longer be in.
 const STAGE_LABELS: Record<ProcessingStage, string> = {
-  keyframes: "Extracting keyframes",
   detection: "Analyzing frames",
   segmentation: "Segmenting maps",
   results: "Extracting result frames",
