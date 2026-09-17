@@ -159,11 +159,12 @@ export interface EngineBenchReport {
  * branch has ever implemented — `runBench("profile")` type-checked, resolved
  * successfully, and returned a report with no measurements and no `error` field.
  *
- * Story 12.4b retired three modes: `cpugpu` (its GPU arm is gone; its CPU half
- * moved into `parity`, which now times the whole 2666-PNG corpus instead of a
- * 400-PNG prefix), `pngdump` (it dumped the resolved GPU frame texture), and the
- * temporary `cpucolor` gate — an A/B against the GPU arm, so it could not outlive
- * it. That gate's result is banked in `apps/mobile/bench/12-4b/REPORT.md`.
+ * Story 12.4b retired two committed modes: `cpugpu` (its GPU arm is gone; its
+ * CPU half moved into `parity`, which now times the whole 2666-PNG corpus instead
+ * of a 400-PNG prefix) and `pngdump` (it dumped the resolved GPU frame texture).
+ * The temporary `cpucolor` gate — an A/B against the GPU arm — only ever existed
+ * on the working tree and was never committed; it is still named in the guard so
+ * it cannot come back. Its result is banked in `apps/mobile/bench/12-4b/REPORT.md`.
  */
 export type BenchMode =
   | "all"

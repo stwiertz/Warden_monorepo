@@ -71,7 +71,7 @@ Full capture, every keyframe evaluated **twice** — once through
 | rule-frame decisions | **142,174** |
 | frames with any disagreement | **0** |
 | **total rule disagreements** | **0** |
-| decoder chroma layout | **NV12 (semi-planar, U V U V)** — observed, not assumed |
+| decoder chroma layout | pixelStride 2 (semi-planar). The run labelled it **NV12**, but that label came from a one-byte value test on the black pts-0 frame, which cannot tell NV12 from NV21 (review 2026-09-17; the test is now whole-plane and can answer "indeterminate"). Correctness does not depend on it: every plane is read through its own strides. |
 | CPU arm | **0.651 ms/keyframe** (rule regions only) |
 | GPU arm | **2.855 ms/keyframe** (whole-frame convert + draw + readback + `glFinish`) |
 
@@ -214,7 +214,7 @@ result with the GPU still present is debuggable and the same result afterwards i
 | `WardenSurfaceTextureHost` + the `toSurface` decode path | ~200 | Path Z, and with it **the last `flush()` outside the two bench instruments** |
 | `WardenRulePacker.decodeResults` | 6 | the RGBA8 GPU-readback decoder |
 | bench: `cpuVsGpu`, `pngDump`, `forcedCompletionProfile`, `threadingModel`, `availableColorPaths`, `probeOesCompiles`, `frag()` | ~350 | the GPU half of the harness |
-| `detectionEnginePlugin.test.ts` | 63 | guarded `readVerbatimFrag`, the shader-copy mechanism |
+| `detectionEnginePlugin.test.ts` | 69 | guarded `readVerbatimFrag`, the shader-copy mechanism |
 | the `keyframe_engine_bench.frag` asset emission | — | **the tooling `.frag` is untouched** — Tool 12's source of truth (AC6) |
 
 **Verified on a REUSED `android/` tree, not a clean one** (AC7) — a clean prebuild cannot catch a
@@ -260,12 +260,19 @@ to `detectionEngine.test.ts`. **Story 12.4c's baseline is 20 suites / 166 passed
 
 ```bash
 # 🔴 §3's gate mode (`cpucolor`) NO LONGER EXISTS. It was an A/B against the GPU arm
-# and was removed with it — see WardenEngineBench's banked comment block. To re-run
-# it you would have to restore WardenDetectionEngine.kt and WardenGlUtil.kt from
-# git history (they were deleted in this story's commit). That is the cost AC4
-# priced in, and it is why the gate ran BEFORE the deletion.
+# and was removed with it — see WardenEngineBench's banked comment block.
+# ⚠️ IT CANNOT BE RESTORED FROM GIT HISTORY (review 2026-09-17). The harness
+# (`cpuColorParity()` and the `cpucolor` dispatch) was written and run on the
+# working tree and never committed: `git log -S cpuColorParity` finds only a
+# comment in 61cdd8a. Restoring WardenDetectionEngine.kt + WardenGlUtil.kt from
+# 61cdd8a^ brings back the GPU arm, not the A/B that drove it — that would have
+# to be rewritten. report_cpucolor.json is the only trace of the run. This is
+# the cost AC4 priced in, and it is why the gate ran BEFORE the deletion.
+# The independent end-to-end oracle for the video path — a PC-side
+# YUV -> fires reference over the capture — is Story 12.4c's to build.
 
-# AC2 — the exhaustive constants sweep. Runs in EVERY mode.
+# AC2 — the exhaustive constants sweep. Runs in every mode except flushprobe and
+# seektest (review 2026-09-17). Measured 11.7-24.2 s of full CPU, not "a second".
 adb shell am start -n team.warden.mobile/.WardenEngineBenchActivity --es mode framediff \
   --es video /sdcard/Android/data/team.warden.mobile/files/warden12_2/capture.mp4
 

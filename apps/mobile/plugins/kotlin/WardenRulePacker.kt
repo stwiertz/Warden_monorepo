@@ -72,6 +72,13 @@ data class WardenPackedRules(
     val texture: FloatArray,
     val refs: List<WardenRuleRef>,
     val nRules: Int,
+    /**
+     * The frame geometry the rects were clamped to. Carried with the rules so an
+     * evaluator can assert it rather than trust every caller to remember
+     * (Story 12.4b trap 4). Not part of [toByteArray]: lut.py's bytes do not hold it.
+     */
+    val frameWidth: Int,
+    val frameHeight: Int,
 ) {
     /** Little-endian float32 bytes — the exact form lut.py's ndarray.tobytes() produces. */
     fun toByteArray(): ByteArray {
@@ -367,7 +374,7 @@ object WardenRulePacker {
 
             refs.add(WardenRuleRef(i, owningClass, z.getString("id"), kind, effectiveWeight))
         }
-        return WardenPackedRules(texture, refs, nRules)
+        return WardenPackedRules(texture, refs, nRules, frameW, frameH)
     }
 
     // Story 12.4b removed `decodeResults` — the (1, 150, 4) RGBA8 GPU-readback

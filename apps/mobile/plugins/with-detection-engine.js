@@ -1,4 +1,5 @@
-// Story 12.2 (Epic 12) — GPU detection-engine Expo config plugin.
+// Story 12.2 (Epic 12) — detection-engine Expo config plugin. Born as the GPU
+// engine's; since Story 12.4b it emits the CPU engine only (no GLES, no .frag).
 //
 // AC0a verdict: **Option A** (Stephane, 2026-09-15). The engine Kotlin lives in
 // `apps/mobile` and is emitted by this plugin, modelled on the 390-line
@@ -173,6 +174,10 @@ function withEngineSources(config) {
 // written here. The manifest merger's error for this is a bare
 // "Error parsing AndroidManifest.xml" with no line number. The trigger command
 // lives in WardenEngineBenchActivity's KDoc instead.
+// 🔴 The "GPU engine" wording in this marker and in PACKAGE_MARKER below is STALE
+// ON PURPOSE (Story 12.4b review): both strings are how an already-patched
+// android/ tree is found and REPLACED. Rewording them would make a reused tree
+// miss its old block and gain a second one.
 const BENCH_ACTIVITY_XML =
   '        <!-- Story 12.2 — GPU engine bench harness (with-detection-engine.js).\n' +
   "             DEBUG-ONLY by construction: this overlay is never merged into a\n" +

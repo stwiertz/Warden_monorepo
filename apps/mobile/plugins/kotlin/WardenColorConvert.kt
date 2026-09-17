@@ -184,8 +184,15 @@ class WardenYuvFrame(
         // Requiring the product here is the off-by-one that rejected every real
         // NV12 frame in 12.2 and fell to a 25x-slower path.
         val need = (h - 1).toLong() * rowStride + (w - 1).toLong() * pixelStride + 1L
-        require(buf.capacity() >= need) {
-            "$what plane holds ${buf.capacity()} bytes but ${w}x$h at rowStride=$rowStride " +
+        // LIMIT, not capacity: absolute `get(i)` throws at `limit()`, so a buffer
+        // with limit < capacity would pass a capacity check here and then throw
+        // part-way through an evaluation. And [bgrAt] indexes from 0, so a
+        // non-zero position would silently shift every sample.
+        require(buf.position() == 0) {
+            "$what plane has position ${buf.position()}; offsets are computed from 0"
+        }
+        require(buf.limit() >= need) {
+            "$what plane holds ${buf.limit()} bytes but ${w}x$h at rowStride=$rowStride " +
                 "pixelStride=$pixelStride addresses up to $need. A short plane reads " +
                 "whatever is next in the decoder's allocation and calls it chroma."
         }
@@ -264,39 +271,55 @@ class WardenYuvFrame(
      * REPORTED, never branched on. AC1 asks for NV12, NV21 and I420 to be handled
      * "explicitly"; [bgrAt] handles all three by construction, and this exists so
      * a report says WHICH one was measured instead of leaving the reader to
-     * assume the reference device's. `u.get(1) == v.get(0)` is the interleaving
-     * test 12.2's review arrived at: it distinguishes NV12 from NV21 from two
-     * separate-but-strided planes, which pixel stride alone does not.
+     * assume the reference device's.
+     *
+     * 🔴 A VALUE TEST, OVER THE WHOLE PLANE, AND IT CAN SAY "DON'T KNOW".
+     * `imageToKeyframe` copies each plane into its own buffer, so shared memory
+     * cannot be observed here (and `android.media.Image` exposes no public way to
+     * observe it either). What survives the copy is the interleaving: in NV12
+     * every `u[2k+1]` IS `v[2k]`; in NV21 every `v[2k+1]` IS `u[2k]`. 12.2's review
+     * tested ONE byte of that, which is true for any layout on a flat-chroma
+     * frame (black intro frames: every byte 128) — and the 12.4b report's "NV12"
+     * came from exactly such a frame. When both hypotheses hold over the whole
+     * plane the frame cannot discriminate, and this returns
+     * [LAYOUT_INDETERMINATE] so the caller tries a later frame.
      */
     fun layoutName(): String {
         if (uPixelStride == 1 && vPixelStride == 1) return "I420 (fully planar)"
         if (uPixelStride == 2 && vPixelStride == 2) {
-            if (uPlane.capacity() > 1 && vPlane.capacity() > 0) {
-                if (uPlane.get(1) == vPlane.get(0)) return "NV12 (semi-planar, U V U V)"
-                if (vPlane.capacity() > 1 && vPlane.get(1) == uPlane.get(0)) {
-                    return "NV21 (semi-planar, V U V U)"
-                }
+            val nv12 = interleaves(uPlane, vPlane)
+            val nv21 = interleaves(vPlane, uPlane)
+            return when {
+                nv12 && nv21 -> LAYOUT_INDETERMINATE
+                nv12 -> "NV12 (semi-planar, U V U V)"
+                nv21 -> "NV21 (semi-planar, V U V U)"
+                else -> "semi-planar, U and V in separate allocations"
             }
-            return "semi-planar, U and V in separate allocations"
         }
         return "pixelStride u=$uPixelStride v=$vPixelStride (read through strides regardless)"
     }
 
+    /** True when every `first[2k+1] == second[2k]` over the addressable chroma span. */
+    private fun interleaves(first: ByteBuffer, second: ByteBuffer): Boolean {
+        val n = minOf(first.limit() - 1, second.limit())
+        if (n <= 0) return false
+        var k = 0
+        while (k < n) {
+            if (first.get(k + 1) != second.get(k)) return false
+            k += 2
+        }
+        return true
+    }
+
     companion object {
-        /**
-         * Build from a [WardenKeyframe] the decoder just produced.
-         *
-         * Path P only: `planes` is null on the Surface path, which this story
-         * deletes along with the Surface path itself.
-         */
+        const val LAYOUT_INDETERMINATE =
+            "semi-planar, order indeterminate on this frame (uniform chroma)"
+
+        /** Build from a [WardenKeyframe] the decoder just produced. */
         fun of(kf: WardenKeyframe): WardenYuvFrame {
             val planes = kf.planes
-                ?: throw IllegalStateException(
-                    "keyframe carries no planes — the decoder was not configured for " +
-                        "COLOR_FormatYUV420Flexible. Path P is what the CPU arm needs."
-                )
-            val rows = kf.rowStrides!!
-            val pix = kf.pixelStrides!!
+            val rows = kf.rowStrides
+            val pix = kf.pixelStrides
             return WardenYuvFrame(
                 planes[0], rows[0], pix[0],
                 planes[1], rows[1], pix[1],

@@ -24,9 +24,10 @@ import android.util.Log
 //     --es video /sdcard/warden12_2/capture.mp4 \
 //     --ei limit 0 --ei cpuFrames 400
 //
-// The work runs on a WORKER THREAD, not the UI thread — which is AC16's point:
-// the EGL context is thread-bound and needs no Activity at all. The Activity is
-// only an adb-reachable entry point.
+// The work runs on a WORKER THREAD, not the UI thread. Story 12.2 used that to
+// show its EGL context needed no Activity (AC16); since Story 12.4b the harness
+// is CPU + MediaCodec only. The Activity is only an adb-reachable entry point.
+// `cpuFrames` is read and passed on but unused since 12.4b (see runAll).
 class WardenEngineBenchActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,10 +44,10 @@ class WardenEngineBenchActivity : Activity() {
 
         // 🔴 REVIEW 2026-09-15: a configuration change (no orientation lock is
         // declared, and this ignored savedInstanceState) re-entered onCreate and
-        // started a SECOND bench — its own EGL context, the same artifact
-        // filenames, and two runs contending for the GPU while each reports
-        // "sustained clocks". Shares the latch with the RN bridge, because the two
-        // entry points can also collide with each other.
+        // started a SECOND bench — the same artifact filenames, and two runs
+        // contending for the same cores while each reports "sustained clocks".
+        // Shares the latch with the RN bridge, because the two entry points can
+        // also collide with each other.
         if (!WardenDetectionEngineModule.benchInFlight.compareAndSet(false, true)) {
             Log.e(TAG, "a bench run is already in flight; refusing to start a second")
             finish()

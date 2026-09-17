@@ -3,9 +3,9 @@
 //
 // 🔴 AC9 is explicit that this file's cross-language guard "must be re-pointed,
 // not deleted — it is a genuine cross-language contract guard and it is more
-// valuable after this story, not less." It is: 12.4b retired THREE native modes
-// (`cpugpu`, `pngdump` and the temporary `cpucolor` gate), and a TS union still
-// exporting them would type-check, resolve successfully, and hand back a report
+// valuable after this story, not less." It is: 12.4b retired two committed native modes
+// (`cpugpu`, `pngdump`; the temporary `cpucolor` gate never reached main), and a
+// TS union still exporting them would type-check, resolve successfully, and hand back a report
 // with no measurements and no `error` field — the exact defect the 2026-09-15
 // review found with `"profile"`. The guard is what turns "we remembered to update
 // both sides" into something CI checks.
@@ -159,7 +159,7 @@ describe("detectionEngine wrapper (Story 12.2)", () => {
 
   it("exports no mode the native bench has stopped dispatching on", () => {
     // The lockstep test above would catch these too, but only as an opaque array
-    // inequality. Named explicitly because all three were LIVE modes whose removal
+    // inequality. Named explicitly because these were LIVE modes whose removal
     // is the story's substance, and because a TS-only mode is the silent failure:
     // it type-checks and returns a successful-looking report with no measurements.
     const ts = fs.readFileSync(
@@ -170,8 +170,8 @@ describe("detectionEngine wrapper (Story 12.2)", () => {
     expect(union).not.toBeNull();
     const tsModes = [...union![1].matchAll(/"([a-z]+)"/g)].map((m) => m[1]);
     // `cpugpu` lost its GPU arm; `pngdump` dumped the resolved GPU frame texture;
-    // `cpucolor` was 12.4b's own AC3(B) gate — an A/B against the GPU arm, so it
-    // could not outlive it (result banked in bench/12-4b/REPORT.md).
+    // `cpucolor` was 12.4b's own AC3(B) gate — an A/B against the GPU arm, run from
+    // the working tree and never committed (result banked in bench/12-4b/REPORT.md).
     expect(tsModes).not.toContain("cpugpu");
     expect(tsModes).not.toContain("pngdump");
     expect(tsModes).not.toContain("cpucolor");

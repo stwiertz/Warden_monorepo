@@ -340,15 +340,20 @@ def verify_shader_transcription() -> int:
     # The device pin is part of the same contract: the bench hashes its own
     # 2^24 sweep against REFERENCE_YUV_SWEEP_SHA256, and a digest that no longer
     # appears on both sides is a pin that proves nothing.
+    # Fatal when missing, exactly like the converter source above: a pin that
+    # cannot be read is a pin that is not checked.
     bench = os.path.join(os.path.dirname(path), "WardenEngineBench.kt")
-    if os.path.exists(bench):
-        with open(bench, encoding="utf-8") as fh:
-            if REFERENCE_YUV_SWEEP_SHA256 not in fh.read():
-                print(f"🔴 {os.path.basename(bench)} does not pin "
-                      f"REFERENCE_YUV_SWEEP_SHA256 = {REFERENCE_YUV_SWEEP_SHA256}; "
-                      f"the on-device sweep is comparing against a different "
-                      f"reference than this script produces.")
-                return 1
+    if not os.path.exists(bench):
+        print(f"🔴 {bench} not found — the on-device sweep's pinned digest cannot be "
+              f"checked. If the bench moved, re-point this path in the same edit.")
+        return 1
+    with open(bench, encoding="utf-8") as fh:
+        if REFERENCE_YUV_SWEEP_SHA256 not in fh.read():
+            print(f"🔴 {os.path.basename(bench)} does not pin "
+                  f"REFERENCE_YUV_SWEEP_SHA256 = {REFERENCE_YUV_SWEEP_SHA256}; "
+                  f"the on-device sweep is comparing against a different "
+                  f"reference than this script produces.")
+            return 1
     print("constants transcription still matches WardenColorConvert.kt.")
     return 0
 

@@ -1,5 +1,6 @@
 package team.warden.mobile
 
+import android.graphics.ImageFormat
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaExtractor
@@ -62,10 +63,10 @@ class WardenKeyframe(
     val presentationTimeUs: Long,
     val width: Int,
     val height: Int,
-    /** Y/U/V planes + their strides, as the codec reported them. Never null. */
-    val planes: Array<ByteBuffer>? = null,
-    val rowStrides: IntArray? = null,
-    val pixelStrides: IntArray? = null,
+    /** Y/U/V planes + their strides, as the codec reported them. */
+    val planes: Array<ByteBuffer>,
+    val rowStrides: IntArray,
+    val pixelStrides: IntArray,
 )
 
 data class WardenDecoderProfile(
@@ -1114,6 +1115,18 @@ class WardenKeyframeDecoder(
                 "getOutputImage returned null — the codec is not in a flexible YUV " +
                     "colour format, so Path P cannot read planes."
             )
+        // Path P is now the ONLY colour path, and WardenYuvFrame reads one byte
+        // per sample. A 10-bit stream can come back as P010 (two bytes per
+        // sample, same three-plane shape) and would be read as 8-bit garbage
+        // with no error, so anything but 8-bit 4:2:0 is refused here.
+        if (img.format != ImageFormat.YUV_420_888) {
+            val fmt = img.format
+            img.close()
+            throw IllegalStateException(
+                "codec output image format is $fmt, not YUV_420_888 " +
+                    "(${ImageFormat.YUV_420_888}) — WardenColorConvert reads 8-bit 4:2:0 only."
+            )
+        }
         val planes = img.planes
         val w = img.width
         val h = img.height

@@ -113,7 +113,13 @@ object WardenCpuBaseline {
     fun evaluateYuv(
         frame: WardenYuvFrame,
         packed: WardenPackedRules,
-    ): BooleanArray = evaluateWith(packed) { x, y -> frame.bgrAt(x, y) }
+    ): BooleanArray {
+        // 🔴 Trap 4, enforced HERE and not left to the caller: [WardenYuvFrame.bgrAt]
+        // does not range-check x, so a rect packed for another size reads stride
+        // padding or the next row and evaluates plausible wrong pixels.
+        frame.requireGeometry(packed.frameWidth, packed.frameHeight)
+        return evaluateWith(packed) { x, y -> frame.bgrAt(x, y) }
+    }
 
     /**
      * The rule arithmetic itself, over an arbitrary pixel source.

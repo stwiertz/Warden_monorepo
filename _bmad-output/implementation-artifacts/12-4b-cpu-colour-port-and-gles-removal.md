@@ -1,6 +1,6 @@
 # Story 12.4b: CPU Colour-Conversion Port + GLES/EGL Surface Removal
 
-Status: review
+Status: done
 
 Sprint fit: `fits-in-one-sprint`. **Kotlin + plugin + architecture docs. No TypeScript rewrite, no pipeline wiring.** Split out of Story 12.4 on 2026-09-17 (`/bmad-create-story` on 12.4). **Depends on Story 12.4a** (decode-loop optimisation) — flip to `ready-for-dev` when 12.4a reaches `review`.
 
@@ -73,7 +73,7 @@ MediaCodec  →  YUV420Flexible              MediaCodec  →  YUV420Flexible
 
 - [x] **AC1 — A CPU YUV→BGRA converter exists, with the bt709 limited-range constants ported verbatim.** Per AC0a/AC0b. Source of truth: [`WardenDetectionEngine.kt:946-978`](../../apps/mobile/plugins/kotlin/WardenDetectionEngine.kt#L946) (`RESOLVE_YUV_FRAG`) and its exhaustive offline proof `ac3_numpy_{reference.py,constants.json}`. **Nearest-neighbour chroma** (trap 2). Handles **both NV12 and NV21 semi-planar orders explicitly, plus fully-planar I420** (trap 3), and **asserts geometry rather than rescaling** (trap 4).
 - [x] **AC2 — The converter is proved against the exhaustive offline reference, not just against the device.** Re-use `ac3_numpy_reference.py verify-constants`' method: the port must reproduce the pinned constants' behaviour. A unit-level check over a generated triple sweep is acceptable and preferable to a device round-trip for this AC. **State the domain covered and the max error.** (The shader's bound was *1 unit on green over 0.179% of the 2²⁴ domain*.)
-- [x] **AC3 — 🔴 THE GATE: the full CPU path reproduces 0 per-rule disagreements against the pinned PC reference.** MediaCodec → CPU colour → `WardenCpuBaseline.evaluate` over the parity corpus, compared to `apps/mobile/bench/12-2/pc_reference_fires.json` (2666 frames). Banked baseline: **0 disagreements / 357,244 decisions** (`parity_comparison.json`). **This is the first time the bound configuration has ever been run end to end** — the `[P]` label exists because of this gap, and this AC closes it. **If it is not zero, STOP and fix before deleting anything.** A non-zero result here with the GPU still present is a debuggable situation; the same result after deletion is not.
+- [x] **AC3 — 🔴 THE GATE: the full CPU path reproduces 0 per-rule disagreements against the pinned PC reference.** **⚠️ AMENDED BY REVIEW 2026-09-17 (Stephane):** as worded, this is not runnable (the parity corpus is PNGs), and what closed it is: **(A)** the CPU evaluator over the PNG corpus vs `pc_reference_fires.json` (0 / 357,244). This half does *not* exercise the colour port. **(B)** MediaCodec → CPU colour → evaluator vs the GPU arm on the full capture (0 / 142,174). Together with AC2's exhaustive sweep, these prove the port. No run has compared the video path against an *independent PC* reference; that oracle is carried to **Story 12.4c**. The AC3(B) harness was never committed (see REPORT §8). Original wording follows. MediaCodec → CPU colour → `WardenCpuBaseline.evaluate` over the parity corpus, compared to `apps/mobile/bench/12-2/pc_reference_fires.json` (2666 frames). Banked baseline: **0 disagreements / 357,244 decisions** (`parity_comparison.json`). **This is the first time the bound configuration has ever been run end to end** — the `[P]` label exists because of this gap, and this AC closes it. **If it is not zero, STOP and fix before deleting anything.** A non-zero result here with the GPU still present is a debuggable situation; the same result after deletion is not.
 - [x] **AC4 — 🔴 Do not delete the GPU arm until AC3 is green.** Explicit sequencing AC, not ceremony. Until AC3 passes, `WardenDetectionEngine.kt` is your **reference implementation** — it is the thing validated at 0 disagreements on this device, and it is the only A/B you have. Record in the Dev Agent Record that AC3 passed **before** the deletion commit/step.
 
 ### The removal
@@ -111,6 +111,86 @@ MediaCodec  →  YUV420Flexible              MediaCodec  →  YUV420Flexible
 - [x] **Task 7 — TS narrowing + test disposal.** (AC: 8, 9)
 - [x] **Task 8 — Architecture cascade.** (AC: 10, 11, 12) Turn every *"Story 12.4 will remove"* into a statement of what happened.
 - [x] **Task 9 — Deliver.** (AC: 13–16) Fence check → gates → commit → sprint-status.
+
+### Review Findings
+
+`/bmad-code-review` 2026-09-17 against `61cdd8a`, code-only diff (Kotlin + plugin + TS + `ac3_numpy_reference.py`; bench JSON/REPORT/docs checked by the auditor only). Layers: Blind Hunter, Edge Case Hunter, Acceptance Auditor. Auditor re-ran the gates: jest 20 suites / 166 + 10 todo, format clean, typecheck = the 3 pre-existing web errors. Constants, nearest chroma, deletions, generated tree, AC4 sequencing and the AC2/AC3 numbers all verified.
+
+- [x] [Review][Decision] **RESOLVED 2026-09-17 → (a)** (Stephane): AC3 amended in place, REPORT §8 corrected, PC video oracle carried to 12.4c. AC3 is ticked `[x]`, but the gate that ran is not the one AC3 describes. AC3 says: MediaCodec → CPU colour → evaluate, compared to `pc_reference_fires.json`. That corpus is PNGs, so no MediaCodec is involved.
+  - AC3(A) ran PNG → `evaluate(bgra)`. That path never touches the new YUV converter, so it proves nothing about the port.
+  - AC3(B) compared the CPU arm against the GPU arm, and §4.1 found a real defect in that GPU arm.
+  - The CPU colour path is therefore proven by AC2 (all 2²⁴ triples) plus AC3(B), but never against a PC reference on video.
+  - The harness behind AC3(B) (`cpuColorParity` / the `cpucolor` mode) was never committed: `git log -S cpuColorParity` only finds a comment in `61cdd8a`. REPORT §8's "restore from history" recovery therefore cannot rebuild it.
+  - Options: (a) amend the AC3 wording to what actually ran, keep `[x]`, and fix REPORT §8; (b) demote to `[ ]` until a PC-side video reference (numpy YUV → fires over the capture) is produced and compared.
+- [x] [Review][Patch] `timingRun` samples the chroma layout on every frame, inside the engine timer. `nFrames` is only assigned after the decode call returns, so `nFrames == 0` is always true inside `body`. As a result `engineNs` includes `layoutName()` and the label comes from the last frame, not the first. [apps/mobile/plugins/kotlin/WardenEngineBench.kt:471]
+- [x] [Review][Patch] `decode_excluding_engine` subtracts the engine time of all N frames, but by the code's own comment `decodeNs` only nests frames 0..N-2. Subtract the last frame's engine time separately. [apps/mobile/plugins/kotlin/WardenEngineBench.kt:521]
+- [x] [Review][Patch] The `layoutName()` "NV12 observed" label is unsupported. It compares byte values across buffers that were already copied, which is true for any layout on flat chroma, and it was sampled on pts 0, which is black. Decide the layout in `imageToKeyframe` from the original `Image` planes (buffer overlap) before copying, and correct the record's "observed" claim. [apps/mobile/plugins/kotlin/WardenColorConvert.kt:271]
+- [x] [Review][Patch] The geometry assertion is optional on the production entry point. `evaluateYuv(frame, packed)` never checks the frame size against the packing size, and 12.4c is told to call it without `requireGeometry`. Assert it inside `evaluateYuv`. [apps/mobile/plugins/kotlin/WardenCpuBaseline.kt:113]
+- [x] [Review][Patch] `requireSpans` checks `capacity()`, but absolute `get(i)` is bounded by `limit()`. Check `limit()` instead, and reject a non-zero `position()`. [apps/mobile/plugins/kotlin/WardenColorConvert.kt:187]
+- [x] [Review][Patch] `imageToKeyframe` never checks `img.format`. A 10-bit stream (P010) would be read as 8-bit garbage with no error. This is now the only colour path, so assert `ImageFormat.YUV_420_888`. [apps/mobile/plugins/kotlin/WardenKeyframeDecoder.kt:1111]
+- [x] [Review][Patch] Zero-frame runs report as valid. `timingRun` with 0 keyframes passes `keyframe_count_matches` (0 == 0), and `evaluateBitmapCpu` returns `cpu_ms_per_frame = 0` after its wrong-geometry and alpha `Log.w` diagnostics were deleted. Require `nFrames > 0` and restore the logs. [apps/mobile/plugins/kotlin/WardenEngineBench.kt:505]
+- [x] [Review][Patch] `colorConstantsCheck` is documented as costing "about a second" (KDoc, the dispatch comment, the Dev Record). It measured 11.7–24.2 s (`total_ms` in three reports), at full CPU, in every mode, before the timed runs. Correct the claims. Also consider skipping it in `flushprobe` and `seektest`, which never use colour. [apps/mobile/plugins/kotlin/WardenEngineBench.kt:833]
+- [x] [Review][Patch] Stale 12.2/GPU residue:
+  - `report.put("story", "12.2")`.
+  - The `WardenKeyframe` KDoc says planes are "Never null", but the type is still nullable (`?` and `= null`). Make it non-null and drop the `!!`.
+  - EGL/GPU wording remains in `WardenEngineBenchActivity.kt:28,46-47`, along with a dead `cpuFrames` param/default (also in TS).
+  - The plugin comments that the strip regexes key on stay, but record why.
+  
+  [apps/mobile/plugins/kotlin/WardenEngineBench.kt:778]
+- [x] [Review][Patch] `architecture.md:2140` still says "physical removal … is Story 12.4's, not this story's", which AC11 said to rewrite. [_bmad-output/architecture.md:2140]
+- [x] [Review][Patch] `verify_shader_transcription` silently passes when `WardenEngineBench.kt` is missing, while a missing converter source is treated as fatal. Make both fatal. [apps/mobile/bench/12-2/ac3_numpy_reference.py:344]
+- [x] [Review][Patch] Dev Record and REPORT inaccuracies:
+  - `describeDevice` did not gain a `mediacodec_decoder` block: the pre-existing block is `mediacodec`, and `deviceProfile(null)` omits it.
+  - "Three modes retired" should be two on `main`, since `cpucolor` was never committed.
+  - `WardenKeyframeDecoder` is 1279 lines, not 1268. The deleted plugin test was 69 lines, not 63.
+  - The AC14 gate chain short-circuits on the pre-existing web typecheck failure.
+  - The `evaluateBitmapCpu` KDoc says timing is "comparable to 0.376 ms/frame", but it measured 1.255 ms/frame and nobody explains the gap.
+  
+  [_bmad-output/implementation-artifacts/12-4b-cpu-colour-port-and-gles-removal.md]
+- [x] [Review][Defer] The crop rect is ignored and geometry comes from `img.width/height`. This is pre-existing Path P behaviour, but it is now the only path: a 1920×1088 coded buffer fails `requireGeometry`, and a crop with a non-zero origin shifts every rule silently. [apps/mobile/plugins/kotlin/WardenKeyframeDecoder.kt:1118] — deferred, pre-existing (12.4c)
+- [x] [Review][Defer] The A′ single-pass loop can busy-spin on repeated `-2`/`-3` with no spin cap, while the pipelined loop has an `else` guard. [apps/mobile/plugins/kotlin/WardenKeyframeDecoder.kt:1053] — deferred, pre-existing
+- [x] [Review][Defer] In the bound loop, an EOS flag on a data-bearing output is ignored. It ends in the 5 s "no output" throw instead of the precise dropped-keyframe message. [apps/mobile/plugins/kotlin/WardenKeyframeDecoder.kt:686] — deferred, pre-existing
+- [x] [Review][Defer] Odd width/height is rejected with a misleading "short plane" error: chroma span rounds up, but the codec plane limit rounds down. Not reachable at 1920×1080. [apps/mobile/plugins/kotlin/WardenColorConvert.kt:161] — deferred, off the bound path
+- [x] [Review][Defer] NV21/I420 handling has no fixture. Only NV12 has run on device, and the TS tests only pattern-match source. [apps/mobile/plugins/kotlin/WardenColorConvert.kt] — deferred, needs fixture/device
+- [x] [Review][Defer] The shipped CPU-only `parityRun` has never run over the corpus post-deletion. AC3(A) numbers come from the pre-deletion both-arms build. [apps/mobile/bench/12-4b/report_parity_both_arms.json] — deferred, epic-end device pass
+- [x] [Review][Defer] Source-regex guards are weak:
+  - The nearest-chroma regex passes `(c0+c1)/2` style bilinear code.
+  - The `requireGeometry` test only checks that the text exists.
+  - The constant regex accepts `1.5748e0`.
+  - Nothing re-derives `REFERENCE_YUV_SWEEP_SHA256` from `shader_model`.
+  - The sweeper regex duplicates `KOTLIN_FILES` by hand.
+  
+  [apps/mobile/src/shared/services/__tests__/colorConvert.test.ts] — deferred, test hardening
+
+**Patches applied 2026-09-17 (all 12, plus the AC3 resolution). How three of them differ from the finding text:**
+
+- **Layout label.** Classifying in `imageToKeyframe` from shared memory is not possible: `android.media.Image` exposes no public way to see that two planes share memory, and the planes are copied anyway. Instead, `layoutName()` now tests the interleaving over the **whole** chroma span and returns `LAYOUT_INDETERMINATE` when both orders fit (flat chroma). `timingRun` keeps sampling, outside the engine timer, until a frame discriminates.
+- **Geometry.** `WardenPackedRules` now carries `frameWidth`/`frameHeight` from `packRules`, and `evaluateYuv` calls `requireGeometry` itself. `timingRun`'s separate call was dropped. `frameDiffDump` keeps its call because it never calls `evaluateYuv`.
+- **Kept on purpose.**
+  - `cpuFrames` stays: it is already documented in `runAll` as a positional-arity hazard that 12.4c removes.
+  - The plugin's "GPU engine" marker strings stay: they are the replace-by-marker anchors for reused `android/` trees, and a comment now says so.
+
+**Other changes:**
+- `WardenKeyframe`'s planes and strides are now non-null.
+- `imageToKeyframe` refuses any format other than `YUV_420_888`.
+- `requireSpans` checks `limit()` and requires position 0.
+- Zero-frame `timingRun` and `parityRun` now throw.
+- The PNG skip and alpha warnings are restored.
+- `decode_excluding_engine` now subtracts N-1 frames.
+- `colorConstantsCheck` skips `flushprobe`/`seektest`, and its cost is corrected everywhere.
+- `story` is `12.4b`.
+- `ac3_numpy_reference.py` now fails when the bench file is missing.
+- `architecture.md:2140` is rewritten.
+- REPORT §8 now says the `cpucolor` harness cannot be restored.
+- The record's inaccuracies are annotated in place.
+
+**Gates after the patches:**
+- mobile jest: 20 suites / **166 passed** + 10 todo (unchanged).
+- `format:check`: clean.
+- `verify-constants`: transcription still matches.
+- `:app:compileDebugKotlin` against the reused `android/` tree, with the patched sources copied in: **green**.
+
+**⚠️ Not re-run on device.** The changed bench paths (layout sampling, zero-frame checks, the `decode_excluding_engine` formula, colour-check gating) and the new `YUV_420_888` guard are left for the epic-end device pass, per [[feedback_batch_manual_checks_epic_end]]. `WardenColorConvert.bgrAt` and the rule arithmetic are unchanged, so the banked parity figures still describe the evaluator.
 
 ---
 
@@ -235,8 +315,9 @@ RECOMMENDED option) rather than replaced by a new harness. Mode-by-mode disposit
 
 **AC0d(i) — `describeDevice()`: RE-POINTED, not dropped.** It was the module's only GL-free-looking entry point
 and it is the one 12.4c will want. `deviceProfile(egl, …)` loses its `WardenEglContext` parameter, its `gl`
-block and its `ac2_oes_essl3` block; it gains `mediacodec_decoder` (codec name / hardware-accelerated / mime /
-supported colour formats) so the profile describes the surface the bound path actually rests on. The RN bridge
+block and its `ac2_oes_essl3` block; it gains an `engine` block (CPU kind / colour conversion / `gpu_used: false`).
+*(Review 2026-09-17 correction: an earlier draft said it gained `mediacodec_decoder`. The decoder block is the
+PRE-EXISTING `mediacodec` key, and `describeDevice()` calls `deviceProfile(null)`, so the bridge never returns it.)* The RN bridge
 no longer creates or releases an EGL context to answer it. `EngineDeviceProfile` in `detectionEngine.ts` is
 narrowed to match (AC8).
 
@@ -270,7 +351,8 @@ to `ac3_numpy_reference.shader_model`'s pinned digest. **Max error 0 over the en
 shader's own bound was 1 unit on green over 0.179%.
 - 🔴 **This is the only check that can catch a wrong OPERATOR.** A `+` where the shader has a `-`
   contains every expected literal and passes both offline checks. 12.2 found two silent colour bugs
-  the hard way; this one costs a second.
+  the hard way. *(Review 2026-09-17: "costs a second" was wrong — it measured 11.7-24.2 s of full CPU
+  (`total_ms`). It now skips `flushprobe` and `seektest`, which never convert colour.)*
 - **fp64, not fp32, and that is a decision.** Measured on PC over the full domain: fp32 and fp64
   disagree on **109 of 16,777,216 triples (0.00065%), max 1 unit** — **275× rarer** than the
   published-rounding error the BT.709 four-decimal constants already carry. fp64 makes the port
@@ -283,7 +365,9 @@ shader's own bound was 1 unit on green over 0.179%.
 - **(B)** MediaCodec → CPU colour → `WardenCpuBaseline` vs MediaCodec → `RESOLVE_YUV_FRAG` →
   mega-shader → `glReadPixels`, on byte-identical decoder planes, **full 1061-keyframe capture**:
   **0 disagreements / 142,174 decisions**. CPU **0.651** vs GPU **2.855** ms/keyframe. Decoder layout
-  **NV12**, observed rather than assumed.
+  pixelStride 2. *(Review 2026-09-17: the "NV12, observed" label was not evidence — a one-byte value
+  test on the black pts-0 frame is true for NV12 and NV21 alike. `layoutName()` is now a whole-plane
+  test that can answer "indeterminate", and `timingRun` keeps sampling until a frame discriminates.)*
 - 🔴 **AC3 as literally worded is not runnable, and the Dev Agent Record says so rather than quietly
   substituting.** It asks for "MediaCodec → CPU colour → evaluate over the parity corpus, compared to
   `pc_reference_fires.json`". The parity corpus is **PNGs**; MediaCodec does not decode PNGs, and the
@@ -351,7 +435,9 @@ exists to be compared against A on the same frames and the delivered 32.937 / 62
 with both polling identically.
 
 **AC14 — gates, with the new baseline stated (AC14 required this).**
-`pnpm typecheck && pnpm test && pnpm format:check` from the repo root.
+`pnpm typecheck && pnpm test && pnpm format:check` from the repo root. *(Review 2026-09-17: as a chain
+this short-circuits at the pre-existing `web` typecheck failure. The figures below come from running
+each step separately.)*
 - mobile jest **20 suites / 166 passed + 10 todo** (was 20 / 162 + 10). The move is −4 (deleted plugin
   test) +6 (`colorConvert.test.ts`) +2 (new guards). **🔴 Story 12.4c's baseline is 166, not 162.**
 - tooling pytest **305** — unchanged.
@@ -377,7 +463,7 @@ with both polling identically.
 
 **Modified**
 - `apps/mobile/plugins/kotlin/WardenCpuBaseline.kt` — `evaluateYuv` + shared `evaluateWith(sampler)`
-- `apps/mobile/plugins/kotlin/WardenKeyframeDecoder.kt` — Surface path, `WardenSurfaceTextureHost` and the legacy flush loop removed (1461 → 1268 lines)
+- `apps/mobile/plugins/kotlin/WardenKeyframeDecoder.kt` — Surface path, `WardenSurfaceTextureHost` and the legacy flush loop removed (1461 → 1279 lines)
 - `apps/mobile/plugins/kotlin/WardenRulePacker.kt` — `decodeResults` removed
 - `apps/mobile/plugins/kotlin/WardenEngineBench.kt` — GL amputation; `colorConstantsCheck` added; `parityRun`/`frameDiffDump` re-pointed at the CPU arm
 - `apps/mobile/plugins/kotlin/WardenDetectionEngineModule.kt` — `describeDevice` off EGL
