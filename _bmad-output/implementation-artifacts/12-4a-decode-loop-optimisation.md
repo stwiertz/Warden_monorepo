@@ -422,6 +422,12 @@ measurement rather than the old framing.
 > defensive and are expected to be behaviour-neutral on `c2.qti.avc.decoder`; expected is not
 > measured. A re-run is logged in [deferred-work.md](deferred-work.md), homed to **12.4b's first
 > device pass**, per [[feedback_batch_manual_checks_epic_end]].
+>
+> **Applied and committed as `c95a59d`** — `fix(mobile): harden the pipelined decode loop,
+> correct 12.4a's record (story 12.4a review)`, 7 files, +582/−65, direct to `main`, not pushed.
+> ⚠️ **`e73b650`'s commit message still carries the 5.45× headline and the unqualified
+> "re-measured today" claim.** It is on `main` and was not rewritten; this story, `REPORT.md` and
+> `deferred-work.md` supersede it. Quote the documents, not the commit message.
 
 `/bmad-code-review 12.4a` (Stephane, `claude-opus-5[1m]`), 2026-09-17, against commit `e73b650`.
 Three layers: Blind Hunter (diff only), Edge Case Hunter (diff + project), Acceptance Auditor
