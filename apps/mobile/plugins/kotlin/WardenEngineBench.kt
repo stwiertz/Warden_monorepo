@@ -1000,26 +1000,59 @@ class WardenEngineBench(private val context: Context) {
                 // Story 12.4a AC0a — the PIPELINE DEPTH SWEEP, so `k` is measured
                 // rather than picked. Same 100 keyframes as `decode_probe` above, on
                 // the flush-free loop, at five depths in one run so the comparison is
-                // free of run-to-run spread. `depth = 1` is the control: it is the
-                // same loop with nothing in flight, which separates "the flush was
-                // the cost" from "the pipelining was the win".
+                // free of run-to-run spread.
+                //
+                // 🔴 `depth = 1` WAS INTENDED as the control that separates "the flush
+                // was the cost" from "the pipelining was the win". IT DOES NOT DELIVER
+                // THAT (corrected by the 2026-09-17 review): depth 1 WEDGES on this
+                // device — one IDR in flight with no EOS produces no output at all, 3
+                // runs of 3 — so the sweep yields no flush-free/pipeline-free
+                // datapoint and the two effects are NOT separated by it. The lowest
+                // working depth is k=2, which is already pipelined. The wedge is still
+                // the single most informative row in the table, because it is trap 2
+                // reproduced directly: the flush was removable, the drain was not.
+                //
+                // 🔴 The PTS list is built ONCE, outside the loop and outside the try
+                // (review 2026-09-17). It used to be rebuilt per depth — five ~2.3 s
+                // scans whose results were not guaranteed identical if seek behaviour
+                // drifted, which would silently break the "same 100 keyframes"
+                // premise the whole comparison rests on.
+                val sweepPts = WardenKeyframeDecoder(videoPath, null).use { it.syncSamplePtsListBySeek(200) }
                 val sweep = JSONArray()
+                var sweepUsableRows = 0
                 for (depth in intArrayOf(1, 2, 4, 8, 16)) {
                     WardenKeyframeDecoder(videoPath, null).use { dec ->
-                        val pts = dec.syncSamplePtsListBySeek(200)
                         val o = JSONObject()
                         try {
-                            for ((k, v) in dec.pipelineProbe(pts, 100, depth)) o.put(k, v)
+                            val row = dec.pipelineProbe(sweepPts, 100, depth)
+                            for ((k, v) in row) o.put(k, v)
+                            if (row["comparable"] == true) sweepUsableRows++
                         } catch (t: Throwable) {
                             // A depth that wedges or mis-decodes is EVIDENCE, not a
                             // reason to lose the other four. Record and carry on.
+                            // 🔴 The counters are recorded too (review 2026-09-17):
+                            // the catch used to store only {depth, error}, so "k=1
+                            // decoded 0" was an INFERENCE, not a measurement — a 20 s
+                            // wedge throw is equally consistent with a run that
+                            // decoded 90 frames and then stalled. The exception text
+                            // now carries decoded/queued/inFlight/maxInFlight.
                             o.put("pipeline_depth", depth)
+                            o.put("comparable", false)
                             o.put("error", t.toString())
                         }
                         sweep.put(o)
                     }
                 }
                 report.put("ac0a_pipeline_depth_sweep", sweep)
+                // An all-five-failed sweep used to report success: five {depth, error}
+                // rows and a mode that exited 0. Say so explicitly instead.
+                report.put("ac0a_pipeline_depth_sweep_usable_rows", sweepUsableRows)
+                if (sweepUsableRows == 0) {
+                    report.put(
+                        "ac0a_pipeline_depth_sweep_error",
+                        "NO DEPTH produced a comparable measurement — this sweep selects nothing."
+                    )
+                }
             }
             if (mode == "seektest" && wantsVideo) {
                 WardenKeyframeDecoder(videoPath!!, null).use { dec ->

@@ -98,6 +98,32 @@ class WardenKeyframeDecoder(
     var decodeNs: Long = 0
         private set
 
+    /**
+     * Every `MediaCodec.flush()` this decoder has actually issued. Incremented at
+     * all three call sites (`decodeProbe`, `flushOnlyProbe`,
+     * `decodeKeyframesBySeekSurfaceLegacy`) and at none other.
+     *
+     * 🔴 Added by the 2026-09-17 review because `pipelineProbe` used to report
+     * `"flush_calls" to 0` as a LITERAL — an assertion about the code dressed as a
+     * measurement. Stories 12.4b/c/d inherit this loop, and if a `flush()` were ever
+     * reintroduced the artifact that exists to prove AC2 would have gone on
+     * reporting zero. Now it is observed.
+     */
+    var flushCalls: Int = 0
+        private set
+
+    /**
+     * How many times `dequeueOutputBuffer` reported `INFO_OUTPUT_FORMAT_CHANGED`
+     * during the last pipelined decode. Added by the 2026-09-17 review: the drain
+     * `when` had no `else`, so this sentinel — which essentially every decoder
+     * raises at least once before its first frame — was silently swallowed AND
+     * escaped the wedge counter. One is normal; more than one on a fixed-geometry
+     * capture means the stream changed format mid-run, which the geometry checks
+     * downstream would otherwise report several frames later and out of context.
+     */
+    var outputFormatChanges: Int = 0
+        private set
+
     init {
         extractor.setDataSource(path)
         for (i in 0 until extractor.trackCount) {
@@ -320,7 +346,7 @@ class WardenKeyframeDecoder(
 
             // (1) flush() ALONE — the headline number this probe exists for.
             t = System.nanoTime()
-            c.flush()
+            flushCalls++; c.flush()
             flushNs.add(System.nanoTime() - t)
 
             var sampleQueued = false
@@ -423,7 +449,7 @@ class WardenKeyframeDecoder(
         val ns = ArrayList<Long>(reps)
         for (i in 0 until reps) {
             val t = System.nanoTime()
-            c.flush()
+            flushCalls++; c.flush()
             ns.add(System.nanoTime() - t)
         }
         val s = ns.sorted()
@@ -590,6 +616,7 @@ class WardenKeyframeDecoder(
         var decoded = 0
         var eosQueued = false
         var spins = 0
+        outputFormatChanges = 0
 
         while (decoded < target) {
             // (1) Top the pipeline up. Non-blocking: if the codec is holding every
@@ -599,27 +626,58 @@ class WardenKeyframeDecoder(
                 val inIdx = c.dequeueInputBuffer(0L)
                 if (inIdx < 0) break
                 val pts = ptsList[nextToQueue]
+                // 🔴 REVIEW 2026-09-17 — A DUPLICATE PTS CORRUPTS THE MATCHING SET.
+                // inFlight is a HashSet, so a repeated PTS queues two samples and
+                // records one: the `inFlight.size < PIPELINE_DEPTH` throttle stops
+                // bounding the pipeline, and when the second copy comes out the
+                // `remove` below fails and blames the DECODER for a duplicate the
+                // CALLER supplied. syncSamplePtsListBySeek is strictly increasing
+                // so this cannot fire on the bound path, but decodeKeyframesBySeek
+                // is public and takes an arbitrary LongArray.
+                if (!inFlight.add(pts)) {
+                    throw IllegalStateException(
+                        "keyframe $nextToQueue (pts=$pts): that PTS is ALREADY IN FLIGHT, " +
+                            "so ptsList contains it twice. Outputs are matched to requests " +
+                            "by PTS, which makes a duplicate unresolvable — the caller must " +
+                            "pass a list of DISTINCT sync-sample timestamps."
+                    )
+                }
                 seekToVerifiedSyncSample(nextToQueue, pts)
                 val buf = c.getInputBuffer(inIdx)!!
                 val size = extractor.readSampleData(buf, 0)
-                if (size < 0) {
+                // `<= 0`, not `< 0`: a zero-length sample is queued with no EOS flag,
+                // produces no output, and its PTS can then NEVER leave inFlight — the
+                // run dies later at the EOS check below, misattributed to the decoder
+                // "dropping queued IDRs" (review 2026-09-17).
+                if (size <= 0) {
                     throw IllegalStateException(
                         "keyframe $nextToQueue (pts=$pts): readSampleData returned $size " +
                             "after a VERIFIED landing on that sync sample — the extractor " +
-                            "has a sample time but no sample data."
+                            "has a sample time but no usable sample data."
                     )
                 }
                 c.queueInputBuffer(inIdx, 0, size, pts, MediaCodec.BUFFER_FLAG_KEY_FRAME)
-                inFlight.add(pts)
                 nextToQueue++
             }
 
             // (2) Every sample is in. ONE end-of-stream drains the reorder buffer —
             //     the whole saving is that this happens here and not 1061 times.
+            //
+            // 🔴 REVIEW 2026-09-17 — THE EOS PTS MUST NOT COLLIDE WITH A KEYFRAME'S.
+            // This used to stamp the EOS input `0L`, which is EXACTLY keyframe 0's
+            // PTS on this capture (and on any capture starting at zero). It survives
+            // on c2.qti.avc.decoder only because that codec reports EOS on a
+            // ZERO-SIZE buffer, which takes the `info.size == 0` branch below.
+            // MediaCodec explicitly permits flagging EOS on the last DATA-BEARING
+            // buffer, and such a codec would propagate this timestamp, fail
+            // `inFlight.remove(0L)` after keyframe 0 was already delivered, and kill
+            // a bit-perfect 1061-frame run at the finish line — blaming the decoder
+            // for a timestamp we chose. [EOS_PTS] cannot collide: it is past any
+            // real sample time.
             if (!eosQueued && nextToQueue >= target) {
                 val inIdx = c.dequeueInputBuffer(TIMEOUT_US)
                 if (inIdx >= 0) {
-                    c.queueInputBuffer(inIdx, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                    c.queueInputBuffer(inIdx, 0, 0, EOS_PTS, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                     eosQueued = true
                 }
             }
@@ -629,15 +687,24 @@ class WardenKeyframeDecoder(
             when {
                 outIdx >= 0 -> {
                     val eos = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
-                    if (info.size > 0) {
+                    // A data-bearing buffer whose PTS is the EOS marker is the drain
+                    // signal, not a frame — never a keyframe we asked for.
+                    if (info.size > 0 && info.presentationTimeUs != EOS_PTS) {
                         val pts = info.presentationTimeUs
                         if (!inFlight.remove(pts)) {
                             throw IllegalStateException(
                                 "the decoder returned a frame with pts=$pts that is not in " +
-                                    "flight. Either it was already delivered (a duplicate) or " +
-                                    "it was never queued. Outputs are matched to requests BY " +
-                                    "PTS precisely so this surfaces here instead of as a " +
-                                    "parity drift 2666 frames later."
+                                    "flight. Three causes, in order of likelihood on an " +
+                                    "untested codec: (1) it ALTERED the timestamp we queued " +
+                                    "— outputs are matched by exact PTS equality, so a codec " +
+                                    "that round-trips through a 90 kHz clock or re-bases the " +
+                                    "first PTS breaks every frame; (2) it was already " +
+                                    "delivered (a duplicate); (3) it was never queued. " +
+                                    "decoded=$decoded/$target, queued=$nextToQueue, " +
+                                    "inFlight(${inFlight.size})=${inFlight.sorted().take(8)}" +
+                                    "${if (inFlight.size > 8) "…" else ""}. Matching by PTS " +
+                                    "is what surfaces this here instead of as a parity drift " +
+                                    "2666 frames later."
                             )
                         }
                         val kf = imageToKeyframe(c, outIdx, pts)
@@ -651,19 +718,57 @@ class WardenKeyframeDecoder(
                         if (eos && decoded < target) {
                             throw IllegalStateException(
                                 "END_OF_STREAM after $decoded of $target keyframes, with " +
-                                    "${inFlight.size} still in flight. The decoder dropped " +
-                                    "queued IDRs rather than decoding them."
+                                    "${inFlight.size} still in flight " +
+                                    "(${inFlight.sorted().take(8)}" +
+                                    "${if (inFlight.size > 8) "…" else ""}). The decoder " +
+                                    "dropped those queued IDRs rather than decoding them."
                             )
                         }
                     }
                 }
                 outIdx == MediaCodec.INFO_TRY_AGAIN_LATER -> {
+                    // 🔴 WHICH CAP APPLIES, AND WHY IT IS THE GENEROUS ONE FOR MOST OF
+                    // THE RUN (review 2026-09-17). `eosQueued` only turns true once
+                    // EVERY sample is in, so for ~1053 of 1061 keyframes this path is
+                    // guarded by MAX_SPINS_BEFORE_EOS (20 s) and only the tail drain by
+                    // MAX_SPINS (5 s). That is DELIBERATE and is not the A′ rationale in
+                    // the companion object: here a stall before EOS IS the k-too-small
+                    // failure (see [PIPELINE_DEPTH]), which deserves the generous budget
+                    // because bailing early would report a device limit as a crash.
                     val cap = if (eosQueued) MAX_SPINS else MAX_SPINS_BEFORE_EOS
                     if (++spins > cap) {
                         throw IllegalStateException(
-                            "no output after $cap polls at ${TIMEOUT_US}us " +
+                            "no output for ${cap * TIMEOUT_US / 1000} ms " +
+                                "($cap polls at ${TIMEOUT_US}us) " +
                                 "(decoded=$decoded/$target, queued=$nextToQueue, " +
-                                "inFlight=${inFlight.size}, eosQueued=$eosQueued)"
+                                "inFlight=${inFlight.size}, eosQueued=$eosQueued). " +
+                                if (!eosQueued && decoded == 0)
+                                    "NOTHING has come out at all: the most likely cause is " +
+                                    "that this codec needs MORE than PIPELINE_DEPTH=" +
+                                    "$PIPELINE_DEPTH IDRs in flight before it emits. See " +
+                                    "the PIPELINE_DEPTH KDoc — raise it and re-run the sweep."
+                                else ""
+                        )
+                    }
+                }
+                // 🔴 REVIEW 2026-09-17 — EVERY OTHER SENTINEL MUST STILL BE COUNTED.
+                // INFO_OUTPUT_FORMAT_CHANGED (-2) is returned by essentially every
+                // decoder before its first frame, and INFO_OUTPUT_BUFFERS_CHANGED (-3)
+                // on legacy paths. Both return IMMEDIATELY, consuming no timeout. With
+                // no branch here they bypassed `spins` entirely, so a codec stuck
+                // re-raising one spun this loop at 100% CPU with NO cap and NO timeout
+                // — the one hang the wedge budget exists to prevent was the one it
+                // could not catch.
+                else -> {
+                    if (outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                        outputFormatChanges++
+                    }
+                    if (++spins > MAX_SPINS) {
+                        throw IllegalStateException(
+                            "dequeueOutputBuffer returned $outIdx on $MAX_SPINS consecutive " +
+                                "polls without producing a frame (decoded=$decoded/$target, " +
+                                "eosQueued=$eosQueued). These sentinels do not consume the " +
+                                "timeout, so this is a busy spin, not a slow decoder."
                         )
                     }
                 }
@@ -696,7 +801,7 @@ class WardenKeyframeDecoder(
         for (idx in 0 until target) {
             val pts = ptsList[idx]
             seekToVerifiedSyncSample(idx, pts)
-            c.flush()
+            flushCalls++; c.flush()
             // NB: no start() after flush() — see decodeKeyframes.
             var sampleQueued = false
             var eosQueued = false
@@ -764,6 +869,11 @@ class WardenKeyframeDecoder(
      * the flush helped" from "keeping k frames in flight helped".
      */
     fun pipelineProbe(ptsList: LongArray, n: Int, depth: Int): Map<String, Any> {
+        // 🔴 REVIEW 2026-09-17 — VALIDATE THE ARGUMENT THAT IS THE WHOLE POINT OF
+        // THIS FUNCTION. `depth = 0` never queues anything, so `nextToQueue >= target`
+        // is never true, EOS is never sent, and it spun for 20 s before throwing
+        // "wedged at depth=0" — blaming the codec for a caller's argument.
+        require(depth >= 1) { "pipelineProbe: depth must be >= 1, got $depth" }
         configureCodec()
         val c = codec!!
         val info = MediaCodec.BufferInfo()
@@ -778,6 +888,13 @@ class WardenKeyframeDecoder(
         var tryAgainNs = 0L
         var seekNs = 0L
         var mismatches = 0
+        var unmatchedDeliveries = 0
+        flushCalls = 0
+        // 🔴 Does `depth` actually reach the codec? dequeueInputBuffer(0L) breaks on
+        // -1, so the effective depth is min(depth, available input buffers). Without
+        // this, a flat k=8/k=16 result cannot be told from a hardware ceiling.
+        var maxObservedInFlight = 0
+        var shortDecodeReason: String? = null
 
         val readBefore = procSelfIoReadBytes()
         val wall0 = System.nanoTime()
@@ -791,15 +908,19 @@ class WardenKeyframeDecoder(
                 seekNs += System.nanoTime() - ts
                 val buf = c.getInputBuffer(inIdx)!!
                 val size = extractor.readSampleData(buf, 0)
-                if (size < 0) throw IllegalStateException("no sample data at pts=$pts")
+                if (size <= 0) throw IllegalStateException("no sample data at pts=$pts (size=$size)")
                 c.queueInputBuffer(inIdx, 0, size, pts, MediaCodec.BUFFER_FLAG_KEY_FRAME)
-                inFlight.add(pts)
+                if (!inFlight.add(pts)) {
+                    throw IllegalStateException("duplicate pts=$pts in ptsList at index $nextToQueue")
+                }
+                if (inFlight.size > maxObservedInFlight) maxObservedInFlight = inFlight.size
                 nextToQueue++
             }
             if (!eosQueued && nextToQueue >= target) {
                 val inIdx = c.dequeueInputBuffer(TIMEOUT_US)
                 if (inIdx >= 0) {
-                    c.queueInputBuffer(inIdx, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                    // Same non-colliding marker as the bound loop — see [EOS_PTS].
+                    c.queueInputBuffer(inIdx, 0, 0, EOS_PTS, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                     eosQueued = true
                 }
             }
@@ -808,42 +929,87 @@ class WardenKeyframeDecoder(
             when {
                 outIdx >= 0 -> {
                     val eos = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
-                    if (info.size > 0) {
-                        if (!inFlight.remove(info.presentationTimeUs)) mismatches++
+                    if (info.size > 0 && info.presentationTimeUs != EOS_PTS) {
+                        // 🔴 REVIEW 2026-09-17 — ONLY A MATCHED FRAME COUNTS.
+                        // `decoded` is the DIVISOR of every headline below, and it
+                        // used to be incremented even when the PTS was one we never
+                        // queued. A depth that mis-delivered therefore reported a
+                        // BETTER ms/kf than one that did not — the metric improved as
+                        // correctness degraded, in the instrument that chose k=8.
+                        if (inFlight.remove(info.presentationTimeUs)) {
+                            decoded++
+                        } else {
+                            mismatches++
+                            unmatchedDeliveries++
+                        }
                         c.releaseOutputBuffer(outIdx, false)
-                        decoded++
                         spins = 0
                     } else {
                         c.releaseOutputBuffer(outIdx, false)
-                        if (eos && decoded < target) break
+                        if (eos && decoded < target) {
+                            // Was a SILENT `break`: the returned map carried no error
+                            // key, so the bench's catch never fired and a depth that
+                            // decoded 3 of 100 landed in the sweep table looking like a
+                            // measurement, directly comparable to full runs.
+                            shortDecodeReason =
+                                "END_OF_STREAM after $decoded of $target decoded " +
+                                    "(${inFlight.size} still in flight, " +
+                                    "$unmatchedDeliveries unmatched deliveries)"
+                            break
+                        }
                     }
                 }
                 outIdx == MediaCodec.INFO_TRY_AGAIN_LATER -> {
                     tryAgainCount++
                     tryAgainNs += System.nanoTime() - t2
                     val cap = if (eosQueued) MAX_SPINS else MAX_SPINS_BEFORE_EOS
-                    if (++spins > cap) throw IllegalStateException("pipelineProbe wedged at depth=$depth")
+                    if (++spins > cap) throw IllegalStateException(
+                        "pipelineProbe wedged at depth=$depth after " +
+                            "${cap * TIMEOUT_US / 1000} ms without output " +
+                            "(decoded=$decoded/$target, queued=$nextToQueue, " +
+                            "inFlight=${inFlight.size}, maxInFlight=$maxObservedInFlight, " +
+                            "eosQueued=$eosQueued)"
+                    )
+                }
+                else -> {
+                    if (++spins > MAX_SPINS) throw IllegalStateException(
+                        "pipelineProbe at depth=$depth: dequeueOutputBuffer returned " +
+                            "$outIdx on $MAX_SPINS consecutive polls (decoded=$decoded/$target)"
+                    )
                 }
             }
         }
         val wallNs = System.nanoTime() - wall0
         val readAfter = procSelfIoReadBytes()
+        val complete = decoded == target && mismatches == 0 && shortDecodeReason == null
         return linkedMapOf(
             "pipeline_depth" to depth,
             "keyframes_requested" to target,
             "keyframes_decoded" to decoded,
+            // 🔴 `all_decoded` alone was tautologically true on every non-break exit,
+            // because the loop condition IS `decoded < target`. `comparable` is the
+            // field a reader should gate on before putting a row in a table.
             "all_decoded" to (decoded == target),
+            "comparable" to complete,
             "pts_mismatches" to mismatches,
+            "unmatched_deliveries" to unmatchedDeliveries,
+            "max_observed_in_flight" to maxObservedInFlight,
+            "depth_actually_reached" to (maxObservedInFlight >= depth),
             "wall_ms_per_keyframe" to wallNs / 1e6 / maxOf(1, decoded),
             "wall_ms_total" to wallNs / 1e6,
             "seek_ms_per_keyframe" to seekNs / 1e6 / maxOf(1, decoded),
             "try_again_count_total" to tryAgainCount,
             "try_again_per_keyframe" to tryAgainCount.toDouble() / maxOf(1, decoded),
             "try_again_ms_per_keyframe" to tryAgainNs / 1e6 / maxOf(1, decoded),
-            "flush_calls" to 0,
+            // OBSERVED, not asserted: this loop calls flush() nowhere, and counting it
+            // means a reintroduced flush() cannot silently keep reporting zero.
+            "flush_calls" to flushCalls,
             "timeout_us_used" to TIMEOUT_US,
             "read_mb_per_keyframe" to (readAfter - readBefore) / 1048576.0 / maxOf(1, decoded),
-        )
+        ).apply {
+            val reason = shortDecodeReason
+            if (reason != null) put("error", reason)
+        }
     }
 
     private fun configureCodec() {
@@ -1049,11 +1215,23 @@ class WardenKeyframeDecoder(
 
     companion object {
         /**
-         * 🔴 STORY 12.4a AC1 — WAS `10_000L`, AND THAT COST 10.6 ms PER KEYFRAME.
+         * 🔴 STORY 12.4a AC1 — WAS `10_000L`. DO NOT READ THIS AS "THE TIMEOUT WAS
+         * 10.6 ms OF SLEEP PER KEYFRAME" — THAT IS THE TRAP, NOT THE FINDING.
          *
-         * MEASURED at 10 ms (`device_probe_flush.json{,_run2,_run3}`, 100 kf x 3):
-         * **1.02 `INFO_TRY_AGAIN_LATER` per keyframe costing 10.59 ms/kf — 25% of
-         * the 42.2 ms wall, spent asleep in a timeout we chose ourselves.**
+         * The AC was written on a projection about *where* the 10.6 ms went, and the
+         * projection was wrong. **MEASURED before and after, median of 3
+         * (`bench/12-4a/{baseline,after}_flushprobe_run{1,2,3}.json`):**
+         *
+         * ```
+         * try_again_ms_per_keyframe   10.697 -> 9.772   (-0.9 ms — did NOT move)
+         * try_again_count_per_kf        1.03 -> 7.39    (we poll ~7x as often)
+         * decode_probe wall           41.982 -> 33.442  (-8.540)
+         * queue_to_first_output       21.891 -> 13.389  (-8.502)  <- the real win
+         * ```
+         *
+         * **The named counter barely moved and the fix is good anyway. Both facts
+         * matter.** At 1 ms we poll ~7x where we polled ~1x, so time accumulated
+         * *inside* try-again calls is ~the decoder's real latency either way.
          *
          * THE MECHANISM IS NOT "POLLING IS SLOW", AND GETTING THIS WRONG SENDS THE
          * NEXT READER AT THE CODEC INSTEAD OF AT THE LOOP. In the EOS-terminated
@@ -1061,8 +1239,17 @@ class WardenKeyframeDecoder(
          * and then **sleeps a whole timeout before coming back round to queue the
          * `END_OF_STREAM` the decoder is waiting for** (trap 2: one queued sample
          * decodes to nothing). The sleep does not wait for slow hardware — it
-         * WITHHOLDS the input that hardware needs. At 1 ms the EOS lands ~9 ms
-         * earlier.
+         * WITHHOLDS the input that hardware needs. The −8.5 ms/kf is the blocking
+         * `dequeue*` calls getting 10x finer granularity, and it lands in
+         * `queue_to_first_output` — exactly where a withheld-EOS effect belongs.
+         *
+         * ⚠️ SCOPE: this constant is class-wide, but the measurement above is of the
+         * EOS-terminated structure only. `decodeKeyframes` (A′), `decodeProbe` and
+         * the Surface-legacy loop inherit the 10x finer poll without the analysis —
+         * on A′, whose own KDoc says it can go a while without output while the
+         * extractor skips non-sync samples, that is a 1000 Hz poll doing nothing.
+         * Deferred by the 2026-09-17 review to Story 12.4b, which deletes the
+         * Surface path and can decide whether A′ keeps its own timeout.
          */
         private const val TIMEOUT_US = 1_000L
 
@@ -1082,8 +1269,43 @@ class WardenKeyframeDecoder(
          */
         private const val WEDGE_CAP_MS = 5_000L
         private const val WEDGE_CAP_BEFORE_EOS_MS = 20_000L
-        private val MAX_SPINS = (WEDGE_CAP_MS * 1_000L / TIMEOUT_US).toInt()
-        private val MAX_SPINS_BEFORE_EOS = (WEDGE_CAP_BEFORE_EOS_MS * 1_000L / TIMEOUT_US).toInt()
+
+        /**
+         * 🔴 THE CONVERSION IS GUARDED (review 2026-09-17) — BOTH ENDS BITE.
+         *
+         * `TIMEOUT_US = 0L` is an entirely plausible next tuning step, since this
+         * story's whole thesis is that the timeout was a self-inflicted sleep — and
+         * unguarded it divides by zero in `<clinit>`, i.e. `ExceptionInInitializerError`
+         * on first touch of the CLASS, killing every path in this file rather than
+         * one loop. At the other end, `TIMEOUT_US > 5_000_000` makes [MAX_SPINS] `0`
+         * so `++spins > 0` fires on the FIRST `INFO_TRY_AGAIN_LATER` — an instant
+         * false failure, precisely what the duration framing exists to prevent.
+         *
+         * ⚠️ AND THE BUDGET IS STILL *ENFORCED* IN POLLS. The "5 s / 20 s" invariant
+         * assumes every spin costs a full `TIMEOUT_US`. `dequeueOutputBuffer` may
+         * return early, and the non-`TRY_AGAIN` sentinels return immediately (which
+         * is why the pipelined drain counts them against [MAX_SPINS] separately).
+         * Treat these as ORDER-OF-MAGNITUDE guards, not deadlines.
+         */
+        private val MAX_SPINS =
+            (WEDGE_CAP_MS * 1_000L / maxOf(1L, TIMEOUT_US)).toInt().coerceAtLeast(1)
+        private val MAX_SPINS_BEFORE_EOS =
+            (WEDGE_CAP_BEFORE_EOS_MS * 1_000L / maxOf(1L, TIMEOUT_US)).toInt().coerceAtLeast(1)
+
+        /**
+         * The presentation timestamp stamped on the single end-of-stream input
+         * buffer. **It MUST NOT collide with any real sample time**, because
+         * outputs are matched to requests by exact PTS equality.
+         *
+         * 🔴 This was `0L` until the 2026-09-17 review, and keyframe 0's PTS on the
+         * reference capture is EXACTLY `0` — see any `*_timing_fires_*.json`, whose
+         * first row is `"pts_us": 0`. Nothing failed only because
+         * `c2.qti.avc.decoder` reports end-of-stream on a zero-size buffer. A codec
+         * that flags EOS on the last data-bearing buffer instead — which MediaCodec
+         * permits — would have propagated `0`, failed the in-flight match after
+         * keyframe 0 had already been delivered, and killed a bit-perfect run.
+         */
+        private const val EOS_PTS = Long.MAX_VALUE
 
         /**
          * AC0a / AC2 — how many keyframes are kept in flight by
@@ -1093,6 +1315,36 @@ class WardenKeyframeDecoder(
          * MEASURED, not chosen: `pipelineProbe` sweeps k in {1, 2, 4, 8, 16} over
          * the same 100 keyframes in one run. See the Story 12.4a Dev Agent Record
          * and `apps/mobile/bench/12-4a/`.
+         *
+         * 🔴 IT IS MEASURED ON EXACTLY ONE CODEC, AND THE LOOP HAS NO ESCAPE IF A
+         * DEVICE NEEDS MORE (review 2026-09-17; accepted as a documented constraint
+         * by Stephane rather than papered over with an untested fallback branch).
+         *
+         * The end-of-stream that drains the tail is queued only once EVERY sample is
+         * in, and the fill loop is capped by `inFlight.size < PIPELINE_DEPTH`. So on
+         * a codec whose output latency exceeds k IDRs — or one that simply holds all
+         * its input buffers without emitting — fill blocks, EOS never lands, and the
+         * run dies at the wedge cap. **This is not hypothetical: `k = 1` WEDGES on
+         * the reference device itself**, 3 runs of 3, which is the same mechanism at
+         * its smallest. k = 8 was measured on `c2.qti.avc.decoder` (SM7325 /
+         * Android 14) and nothing else.
+         *
+         * **The failure signature, so the next reader recognises it in one line:**
+         * ```
+         * IllegalStateException: no output for 20000 ms (20000 polls at 1000us)
+         *   (decoded=0/1061, queued=8, inFlight=8, eosQueued=false)
+         * ```
+         * `decoded=0` with `queued == inFlight == PIPELINE_DEPTH` and
+         * `eosQueued=false` means the codec wants more in flight than we allow.
+         * **Raise this constant and re-run the `flushprobe` sweep** — do not reach
+         * for the timeout or the wedge caps, which are not the cause.
+         *
+         * ⚠️ Also unresolved: the sweep cannot currently tell k = 8 from the codec's
+         * own input-buffer count. `dequeueInputBuffer(0L)` `break`s on `-1`, so the
+         * effective depth is `min(PIPELINE_DEPTH, available input buffers)`. If this
+         * codec exposes 6, then k = 8 and k = 16 were the same run and the flat
+         * result is a ceiling, not a knee. `pipelineProbe` now records
+         * `max_observed_in_flight` so the next sweep can settle it.
          */
         private const val PIPELINE_DEPTH = 8
     }

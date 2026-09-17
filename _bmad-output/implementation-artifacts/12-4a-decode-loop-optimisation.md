@@ -1,6 +1,6 @@
 # Story 12.4a: Decode-Loop Optimisation
 
-Status: review
+Status: done
 
 Sprint fit: `fits-in-one-sprint`. **Kotlin + on-device measurement. No TypeScript, no pipeline wiring, no GLES removal.** Split out of Story 12.4 on 2026-09-17 (`/bmad-create-story` on 12.4) — see [epics-and-stories.md](../epics-and-stories.md) → *Story 12.4 (SPLIT 2026-09-17 → 12.4a + 12.4b + 12.4c + 12.4d)*.
 
@@ -268,14 +268,26 @@ passes. Full artifact set and reproduction steps:
 
 | | baseline `[M]` | after `[M]` | |
 |---|---|---|---|
-| **bound decode loop, ms/keyframe** | **41.982** | **7.706** | **5.45×** |
+| **BOUND LOOP, ms/keyframe** (`ac11_ac13_timing_naive` BIT_PARITY `decode`) | **42.431** | **9.742** | **4.36×** |
+| loop STRUCTURE, ms/keyframe (`decodeProbe` → `pipelineProbe`) | 41.982 | 7.706 | 5.45× |
 | per-keyframe `flush()` calls | 1061 | **0** | |
 | `END_OF_STREAM` round-trips | 1061 | **1** | once per run |
 | **full capture, bound BIT_PARITY path** | **45 253.9 ms** | **10 592.2 ms** | **4.27×**, −34.7 s |
 | keyframes decoded / asserted | 1061 / 1061 | **1061 / 1061** | AC4 |
 | rule-frame decisions vs 12.2 | — | **426 522 over 3 runs, 0 disagreements** | AC5 |
 
-`[D]` On the loop alone that is **44.54 s → 8.18 s over 1061 keyframes**. The story projected
+> 🔴 **CORRECTED 2026-09-17 BY CODE REVIEW.** This table originally carried only the second
+> row, labelled "bound decode loop". **It is not the bound loop** — `41.982` is `decodeProbe`'s
+> wall and `7.706` is `pipelineProbe`'s, two INSTRUMENTS, neither of which is the shipped
+> `decodeKeyframesBySeekPipelined`. Both measure the loop STRUCTURE fairly and the k-sweep rests
+> on them legitimately, but **quote 4.27× / 4.36× for what shipped, not 5.45×.**
+>
+> ⚠️ **The full-capture baseline is INHERITED, n = 1.** `BEFORE_report_timing.json` is dated
+> 2026-09-15T15:30; only `flushprobe` was re-measured on 09-17. "Median of 3" applies to the
+> after side. The banked Decision-#13 basis is **44 879.3**, not 45 253.9 (4.24× against it).
+
+`[D]` On the loop STRUCTURE alone that is **44.54 s → 8.18 s over 1061 keyframes**; on the bound
+loop's own decode stage, **45.02 s → 10.34 s**. The story projected
 `[P]` 17.1 ms/kf (~2.5×); the measured result **beats the projection by more than 2×**, because
 the projection treated the flush and the timeout as two independent subtractions from a fixed
 42.2 ms wall. They are not — removing the per-keyframe EOS also removes the thing the timeout
@@ -390,8 +402,89 @@ measurement rather than the old framing.
 - `apps/mobile/bench/12-4a/BEFORE_report_timing.json` — new (12.2's run, rescued off-device)
 - `apps/mobile/bench/12-4a/BEFORE_timing_fires_bit_parity_seek_1061.json` — new
 - `apps/mobile/bench/12-4a/BEFORE_parity_fires.json`, `BEFORE_report_parity.json` — new
-- `apps/mobile/bench/12-4a/AFTER_timing_fires_bit_parity_seek_1061.json` — new
-- `apps/mobile/bench/12-4a/fire_row_comparison.json` — new (AC5 result)
+- `apps/mobile/bench/12-4a/AFTER_timing_fires_run{1,2,3}.json` — new *(corrected 2026-09-17 by review: this list named a single `AFTER_timing_fires_bit_parity_seek_1061.json`, which was never committed)*
+- `apps/mobile/bench/12-4a/fire_row_comparison_run{1,2,3}.json` — new (AC5 result) *(corrected: was listed as `fire_row_comparison.json`)*
+- `apps/mobile/bench/12-4a/AFTER_parity_comparison.json`, `AFTER_parity_fires.json` — new (AC5a)
+- `apps/mobile/bench/12-4a/after_parity_run1.json`, `after_timing_run{1,2,3}.json`, `after_flushprobe_run{1,2,3}.json` — new
 - `_bmad-output/implementation-artifacts/12-4a-decode-loop-optimisation.md` — this file
 - `_bmad-output/implementation-artifacts/deferred-work.md` — AC11 disposal + one new item
 - `_bmad-output/sprint-status.yaml` — AC13
+
+---
+
+### Review Findings
+
+> 🔴 **THE 26 PATCHES BELOW WERE APPLIED ON 2026-09-17, AFTER EVERY BENCH ARTIFACT WAS
+> CAPTURED.** `apps/mobile/bench/12-4a/` therefore describes the PRE-patch code.
+> `:app:compileDebugKotlin` **BUILD SUCCESSFUL** and the repo gates are unmoved (tooling 305,
+> mobile jest 20 suites / 162 + 10 todo, typecheck 3 pre-existing `web`, `format:check` clean,
+> web vitest inherited red) — **but nothing has been run on the device.** The patches are
+> defensive and are expected to be behaviour-neutral on `c2.qti.avc.decoder`; expected is not
+> measured. A re-run is logged in [deferred-work.md](deferred-work.md), homed to **12.4b's first
+> device pass**, per [[feedback_batch_manual_checks_epic_end]].
+
+`/bmad-code-review 12.4a` (Stephane, `claude-opus-5[1m]`), 2026-09-17, against commit `e73b650`.
+Three layers: Blind Hunter (diff only), Edge Case Hunter (diff + project), Acceptance Auditor
+(diff + spec + context docs). **2 decision-needed, 24 patch, 8 deferred, 4 dismissed as noise.**
+Both decisions were resolved by Stephane on 2026-09-17, documentation-only in each case, so the
+actionable list below is **26 patch items and 8 deferred**.
+
+**The verdict is not in doubt** — `flush()` is gone from the bound path, the count assertion
+reads 1061/1061 on all three runs, and the fire rows are bit-identical. The findings below are
+about *portability of the new loop* and *accuracy of the record*, not about whether the fix works.
+
+#### Decision needed — RESOLVED BY STEPHANE 2026-09-17, then APPLIED (both → patch, documentation only)
+
+- [x] [Review][Patch] **Wedge-cap polarity in the pipelined loop — VERDICT: OPTION (a), COMMENT ONLY.** The `if (eosQueued) MAX_SPINS else MAX_SPINS_BEFORE_EOS` expression stays exactly as committed; the KDoc is corrected to state that the pipelined path runs under the 20 s cap for steady state and the 5 s cap only for the tail drain, and that this is deliberate — a stalled fill IS the k-too-small failure and deserves the generous budget. Rationale for not swapping: the banked k-sweep and the three full-capture runs were all measured under the committed polarity. — `decodeKeyframesBySeekPipelined:661` and `pipelineProbe:824` read `val cap = if (eosQueued) MAX_SPINS else MAX_SPINS_BEFORE_EOS`, and `eosQueued` only turns true once `nextToQueue >= target`. So for ~1053 of 1061 keyframes the bound path is guarded by the **20 s** cap, not the 5 s one AC0b's table advertises for steady state. The constant's KDoc justifies the generous cap solely by `decodeKeyframes` (A-prime) skipping non-sync samples — a rationale that does not apply here, where every queue is a verified sync sample. **Options: (a) correct the comment only, leaving the measured-good behaviour untouched; (b) swap the caps so the fill phase gets 5 s and the tail drain 20 s.** (b) changes wedge behaviour on a path that currently measures clean.
+- [x] [Review][Patch] **`PIPELINE_DEPTH = 8` single-codec binding — VERDICT: OPTION (a), ACCEPT AND RECORD.** No fallback branch is added: an untested escalation path on the loop 12.4b/c/d build on is a worse trade than a documented constraint, and this is the same ship-and-observe posture Epic 12 took on the perf ladder. Record in the KDoc and in deferred-work: k=8 is MEASURED ON ONE CODEC (`c2.qti.avc.decoder` / SM7325 / Android 14), and the failure signature on a codec needing k > 8 is `no output after N polls (decoded=0/..., queued=8, inFlight=8, eosQueued=false)` — if that is ever seen, raise `PIPELINE_DEPTH` and re-sweep. 12.4d's end-to-end pass is where it would surface. **Original finding:** — EOS is queued only when `nextToQueue >= target`, and the fill loop is capped by `inFlight.size < PIPELINE_DEPTH`. On a codec whose output latency is >= 8 IDRs, or one that holds all its input buffers without emitting, fill blocks, EOS is never queued, and the run dies at the wedge cap. The commit proves the mechanism is real — `k=1 WEDGES`, 3 runs of 3. `k=8` was measured on `c2.qti.avc.decoder` only, and 12.4b/c/d inherit this loop as the shipping path. **Options: (a) accept the single-device binding and record it as a known constraint, consistent with the reference-device re-anchoring and the ship-and-observe posture Epic 12 adopted; (b) add a depth-escalation or EOS-nudge fallback before the wedge throw.**
+
+#### Patch — decode-loop correctness and robustness
+
+- [x] [Review][Patch] EOS input is stamped `0L`, which is exactly keyframe 0's PTS — `zero_count=1` in both fire-row artifacts. `eos` is computed at `:631` but read only inside the `info.size == 0` branch, so a codec that attaches EOS to the last *data-bearing* buffer (permitted by MediaCodec) makes `inFlight.remove(0L)` fail after keyframe 0 was already delivered, failing a bit-perfect run at the finish line and blaming the decoder for a timestamp this code chose [WardenKeyframeDecoder.kt:622,631]
+- [x] [Review][Patch] The `when` on `dequeueOutputBuffer` has no `else`, so `INFO_OUTPUT_FORMAT_CHANGED` (-2, returned by every decoder at least once) and `INFO_OUTPUT_BUFFERS_CHANGED` (-3) bypass the spin counter entirely — the one hang the wedge budget exists to prevent is the one it cannot catch [WardenKeyframeDecoder.kt:628-670]
+- [x] [Review][Patch] `readSampleData` is guarded only for `< 0`; a zero-length sample is queued with no EOS flag, its PTS can never leave `inFlight`, and the run dies misattributed to "the decoder dropped queued IDRs" [WardenKeyframeDecoder.kt:604]
+- [x] [Review][Patch] `inFlight.add(pts)` return value is ignored — a duplicate PTS in `ptsList` queues two samples but records one, silently exceeding `PIPELINE_DEPTH` and later throwing a message that blames the decoder for a duplicate the caller supplied [WardenKeyframeDecoder.kt:613]
+- [x] [Review][Patch] `MAX_SPINS = (WEDGE_CAP_MS * 1_000L / TIMEOUT_US).toInt()` has no `coerceAtLeast(1)`: `TIMEOUT_US = 0L` throws `ExceptionInInitializerError` in `<clinit>`, and `TIMEOUT_US > 5_000_000` yields a cap of 0 that fires on the first `TRY_AGAIN` — the exact false-failure AC0b's re-derivation claims to have eliminated [WardenKeyframeDecoder.kt:1085]
+- [x] [Review][Patch] The wedge-throw message reports `"$cap polls at ${TIMEOUT_US}us"` — the one place a human meets this budget is the one place AC0b's ms-denominated framing was not carried through [WardenKeyframeDecoder.kt:664]
+- [x] [Review][Patch] The PTS-mismatch diagnostic asserts only "already delivered, or never queued" and dumps no in-flight context — it excludes the third cause (the codec altered the timestamp), which is the likely one on a non-reference device [WardenKeyframeDecoder.kt:635]
+
+#### Patch — instrument integrity (this is what selected `k = 8`)
+
+- [x] [Review][Patch] `pipelineProbe` increments `decoded` even when `inFlight.remove` fails, so unrequested frames inflate the divisor of every headline figure — a depth that mis-delivers reports a *better* ms/kf than one that does not [WardenKeyframeDecoder.kt:812-814]
+- [x] [Review][Patch] `pipelineProbe` exits a short decode via a silent `break` with no `error` key, so the bench's `catch (Throwable)` never fires and a depth that decoded 3 of 100 lands in the sweep table looking like a measurement; `all_decoded` is tautologically true on every non-`break` exit [WardenKeyframeDecoder.kt:818,835]
+- [x] [Review][Patch] `pipelineProbe` records no `max_observed_in_flight`, so the flat k=8 / k=16 result cannot be distinguished from the codec's input-buffer count clamping both to the same effective depth — one `maxOf` would settle whether 8 is the knee or the ceiling [WardenKeyframeDecoder.kt:831]
+- [x] [Review][Patch] `"flush_calls" to 0` is a hardcoded assertion, not an observation — if a `flush()` is ever reintroduced the artifact that exists to prove it is gone will keep reporting zero [WardenKeyframeDecoder.kt:844]
+- [x] [Review][Patch] `pipelineProbe` does not validate `depth >= 1`; `depth = 0` wedges for 20 s and throws a message blaming the codec for a caller's argument [WardenKeyframeDecoder.kt:765]
+- [x] [Review][Patch] `dec.syncSamplePtsListBySeek(200)` sits outside the sweep's `try`, so one extractor error discards every depth already measured and `ac0a_pipeline_depth_sweep` is never written; conversely an all-five-failed sweep still reports success with no aggregate check [WardenEngineBench.kt:1009]
+- [x] [Review][Patch] `compare_fire_rows.py` — AC5(b)'s only real tripwire — has `identical` true on two empty `frames` arrays (prints `OK — 0 keyframes … 0 disagreements`, exits 0); `rows_before` is reported but never asserted against `len(b_by_pts)`, so duplicate PTS in the BEFORE file silently collapse; there is no `dup_before` to match `dup_after`. The committed results are substantive in fact (1061 rows, 485 distinct masks) — the instrument just cannot tell the difference [compare_fire_rows.py:118-167]
+
+#### Patch — evidence and record accuracy
+
+- [x] [Review][Patch] **`deferred-work.md:190` records a full-capture result that exists in no artifact**: "45 253.9 ms -> **19 013.6 ms (2.38x, -26.2 s)**". `19013` appears nowhere under `apps/mobile/bench/`. Committed BIT_PARITY walls are 10 022.9 / 10 627.2 / 10 592.2, median **10 592.2 = 4.27x, -34.7 s** — which is what REPORT.md, the story headline, the commit message and `sprint-status.yaml` all say. This is the permanent disposal record 12.4b/c/d will read [deferred-work.md:190]
+- [x] [Review][Patch] **The 5.45x headline is a probe-to-probe comparison, labelled as the bound loop.** 41.982 is `decodeProbe`'s wall; 7.706 is `pipelineProbe`'s — a separate reimplementation of the pipelined structure, not `decodeKeyframesBySeekPipelined`. The bound loop's own measured figure is in the same artifacts: `ac11_ac13_timing_naive` BIT_PARITY `decode` **42.431 -> 9.742 ms/kf ~= 4.36x**, wall 4.27x. Nothing in the story or REPORT labels 5.45x as a probe figure [REPORT.md §0/§3, story Dev Agent Record, deferred-work.md:190]
+- [x] [Review][Patch] **"The baseline was RE-MEASURED today, not inherited" holds for `flushprobe` only.** `baseline_flushprobe_run{1,2,3}` are 2026-09-17T10:14-10:18; `BEFORE_report_timing.json` carries `generated_at` = **2026-09-15T15:30**, ~1.8 days earlier. So the 45 253.9 ms behind the 4.27x is a single inherited run, n=1, and "median of 3" applies to the after side only. It is also not the banked tracked figure — `bench/12-2/device_report_timing.json` reads 44 879.3, which is what Decision #13 and the PERF-002 re-baseline use [AC0d, REPORT.md, commit message]
+- [x] [Review][Patch] The File List and REPORT.md §5's copy-paste repro name two artifacts that were never committed: `AFTER_timing_fires_bit_parity_seek_1061.json` and `fire_row_comparison.json`. Committed are `AFTER_timing_fires_run{1,2,3}.json` and `fire_row_comparison_run{1,2,3}.json`, so §5's last command fails as written [story File List, REPORT.md §5]
+- [x] [Review][Patch] The `TIMEOUT_US` KDoc still opens in bold with the framing AC1's amendment exists to retire — "**WAS `10_000L`, AND THAT COST 10.6 ms PER KEYFRAME**" — and never states the after value (9.772), never says the named counter did not move, never says the try-again *count* rose 1.03 -> 7.39. AC1 amended the story inline precisely so the next reader would not be trapped; the file they actually open still leads with the refuted number [WardenKeyframeDecoder.kt:1052-1056]
+- [x] [Review][Patch] The sweep's comment claims `depth = 1` "is the control … which separates 'the flush was the cost' from 'the pipelining was the win'". Depth 1 threw on all three runs, so the sweep produced no flush-free/pipeline-free datapoint and separates nothing; the lowest working depth (k=2) is already pipelined. REPORT §3's "most informative row" framing is defensible — the code comment states the goal as achieved [WardenEngineBench.kt:1003-1005]
+- [x] [Review][Patch] `k=1 "decoded 0"` is an inference, not a recorded measurement — the sweep's `catch` block stores only `{pipeline_depth, error}`, and since `spins` resets on every delivery, the 20 s throw is equally consistent with a run that decoded 90 frames then stalled. The "decoded | 0" column in the story's and REPORT's k-sweep tables is not backed by the artifact [WardenEngineBench.kt:1013-1018]
+- [x] [Review][Patch] Record the AC6 caveat: `ac0b_decode_strategy_comparison` carries `"color_path": "ZERO_COPY"` on **both** arms, which `decodeKeyframesBySeek:534` routes to `decodeKeyframesBySeekSurfaceLegacy`. The A-vs-A-prime head-to-head therefore re-confirms A on the *legacy* loop; shipped pipelined A was never benched against A-prime [REPORT.md §4]
+- [x] [Review][Patch] Record the AC0d caveat: before and after `flushprobe` do not execute the same work. AC3's hardening means `baseline_flushprobe_run1` has `sync_sample_count: 1061, "scanned here"` and `after_flushprobe_run1` has `-1, "NOT MEASURED"` — so the baseline pulled 2.3 GB through the extractor immediately before `decodeProbe` and the after runs did not. Warm page cache favours the baseline, so the direction is conservative, but the Debug Log's "a measurement no-op" is wrong for `flushprobe` specifically — the mode AC1's entire A/B rests on [Debug Log, REPORT.md §2]
+- [x] [Review][Patch] Minor numeric inconsistencies: `seekTo` share quoted as "~58%" (story, REPORT §3) vs "~59%" (deferred-work.md:179) against a measured 4.430/7.706 = 57.5%; "0 disagreements across 142 174 rule-frame decisions" (deferred-work.md:190) vs 426 522 across three runs (story AC5); full-capture before quoted as 45 253.9 against the banked Decision-#13 basis of 44 879.3
+
+#### Deferred — real, not caused by this change or not actionable now
+
+- [x] [Review][Defer] No `try`/`finally` around a dequeued input buffer or `imageToKeyframe`'s `Image` — both leak on any throw between acquisition and hand-back. Bounded today by every caller's `use {}`; pre-existing pattern throughout the file [WardenKeyframeDecoder.kt:599-612,1023-1042] — deferred, pre-existing
+- [x] [Review][Defer] `configureCodec()` has no `if (codec != null)` guard and overwrites the field; additionally the pipelined path leaves the codec in end-of-stream state with no `flush()`/`stop()`, so a second decode on one instance would wedge rather than leak. No caller does this today — the bench constructs a fresh decoder per depth — but nothing enforces or documents that [WardenKeyframeDecoder.kt:849-863] — deferred, pre-existing
+- [x] [Review][Defer] A zero-size non-EOS output orphans its PTS in `inFlight` permanently, shrinking effective depth for the rest of the run. Fails loud via the EOS throw, but misattributed and without listing which PTS were stranded [WardenKeyframeDecoder.kt:646-657] — deferred, pre-existing
+- [x] [Review][Defer] `TIMEOUT_US` is a class-wide constant lowered 10x on one path's measurement; `decodeKeyframes` (A-prime), `decodeProbe` and the retained Surface-legacy loop all now poll at 1000 Hz, including during A-prime's documented long sample-skip stretches [WardenKeyframeDecoder.kt:1067] — deferred, pre-existing
+- [x] [Review][Defer] `MAX_SPINS_BEFORE_EOS`'s duration framing assumes every spin costs a full `TIMEOUT_US`; in `decodeKeyframes`, whose sample-skip body the KDoc explicitly cites, a spin also runs `advance()` at milliseconds per call, so the real bail-out budget grew ~10x rather than staying at 20 s [WardenKeyframeDecoder.kt:1079-1086] — deferred, pre-existing
+- [x] [Review][Defer] "Thermal `NONE` on every run" rests on a single sample written under `ac1_device_profile` before any decode work begins — a statement about three run *starts*, not about the ~8 minutes they cover. Dev Notes require "a speedup that only appears cold is not a speedup" [WardenEngineBench.kt:975] — deferred, needs a device pass
+- [x] [Review][Defer] AC5(b)'s BEFORE tripwire exists in exactly one rescued copy with no documented regeneration path, and 12.4b deletes the legacy loop that produced it — one accidental overwrite from being unreproducible [bench/12-4a/BEFORE_timing_fires_bit_parity_seek_1061.json] — deferred, owned by 12.4b
+- [x] [Review][Defer] The k-sweep rebuilds the PTS list per depth (5 x ~2.3 s) rather than hoisting it, so the five rows are not guaranteed to be over an identical list if seek behaviour drifts [WardenEngineBench.kt:1009] — deferred, pre-existing
+
+#### Dismissed as noise
+
+- `probe()`'s `scanSyncSamples` default flip leaving a silent `-1` — verified nil blast radius: `probe()` has exactly one caller (`WardenEngineBench.kt:111`) which passes `false` explicitly, and AC4's `keyframe_count_expected` comes from `timingRun`'s own `groundTruth` argument, not from `probe`.
+- "`configureCodec` leaks a hardware decoder per call" — no caller invokes a decode twice on one instance; the sweep builds a fresh decoder inside `use {}` per depth. (The missing *guard* is retained above as a defer.)
+- "Commit message says no caller passes `scanSyncSamples = true` while the KDoc says the scan is reachable from `all`/`timing`/`seektest`" — both are true; those modes call `countSyncSamplesByScan()` directly, not through `probe`.
+- Process objection that AC1 and AC5 were amended inline by the same commit they govern, and that bundling the 12.4-split artifacts makes the commit non-revertable — both are explicit, pre-authorised constraints (12.2's AC0b precedent for inline amendment; AC12 and the shared-doc commit-boundary constraint for the bundling).

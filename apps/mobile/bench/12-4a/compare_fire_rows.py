@@ -56,7 +56,49 @@ def main():
 
     # Duplicate PTS would mean the same frame was delivered twice — the other half
     # of the pipelining failure mode, and invisible to a dict comparison alone.
+    # 🔴 REVIEW 2026-09-17 — BOTH SIDES. Only `after` was checked, so a BEFORE file
+    # with a duplicated row silently collapsed in `b_by_pts` and then compared clean
+    # against an AFTER that was genuinely missing that keyframe.
     dup_after = len(order_after) - len(set(order_after))
+    dup_before = len(order_before) - len(set(order_before))
+
+    # 🔴 REVIEW 2026-09-17 — THIS TRIPWIRE USED TO PASS VACUOUSLY.
+    #
+    # `identical` was `n_before == n_after and not missing and not extra and not
+    # changed and dup_after == 0` — EVERY term of which is satisfied by two files
+    # whose `frames` arrays are EMPTY. A truncated rescue file, or an AFTER capture
+    # that aborted and emitted `{"n_rules": 134, "frames": []}`, printed
+    # "OK — 0 keyframes x 134 rules = 0 rule-frame decisions, 0 disagreements"
+    # and exited 0. For the one artifact AC5(b) rests on, a green result did not
+    # establish that anything had been compared.
+    #
+    # These preconditions are deliberately hard failures, not warnings: an
+    # instrument that cannot tell "proved identical" from "compared nothing" is
+    # worse than no instrument, because it looks like evidence.
+    problems = []
+    if not before:
+        problems.append(f"BEFORE file {args.before!r} contains zero frame rows")
+    if not after:
+        problems.append(f"AFTER file {args.after!r} contains zero frame rows")
+    if n_before <= 0 or n_after <= 0:
+        problems.append(f"n_rules must be positive (before={n_before}, after={n_after})")
+    if dup_before:
+        problems.append(f"BEFORE file contains {dup_before} duplicate pts_us rows")
+    if len(b_by_pts) != len(before):
+        problems.append(
+            f"BEFORE collapsed on load: {len(before)} rows -> {len(b_by_pts)} unique PTS"
+        )
+    if len(a_by_pts) != len(after):
+        problems.append(
+            f"AFTER collapsed on load: {len(after)} rows -> {len(a_by_pts)} unique PTS"
+        )
+    if problems:
+        print(
+            "FAIL — the comparison was not performed. This is not a pass:\n  "
+            + "\n  ".join(problems),
+            file=sys.stderr,
+        )
+        return 2
 
     result = {
         "story": "12.4a",
@@ -71,6 +113,7 @@ def main():
         "n_rules_after": n_after,
         "rows_before": len(before),
         "rows_after": len(after),
+        "duplicate_pts_in_before": dup_before,
         "duplicate_pts_in_after": dup_after,
         "pts_missing_from_after": missing[:20],
         "n_pts_missing_from_after": len(missing),
@@ -81,12 +124,19 @@ def main():
         "first_changed_pts": changed[:20],
         "delivery_order_identical": order_before == order_after,
         "rule_frame_decisions_compared": len(shared) * n_before,
+        # Guards against a mask width that disagrees with the declared n_rules —
+        # `rule_frame_decisions_compared` multiplies by the DECLARED count, so a
+        # short mask would inflate it silently.
+        "mask_hex_chars": sorted({len(v) for v in b_by_pts.values()} | {len(v) for v in a_by_pts.values()}),
         "identical": (
             n_before == n_after
+            and bool(shared)
+            and len(shared) == len(before) == len(after)
             and not missing
             and not extra
             and not changed
             and dup_after == 0
+            and dup_before == 0
         ),
     }
 

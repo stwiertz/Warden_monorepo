@@ -18,16 +18,26 @@ Every figure below is `[M]` unless marked otherwise.
 
 | | baseline `[M]` | after `[M]` | |
 |---|---|---|---|
-| **bound decode loop, ms/keyframe** | **41.982** | **7.706** | **5.45× faster** |
+| **BOUND LOOP, ms/keyframe** (`ac11_ac13_timing_naive` BIT_PARITY `decode`) | **42.431** | **9.742** | **4.36× faster** |
+| loop STRUCTURE, ms/keyframe (`decodeProbe` → `pipelineProbe`) | 41.982 | 7.706 | 5.45× |
 | per-keyframe `flush()` calls | 1061 | **0** | removed |
 | `END_OF_STREAM` round-trips | 1061 | **1** | once per run |
 | `TIMEOUT_US` | 10 000 µs | **1 000 µs** | |
 | keyframes decoded / asserted | 1061 / 1061 | 1061 / 1061 | AC4 |
 | PTS mismatches | n/a | **0** | AC5 |
 
-`[D]` Over 1061 keyframes that is **44.54 s → 8.18 s, a saving of ~36.4 s** on the decode loop
-alone. End to end over the same capture, the bound BIT_PARITY path went **45 253.9 ms →
-10 592.2 ms (median of 3) = 4.27×**. The story projected `[P]` 17.1 ms/kf (~2.5×); the measured result is **better than the
+> 🔴 **READ THE TWO ROWS ABOVE CORRECTLY — CORRECTED 2026-09-17 BY CODE REVIEW.** This table
+> originally carried only the second row, labelled "bound decode loop". **It is not the bound
+> loop.** `41.982` is `decodeProbe`'s wall and `7.706` is `pipelineProbe`'s — two INSTRUMENTS,
+> neither of which is `decodeKeyframesBySeekPipelined`, the function that actually shipped. They
+> are a fair measurement of the loop STRUCTURE (neither copies planes nor calls `onFrame`), and
+> the k-sweep in §3 rests on them legitimately. But a defect present in the bound loop and absent
+> from the probe would not show up in `7.706`. **The bound loop's own figure is the first row, and
+> it is what should be quoted: 4.27× / 4.36×, not 5.45×.**
+
+`[D]` Over 1061 keyframes the STRUCTURE figure is **44.54 s → 8.18 s, a saving of ~36.4 s**. The
+bound loop's own decode stage is **45.02 s → 10.34 s**. End to end over the same capture, the
+bound BIT_PARITY path went **45 253.9 ms → 10 592.2 ms (median of 3) = 4.27×**. The story projected `[P]` 17.1 ms/kf (~2.5×); the measured result is **better than the
 projection by more than a factor of two**, because the projection assumed the flush and the
 timeout were two independent subtractions from a fixed 42.2 ms wall, and they are not —
 removing the per-keyframe EOS removes the thing the timeout was delaying as well.
@@ -38,11 +48,29 @@ removing the per-keyframe EOS removes the thing the timeout was delaying as well
 
 ---
 
-## 1. Baseline — re-measured today, not inherited
+## 1. Baseline — `flushprobe` re-measured today; the full-capture before is INHERITED
 
 The APK was rebuilt and reinstalled from the current tree **before** the baseline was taken, so
 the "before" provably comes from the tree that was then modified. Three `flushprobe` runs,
 100 keyframes each.
+
+> 🔴 **THE QUALIFIER MATTERS — ADDED 2026-09-17 BY CODE REVIEW.** "Re-measured today, not
+> inherited" is true of **`flushprobe` only** — `baseline_flushprobe_run{1,2,3}.json` are
+> 2026-09-17T10:14–10:18. The **full-capture** before behind the 4.27× in §0 and §4 is
+> `BEFORE_report_timing.json`, whose `generated_at` is **2026-09-15T15:30** — ~1.8 days earlier,
+> **n = 1**, from the 12.2 era. So "median of 3" applies to the AFTER side only. It is also not
+> the banked tracked artifact: `bench/12-2/device_report_timing.json` reads **44 879.3 ms**,
+> which is the basis Decision #13 and the PERF-002 re-baseline use, against the 45 253.9 quoted
+> here. Against 44 879.3 the ratio is 4.24×, −34.3 s — the conclusion is unchanged, the
+> provenance is not.
+
+> ⚠️ **AND THE TWO `flushprobe` SIDES DO NOT EXECUTE THE SAME WORK.** AC3's hardening changed what
+> the mode does: `baseline_flushprobe_run1.json` has `sync_sample_count: 1061, "scanned here"`;
+> `after_flushprobe_run1.json` has `-1, "NOT MEASURED"`. The baseline runs therefore pulled the
+> whole 2.3 GB through the extractor immediately before `decodeProbe` and the after runs did not.
+> `decodeProbe`'s own `wall0` excludes the scan, and a warm page cache favours the BASELINE, so
+> the direction is conservative — but the Debug Log's "a measurement no-op" is wrong for
+> `flushprobe` specifically, which is the mode AC1's entire A/B rests on.
 
 | metric | 12.2 banked (median of 3) | today, run 1 / 2 / 3 | today median |
 |---|---|---|---|
@@ -102,10 +130,24 @@ both ends.
 Caps are now declared as durations and converted to polls, so they no longer derive silently
 from the timeout:
 
-| guard | before | after | wedge cap |
-|---|---|---|---|
-| `MAX_SPINS` | `500` @ 10 ms | `5000` @ 1 ms | **5 s — unchanged** |
-| `MAX_SPINS_BEFORE_EOS` | `2000` @ 10 ms | `20000` @ 1 ms | **20 s — unchanged** |
+| guard | before | after | wedge cap | governs, in the pipelined loop |
+|---|---|---|---|---|
+| `MAX_SPINS` | `500` @ 10 ms | `5000` @ 1 ms | **5 s — unchanged** | the tail drain only (~8 of 1061 kf) |
+| `MAX_SPINS_BEFORE_EOS` | `2000` @ 10 ms | `20000` @ 1 ms | **20 s — unchanged** | **steady state (~1053 of 1061 kf)** |
+
+> ⚠️ **WHICH CAP ACTUALLY GOVERNS — COLUMN ADDED 2026-09-17 BY CODE REVIEW.** The drain reads
+> `if (eosQueued) MAX_SPINS else MAX_SPINS_BEFORE_EOS`, and `eosQueued` only turns true once every
+> sample is in — so the **20 s** cap, not the 5 s one, guards almost the whole run. That is
+> deliberate and has been kept as committed (Stephane's call, 2026-09-17): a stall before EOS **is**
+> the k-too-small failure, and bailing at 5 s would report a device limit as a crash. What was wrong
+> was the constant's KDoc, which justified the generous cap solely by A′'s sample-skipping — a
+> rationale that does not apply in this loop. Corrected inline in `WardenKeyframeDecoder.kt`.
+>
+> ⚠️ The budget is expressed in time but still **enforced in polls**, so it is an
+> order-of-magnitude guard, not a deadline: a codec that returns `TRY_AGAIN` early burns the
+> allowance faster than wall-clock. The non-`TRY_AGAIN` sentinels, which return immediately, are
+> now counted separately against `MAX_SPINS` — they previously escaped the counter entirely, so a
+> codec stuck re-raising one spun at 100% CPU with no cap at all.
 
 ---
 
@@ -116,14 +158,24 @@ run, so the comparison carries no run-to-run spread. Three runs, median.
 
 | *k* | wall ms/kf (median) | per-run | decoded | PTS mismatches |
 |---|---|---|---|---|
-| **1** | **WEDGED — no output, all 3 runs** | — | 0 | — |
+| **1** | **WEDGED, all 3 runs** | — | *not recorded* † | — |
 | 2 | 20.909 | 20.81 / 20.91 / 23.15 | 100/100 | 0 |
 | **4** | **8.062** | 8.07 / 8.06 / 6.70 | 100/100 | 0 |
 | **8** ← chosen | **7.706** | 7.71 / 7.79 / 6.94 | 100/100 | 0 |
 | 16 | 7.725 | 7.80 / 7.72 / 6.50 | 100/100 | 0 |
 
+† 🔴 **"decoded = 0" WAS AN INFERENCE, NOT A MEASUREMENT — CORRECTED 2026-09-17 BY CODE
+REVIEW.** The depth-1 entry in all three `after_flushprobe_run*.json` is, in full,
+`{"pipeline_depth": 1, "error": "...pipelineProbe wedged at depth=1"}` — the sweep's `catch`
+recorded only the depth and the exception text. And because `spins` resets on every successful
+decode, that throw fires after 20 s **without a NEW output**, which is equally consistent with a
+run that decoded 90 frames and then stalled. The wedge is real and reproduced 3/3; the specific
+claim "no output at all" is not evidenced by the artifact. `pipelineProbe` and the sweep now
+record `keyframes_decoded`, `max_observed_in_flight` and `comparable` on the failure path too, so
+the next sweep will settle it.
+
 **`k = 1` wedging is the most informative row in this report.** One IDR in flight with no EOS
-produces no output at all — trap 2, reproduced directly, three times out of three. It is why
+does not drain — trap 2, reproduced directly, three times out of three. It is why
 the tail still queues exactly one `END_OF_STREAM` per **run**: the flush was removable, the
 drain was not.
 
@@ -132,7 +184,7 @@ the knee, so a device whose reorder depth is deeper than this one's does not fal
 the k=2 cliff. 16 buys nothing measurable (7.725 vs 7.706) for twice the in-flight state. **4 would work
 today; 8 is the same speed with headroom.**
 
-**What the loop costs now.** At k=8, `seekTo` is **~4.5 of the 7.7 ms/kf — ~58% of the loop**.
+**What the loop costs now.** At k=8, `seekTo` is **~4.5 of the 7.7 ms/kf — ~58% of the loop** (4.430 / 7.706 = 57.5%).
 The decode loop's remaining cost is now dominated by the one stage this story's own table
 marked "not yours". **Not investigated and not claimed reducible** — logged in
 `deferred-work.md` so the next reader starts from the measurement, not the old 10% framing.
@@ -142,7 +194,11 @@ marked "not yours". **Not investigated and not claimed reducible** — logged in
 ## 4. AC4 / AC5 — proving the pixels did not move
 
 Three back-to-back full-capture runs on the shipped binary, 1061 keyframes each, both colour
-paths. **Thermal `NONE` on all three** — the speedup is not a cold-run artefact.
+paths. **Thermal `NONE` on all three** — the speedup is not a cold-run artefact. ⚠️ *Qualifier added
+2026-09-17 by code review: `thermal` is sampled ONCE per report, under `ac1_device_profile`,
+which is written before any decode work begins. So this is a statement about three run
+**starts**, not about the ~8 minutes of decoding they cover. Per-stage sampling is deferred to
+Story 12.4d, which owns the end-to-end pass.*
 
 | | before (12.2) | run 1 | run 2 | run 3 | after median | |
 |---|---|---|---|---|---|---|
@@ -217,7 +273,16 @@ parity-corpus figure, **not** accuracy-in-the-world).
 ### AC6 — strategy A is still the one that wins
 
 Re-measured head to head on the same 60 frames in run 1: **A (absolute seek per keyframe)
-1304.3 ms vs A′ (single-pass sync-filtered demux) 4160.0 ms — A is 3.2× faster.** A′ still has
+1304.3 ms vs A′ (single-pass sync-filtered demux) 4160.0 ms — A is 3.2× faster.**
+
+> ⚠️ **SCOPE OF THIS HEAD-TO-HEAD — ADDED 2026-09-17 BY CODE REVIEW.** Both arms of
+> `ac0b_decode_strategy_comparison` carry `"color_path": "ZERO_COPY"`, i.e. `toSurface != null`,
+> which `decodeKeyframesBySeek` routes to **`decodeKeyframesBySeekSurfaceLegacy`** — the retained
+> pre-12.4a flush loop. So this re-confirms **A over A′ on the LEGACY loop**. The shipped
+> pipelined A was never benched head-to-head against A′. That does not threaten AC6 (the binding
+> is A over A′ as strategies, and pipelining only widens the gap) but the number above is not a
+> measurement of what ships.
+ A′ still has
 no flush and no per-keyframe EOS and still loses, for the reason §0 of the decoder now states
 inline: `advance()` reads sample data, so A′ drags 2.3 GB through the extractor.
 
@@ -243,9 +308,15 @@ adb shell am start -n team.warden.mobile/.WardenEngineBenchActivity \
   --es mode timing --es video $DEST/capture.mp4 --ei limit 0 --ei cpuFrames 400
 
 # AC5's decode-order tripwire
-python apps/mobile/bench/12-4a/compare_fire_rows.py \
-  apps/mobile/bench/12-4a/BEFORE_timing_fires_bit_parity_seek_1061.json \
-  apps/mobile/bench/12-4a/AFTER_timing_fires_bit_parity_seek_1061.json
+# NB: the AFTER file is PER-RUN (run1/run2/run3). The single
+# AFTER_timing_fires_bit_parity_seek_1061.json this command used to name was
+# never committed, here or in the story File List (fixed 2026-09-17 by review).
+for r in 1 2 3; do
+  python apps/mobile/bench/12-4a/compare_fire_rows.py \
+    apps/mobile/bench/12-4a/BEFORE_timing_fires_bit_parity_seek_1061.json \
+    apps/mobile/bench/12-4a/AFTER_timing_fires_run$r.json \
+    -o apps/mobile/bench/12-4a/fire_row_comparison_run$r.json
+done
 ```
 
 Each run logs `BENCH DONE` to logcat under tag `WardenBench` and writes
