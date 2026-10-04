@@ -1,0 +1,90 @@
+{
+  "story": "12.4d",
+  "run": 3,
+  "fixture": "videos/V2/2026-04-27 22-05-34.mp4 (pushed as /sdcard/Download/warden-12-4d-capture.mp4)",
+  "device": "22101320G",
+  "boundary": "runPipeline() entry -> updateSessionStatus('ready'); see story 12.4d AC0a",
+  "error": null,
+  "sessionId": "0b4609b0-7bb2-4b5f-b631-3c80016a6a5d",
+  "perf002": {
+    "setup_done": 223.0038539171219,
+    "duration_probe_done": 469.08968794345856,
+    "native_analysis_done": 12717.67509996891,
+    "native_wall_ms": 12204.28562,
+    "native_keyframe_index_ms": 2917.601926,
+    "native_ms_per_keyframe_wall": 11.502625466541,
+    "native_ms_per_keyframe_engine": 0.649647193213949,
+    "native_ms_per_keyframe_decode_excluding_engine": 7.6278707200754,
+    "timeline_done": 12864.359578967094,
+    "detection_done": 12869.961817979813,
+    "segments": 18,
+    "keyframes": 1061,
+    "segments_built": 12870.809213995934,
+    "sqlite_done": 12957.874109983444,
+    "segmentation_done": 12958.579994916916,
+    "results_done": 18815.814315915108,
+    "thumbnails": 18,
+    "thumbnail_extract_ms": 5783.945361733437,
+    "thumbnail_db_ms": 68.6649979352951,
+    "total": 18844.526816010475
+  },
+  "thermal": {
+    "before": {
+      "at": "2026-10-04T15:34:56.013Z",
+      "status": 0,
+      "battery_celsius": 29,
+      "temps": {},
+      "active_cooling": {}
+    },
+    "after": {
+      "at": "2026-10-04T15:35:38.640Z",
+      "status": 0,
+      "battery_celsius": 30,
+      "temps": {},
+      "active_cooling": {}
+    },
+    "samples": [
+      {
+        "at": "2026-10-04T15:35:06.143Z",
+        "status": 0,
+        "battery_celsius": 29,
+        "active_cooling": {}
+      },
+      {
+        "at": "2026-10-04T15:35:16.255Z",
+        "status": 0,
+        "battery_celsius": 29,
+        "active_cooling": {}
+      },
+      {
+        "at": "2026-10-04T15:35:26.260Z",
+        "status": 0,
+        "battery_celsius": 29,
+        "active_cooling": {}
+      },
+      {
+        "at": "2026-10-04T15:35:36.201Z",
+        "status": 0,
+        "battery_celsius": 30,
+        "active_cooling": {}
+      }
+    ],
+    "worst_status": 0
+  },
+  "logcat": [
+    "10-04 17:35:19.751 I/ReactNativeJS( 5943): [PERF-002] sessionId=0b4609b0-7bb2-4b5f-b631-3c80016a6a5d start",
+    "10-04 17:35:19.973 I/ReactNativeJS( 5943): [PERF-002] sessionId=0b4609b0-7bb2-4b5f-b631-3c80016a6a5d mark=setup_done t+223ms",
+    "10-04 17:35:20.219 I/ReactNativeJS( 5943): [PERF-002] sessionId=0b4609b0-7bb2-4b5f-b631-3c80016a6a5d mark=duration_probe_done t+469ms",
+    "10-04 17:35:32.446 I/WardenAnalyzer( 5943): analysed 1061 keyframes of 064b9756-53dd-49bc-9005-52a2d1f030c9.mp4 in 12204 ms (engine 0,650 ms/kf)",
+    "10-04 17:35:32.468 I/ReactNativeJS( 5943): [PERF-002] sessionId=0b4609b0-7bb2-4b5f-b631-3c80016a6a5d mark=native_analysis_done t+12718ms",
+    "10-04 17:35:32.615 I/ReactNativeJS( 5943): [PERF-002] sessionId=0b4609b0-7bb2-4b5f-b631-3c80016a6a5d mark=timeline_done t+12864ms",
+    "10-04 17:35:32.620 I/ReactNativeJS( 5943): [PERF-009] sessionId=0b4609b0-7bb2-4b5f-b631-3c80016a6a5d keyframes=1061 in_match=772 score_screen=72 not_in_match=215 doubt=2 segments=18 unknownMaps=0 hud=v2 engine_ms_per_kf=0.650 layout=NV12 (semi-planar, U V U V)",
+    "10-04 17:35:32.620 I/ReactNativeJS( 5943): [PERF-002] sessionId=0b4609b0-7bb2-4b5f-b631-3c80016a6a5d mark=detection_done t+12870ms",
+    "10-04 17:35:32.621 I/ReactNativeJS( 5943): [PERF-002] sessionId=0b4609b0-7bb2-4b5f-b631-3c80016a6a5d mark=segments_built t+12871ms",
+    "10-04 17:35:32.708 I/ReactNativeJS( 5943): [PERF-002] sessionId=0b4609b0-7bb2-4b5f-b631-3c80016a6a5d mark=sqlite_done t+12958ms",
+    "10-04 17:35:32.709 I/ReactNativeJS( 5943): [PERF-002] sessionId=0b4609b0-7bb2-4b5f-b631-3c80016a6a5d mark=segmentation_done t+12959ms",
+    "10-04 17:35:38.566 I/ReactNativeJS( 5943): [PERF-002] sessionId=0b4609b0-7bb2-4b5f-b631-3c80016a6a5d mark=results_done t+18816ms",
+    "10-04 17:35:38.595 I/ReactNativeJS( 5943): [PERF-002] sessionId=0b4609b0-7bb2-4b5f-b631-3c80016a6a5d end totalMs=18845",
+    "10-04 17:35:38.595 I/ReactNativeJS( 5943): [PERF-002] sessionId=0b4609b0-7bb2-4b5f-b631-3c80016a6a5d record={\"setup_done\":223.0038539171219,\"duration_probe_done\":469.08968794345856,\"native_analysis_done\":12717.67509996891,\"native_wall_ms\":12204.28562,\"native_keyframe_index_ms\":2917.601926,\"native_ms_per_keyframe_wall\":11.502625466541,\"native_ms_per_keyframe_engine\":0.649647193213949,\"native_ms_per_keyframe_decode_excluding_engine\":7.6278707200754,\"timeline_done\":12864.359578967094,\"detection_done\":12869.961817979813,\"segments\":18,\"keyframes\":1061,\"segments_built\":12870.809213995934,\"sqlite_done\":12957.874109983444,\"segmentation_done\":12958.579994916916,\"results_done\":18815.814315915108,\"thumbnails\":18,\"thumbnail_extract_ms\":5783.945361733437,\"thumbnail_db_ms\":68.6649979352951,\"total\":18844.526816010475}"
+  ]
+}

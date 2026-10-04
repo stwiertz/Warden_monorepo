@@ -1,0 +1,20 @@
+{
+ "story": "12.4c",
+ "kind": "ac10-video-parity",
+ "generated_at": "2026-10-04T17:36:04",
+ "device_file": "device_analyze_session_run3.json",
+ "oracle_file": "video_oracle_fires.json",
+ "n_rules": 134,
+ "device_keyframes": 1061,
+ "oracle_keyframes": 1061,
+ "frames_matched": 1061,
+ "frames_unmatched": 0,
+ "unmatched_pts_us": [],
+ "pts_tolerance_us": 1000,
+ "rule_frame_decisions": 142174,
+ "frames_with_disagreement": 0,
+ "total_disagreements": 0,
+ "exact_parity": true,
+ "worst_rules": [],
+ "examples": []
+}

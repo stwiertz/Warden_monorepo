@@ -317,6 +317,16 @@ async function runPipeline(
       `[PERF-002] sessionId=${sessionId} mark=${label} t+${t.toFixed(0)}ms`
     );
   };
+  // Story 12.4d (AC2) — values that are not marks on the clock: the native
+  // timing block, counts, and the summed thumbnail split. Same record.
+  const __perfRecord = (key: string, value: number): void => {
+    if (!__DEV__) return;
+    __perfStages[key] = value;
+  };
+  // Story 12.4d (inherited from 12.4c review D3) — the producer the AC10
+  // procedure in bench/12-4c/REPORT.md pulls: the raw analyzeSession result,
+  // written AFTER the clock stops so it costs the measured run nothing.
+  let __devAnalysis: EngineSessionAnalysis | null = null;
   if (__DEV__) {
     console.log(`[PERF-002] sessionId=${sessionId} start`);
   }
@@ -352,6 +362,7 @@ async function runPipeline(
     // service is always stopped — on success, on a re-thrown error, and even
     // when this start call itself throws. Never leak the service (architecture.md:821).
     await startForegroundService(sessionId);
+    __perfMark("setup_done");
 
     const lastStage = getCheckpoint(sessionId);
     let videoDurationMs = 0;
@@ -374,6 +385,7 @@ async function runPipeline(
       // the stage that used to own it no longer exists — and it is still needed
       // by the results stage's past-EOF clamp.
       videoDurationMs = await getVideoDuration(session.video_file_path);
+      __perfMark("duration_probe_done");
 
       const analysis: EngineSessionAnalysis = await analyze({
         requestId: sessionId,
@@ -393,9 +405,21 @@ async function runPipeline(
         },
       });
 
+      __perfMark("native_analysis_done");
+      if (__DEV__) __devAnalysis = analysis;
+      __perfRecord("native_wall_ms", analysis.timing.wall_ms);
+      __perfRecord("native_keyframe_index_ms", analysis.timing.keyframe_index_ms);
+      __perfRecord("native_ms_per_keyframe_wall", analysis.timing.ms_per_keyframe_wall);
+      __perfRecord("native_ms_per_keyframe_engine", analysis.timing.ms_per_keyframe_engine);
+      __perfRecord(
+        "native_ms_per_keyframe_decode_excluding_engine",
+        analysis.timing.ms_per_keyframe_decode_excluding_engine
+      );
+
       const detection = buildSessionDetection(analysis, mapConfig, classifiers, {
         doubtMargin: options.doubtMargin,
       });
+      __perfMark("timeline_done");
       const gameSegments = detection.segments;
       const mapIdentifications = detection.identifications;
 
@@ -459,9 +483,9 @@ async function runPipeline(
             `layout=${analysis.decoder_chroma_layout}`
         );
       }
-      __perfMark(
-        `detection_done_segments=${gameSegments.length}_keyframes=${detection.stats.keyframes}`
-      );
+      __perfMark("detection_done");
+      __perfRecord("segments", gameSegments.length);
+      __perfRecord("keyframes", detection.stats.keyframes);
     }
 
     if (!segmentationDone) {
@@ -479,11 +503,13 @@ async function runPipeline(
         storage.getNumber(checkpointKey(sessionId, "duration")) ?? 0;
 
       const segments = buildMapSegments(gameSegments, mapIdentifications);
+      __perfMark("segments_built");
       // Idempotent: rows from an earlier attempt — a crash between the insert
       // and saveCheckpoint, or a discarded v1 checkpoint that had already
       // reached segmentation — are replaced, not duplicated.
       await deleteMapSegmentsForSession(sessionId);
       const savedSegments = await insertMapSegments(sessionId, segments);
+      __perfMark("sqlite_done");
 
       storage.setObject(
         checkpointKey(sessionId, "segmentIds"),
@@ -522,6 +548,8 @@ async function runPipeline(
         storage.setNumber(checkpointKey(sessionId, "duration"), videoDurationMs);
       }
       const processingDir = getProcessingDir(sessionId);
+      let __thumbExtractMs = 0;
+      let __thumbDbMs = 0;
 
       for (let i = 0; i < segmentData.length; i++) {
         const seg = segmentData[i];
@@ -545,6 +573,7 @@ async function runPipeline(
         const outputPath = `${processingDir}/results/map_${seg.mapIndex}.jpg`;
 
         let extracted = false;
+        const __tExtract = __DEV__ ? performance.now() : 0;
         try {
           await extractFrameAt(
             session.video_file_path,
@@ -561,7 +590,9 @@ async function runPipeline(
             err
           );
         }
+        if (__DEV__) __thumbExtractMs += performance.now() - __tExtract;
         if (extracted && segmentIds[i]) {
+          const __tDb = __DEV__ ? performance.now() : 0;
           try {
             await updateResultFramePath(segmentIds[i], outputPath);
           } catch (err) {
@@ -572,6 +603,7 @@ async function runPipeline(
               err
             );
           }
+          if (__DEV__) __thumbDbMs += performance.now() - __tDb;
         }
 
         reportProgress(
@@ -582,6 +614,9 @@ async function runPipeline(
 
       saveCheckpoint(sessionId, "results");
       __perfMark("results_done");
+      __perfRecord("thumbnails", segmentData.length);
+      __perfRecord("thumbnail_extract_ms", __thumbExtractMs);
+      __perfRecord("thumbnail_db_ms", __thumbDbMs);
     }
 
     await updateSessionStatus(sessionId, "ready");
@@ -591,6 +626,23 @@ async function runPipeline(
       console.log(
         `[PERF-002] sessionId=${sessionId} end totalMs=${totalMs.toFixed(0)}`
       );
+      // Story 12.4d — the whole record on one line, so a device run can be
+      // archived from logcat without reading MMKV out of the app sandbox.
+      console.log(
+        `[PERF-002] sessionId=${sessionId} record=${JSON.stringify(__perfStages)}`
+      );
+      if (__devAnalysis) {
+        try {
+          // Lazy: a dev-only side channel must not put a native module on the
+          // import path of every consumer of this file.
+          const { File, Paths } = require("expo-file-system") as typeof import("expo-file-system");
+          const dump = new File(Paths.document, "analyzeSession_dump.json");
+          dump.write(JSON.stringify(__devAnalysis));
+          console.log(`[PERF-002] sessionId=${sessionId} dump=${dump.uri}`);
+        } catch (err) {
+          console.warn(`[PERF-002] analyzeSession dump failed:`, err);
+        }
+      }
       try {
         storage.setObject(
           checkpointKey(sessionId, "perf002"),

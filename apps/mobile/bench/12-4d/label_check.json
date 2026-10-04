@@ -1,0 +1,322 @@
+{
+ "video": "2026-04-27 22-05-34.mp4",
+ "labeled_pngs_from_this_capture": 1027,
+ "by_label": {
+  "artefact": 188,
+  "atlantis": 121,
+  "coliseum": 56,
+  "engine": 112,
+  "helios": 97,
+  "horizon": 63,
+  "lobby": 99,
+  "score": 34,
+  "silva": 104,
+  "the_cliff": 80,
+  "the_rock": 38,
+  "transition": 35
+ },
+ "checks": {
+  "map frame lands inside a detected match": {
+   "ok": 859,
+   "n": 859,
+   "rate": 1.0
+  },
+  "\u2026and the match carries the right map": {
+   "ok": 859,
+   "n": 859,
+   "rate": 1.0
+  },
+  "lobby frame NOT read as in-match": {
+   "ok": 99,
+   "n": 99,
+   "rate": 1.0
+  },
+  "score frame read as score_screen": {
+   "ok": 30,
+   "n": 34,
+   "rate": 0.8824
+  },
+  "transition frame NOT read as in-match": {
+   "ok": 35,
+   "n": 35,
+   "rate": 1.0
+  }
+ },
+ "matches": [
+  {
+   "start_ms": 12500,
+   "end_ms": 429167,
+   "map_id": "artefact"
+  },
+  {
+   "start_ms": 520833,
+   "end_ms": 1025000,
+   "map_id": "atlantis"
+  },
+  {
+   "start_ms": 1116667,
+   "end_ms": 1537500,
+   "map_id": "helios"
+  },
+  {
+   "start_ms": 1616667,
+   "end_ms": 2066667,
+   "map_id": "engine"
+  },
+  {
+   "start_ms": 2162500,
+   "end_ms": 2420833,
+   "map_id": "horizon"
+  },
+  {
+   "start_ms": 2520833,
+   "end_ms": 2845833,
+   "map_id": "the_cliff"
+  },
+  {
+   "start_ms": 2925000,
+   "end_ms": 3325000,
+   "map_id": "silva"
+  },
+  {
+   "start_ms": 3620833,
+   "end_ms": 3633333,
+   "map_id": "the_rock"
+  },
+  {
+   "start_ms": 3670833,
+   "end_ms": 3683333,
+   "map_id": "the_rock"
+  },
+  {
+   "start_ms": 3716667,
+   "end_ms": 3741667,
+   "map_id": "the_rock"
+  },
+  {
+   "start_ms": 3775000,
+   "end_ms": 3775000,
+   "map_id": "the_rock"
+  },
+  {
+   "start_ms": 3808333,
+   "end_ms": 3825000,
+   "map_id": "the_rock"
+  },
+  {
+   "start_ms": 3858333,
+   "end_ms": 3887500,
+   "map_id": "the_rock"
+  },
+  {
+   "start_ms": 3920833,
+   "end_ms": 3937500,
+   "map_id": "the_rock"
+  },
+  {
+   "start_ms": 3970833,
+   "end_ms": 3975000,
+   "map_id": "the_rock"
+  },
+  {
+   "start_ms": 4008333,
+   "end_ms": 4012500,
+   "map_id": "the_rock"
+  },
+  {
+   "start_ms": 4041667,
+   "end_ms": 4054167,
+   "map_id": "the_rock"
+  },
+  {
+   "start_ms": 4141667,
+   "end_ms": 4383333,
+   "map_id": "coliseum"
+  }
+ ],
+ "match_label_votes": [
+  {
+   "map_id": "artefact",
+   "start_s": 12.5,
+   "end_s": 429.167,
+   "human_labels_inside": {
+    "artefact": 188
+   }
+  },
+  {
+   "map_id": "atlantis",
+   "start_s": 520.833,
+   "end_s": 1025.0,
+   "human_labels_inside": {
+    "atlantis": 121
+   }
+  },
+  {
+   "map_id": "helios",
+   "start_s": 1116.667,
+   "end_s": 1537.5,
+   "human_labels_inside": {
+    "helios": 97
+   }
+  },
+  {
+   "map_id": "engine",
+   "start_s": 1616.667,
+   "end_s": 2066.667,
+   "human_labels_inside": {
+    "engine": 112
+   }
+  },
+  {
+   "map_id": "horizon",
+   "start_s": 2162.5,
+   "end_s": 2420.833,
+   "human_labels_inside": {
+    "horizon": 63
+   }
+  },
+  {
+   "map_id": "the_cliff",
+   "start_s": 2520.833,
+   "end_s": 2845.833,
+   "human_labels_inside": {
+    "score": 2,
+    "the_cliff": 80
+   }
+  },
+  {
+   "map_id": "silva",
+   "start_s": 2925.0,
+   "end_s": 3325.0,
+   "human_labels_inside": {
+    "silva": 104
+   }
+  },
+  {
+   "map_id": "the_rock",
+   "start_s": 3620.833,
+   "end_s": 3633.333,
+   "human_labels_inside": {
+    "the_rock": 3
+   }
+  },
+  {
+   "map_id": "the_rock",
+   "start_s": 3670.833,
+   "end_s": 3683.333,
+   "human_labels_inside": {
+    "the_rock": 4
+   }
+  },
+  {
+   "map_id": "the_rock",
+   "start_s": 3716.667,
+   "end_s": 3741.667,
+   "human_labels_inside": {
+    "the_rock": 6
+   }
+  },
+  {
+   "map_id": "the_rock",
+   "start_s": 3775.0,
+   "end_s": 3775.0,
+   "human_labels_inside": {
+    "the_rock": 1
+   }
+  },
+  {
+   "map_id": "the_rock",
+   "start_s": 3808.333,
+   "end_s": 3825.0,
+   "human_labels_inside": {
+    "the_rock": 4
+   }
+  },
+  {
+   "map_id": "the_rock",
+   "start_s": 3858.333,
+   "end_s": 3887.5,
+   "human_labels_inside": {
+    "the_rock": 7
+   }
+  },
+  {
+   "map_id": "the_rock",
+   "start_s": 3920.833,
+   "end_s": 3937.5,
+   "human_labels_inside": {
+    "the_rock": 5
+   }
+  },
+  {
+   "map_id": "the_rock",
+   "start_s": 3970.833,
+   "end_s": 3975.0,
+   "human_labels_inside": {
+    "the_rock": 2
+   }
+  },
+  {
+   "map_id": "the_rock",
+   "start_s": 4008.333,
+   "end_s": 4012.5,
+   "human_labels_inside": {
+    "the_rock": 2
+   }
+  },
+  {
+   "map_id": "the_rock",
+   "start_s": 4041.667,
+   "end_s": 4054.167,
+   "human_labels_inside": {
+    "the_rock": 4
+   }
+  },
+  {
+   "map_id": "coliseum",
+   "start_s": 4141.667,
+   "end_s": 4383.333,
+   "human_labels_inside": {
+    "coliseum": 56
+   }
+  }
+ ],
+ "errors": [
+  {
+   "png": "score/014_00h34m43s.png",
+   "label": "score",
+   "kf": 501,
+   "diff": 2.16,
+   "emitted": "not_in_match",
+   "pred_map": "unknown",
+   "match_map": null
+  },
+  {
+   "png": "score/019_00h47m21s.png",
+   "label": "score",
+   "kf": 683,
+   "diff": 2.5,
+   "emitted": "doubt",
+   "pred_map": "unknown",
+   "match_map": "the_cliff"
+  },
+  {
+   "png": "score/020_00h47m25s.png",
+   "label": "score",
+   "kf": 683,
+   "diff": 2.63,
+   "emitted": "doubt",
+   "pred_map": "unknown",
+   "match_map": "the_cliff"
+  },
+  {
+   "png": "score/030_01h07m55s.png",
+   "label": "score",
+   "kf": 978,
+   "diff": 2.57,
+   "emitted": "not_in_match",
+   "pred_map": "unknown",
+   "match_map": null
+  }
+ ]
+}

@@ -1,0 +1,69 @@
+{
+ "story": "12.4b",
+ "generated_at": 1791128171534,
+ "mode": "parity",
+ "reference_device_note": "Measured on the Poco X5 Pro 5G (SM7325 \/ Android 14 \/ Adreno 642L). AC15: these are REAL reference-device numbers but they bind NEITHER PERF-002 NOR PERF-010 — both re-baseline with Story 12.3, and PERF-010 is a SOFT target, not a measured floor. The engine brief's <10 s is the aspiration, not an acceptance criterion. Parity figures are an IN-SAMPLE parity target, never accuracy-in-the-world; REL-006's >=95% floor is 9.9b's, instrumented by Tool 9 via 9.16.",
+ "ac1_device_profile": {
+  "android_release": "14",
+  "android_sdk_int": 34,
+  "model": "22101320G",
+  "manufacturer": "Xiaomi",
+  "board": "redwood",
+  "hardware": "qcom",
+  "soc_model": "SM7325",
+  "supported_abis": [
+   "arm64-v8a",
+   "armeabi-v7a",
+   "armeabi"
+  ],
+  "thermal": {
+   "available": true,
+   "status": 0,
+   "status_name": "NONE",
+   "throttled": false,
+   "note": "0 = NONE. Anything above LIGHT means the governor is capping clocks and every ms\/keyframe figure in this report is a throttled measurement, not a capability measurement."
+  },
+  "engine": {
+   "kind": "CPU integer rule evaluation on MediaCodec keyframe decode",
+   "color_conversion": "WardenColorConvert — bt709 limited range, nearest chroma",
+   "gpu_used": false,
+   "note": "architecture.md Decision #13. No EGL context, no GL thread affinity, no LUT texture upload, no readback synchronisation, and no driver-defined colour conversion."
+  }
+ },
+ "ac5_lut_cross_check": {
+  "n_rules": 134,
+  "bytes": 7200,
+  "sha256": "b8287e084937dff08ee9a36bdb144e7d09b4bb414bab88d5fee6ee1b2b7f62c5",
+  "mode_distribution": {
+   "normal": 57,
+   "wrap": 9,
+   "full_circle": 68
+  },
+  "reference_sha256_from_lut_py": "b8287e084937dff08ee9a36bdb144e7d09b4bb414bab88d5fee6ee1b2b7f62c5",
+  "matches_reference": true
+ },
+ "ac2_color_constants": {
+  "triples": 16777216,
+  "sha256": "4dd2da47dc76c0b295572188703077e65b8c01c4c366b52fd73d6d6404c34e27",
+  "reference_sha256_from_numpy": "4dd2da47dc76c0b295572188703077e65b8c01c4c366b52fd73d6d6404c34e27",
+  "matches_reference": true,
+  "total_ms": 3886.62229,
+  "note": "Exhaustive over the WHOLE (Y, Cb, Cr) domain — 16,777,216 triples, bit-for-bit against ac3_numpy_reference.shader_model. A match means the ported ARITHMETIC is right, not merely that the constants are: the literal checks in colorConvert.test.ts and verify-constants cannot distinguish a transcribed operator error. WardenColorConvert computes in fp64 where the shader ran at ESSL highp (fp32); measured on PC the two disagree on 109 of 16,777,216 triples (0.00065%), max 1 unit — 275x rarer than the published-rounding error the BT.709 four-decimal constants already carry, and inside the same envelope."
+ },
+ "ac0c_paths_measured": [
+  "CPU_BT709_LIMITED"
+ ],
+ "ac0c_paths_removed": [
+  "ZERO_COPY",
+  "BIT_PARITY",
+  "DIRECT_RGB"
+ ],
+ "ac14a_parity": {
+  "n_frames": 2666,
+  "n_rules": 134,
+  "rule_frame_decisions": 357244,
+  "cpu_ms_per_frame": 0.27067024906226556,
+  "output": "parity_fires.json",
+  "note": "Per-rule fire bits, one hex string per frame, bit i = rule i (texel order). Compared against `bench\/12-2\/pc_reference_fires.json` OFF-DEVICE with `pc_reference.py compare`. NO YUV conversion is in this path and that is deliberate: a wrong evaluator and a wrong colour conversion must not be able to mask each other, so the corpus is PNGs and the colour port is proved separately (AC2's exhaustive 2^24 sweep, and AC3(B)'s run over the real capture — see bench\/12-4b\/REPORT.md). 🔴 STORY 12.4b RE-POINTED THIS AT THE CPU EVALUATOR. It ran the GPU mega-shader until Decision #13 rejected it. Banked result for the CPU arm, 2026-09-17: 2666 frames \/ 357,244 decisions \/ 0 disagreements against the pinned PC reference — the same figure the GPU arm held, re-earned rather than inherited. `cpu_ms_per_frame` also replaces what the retired `cpugpu` mode reported, now over the WHOLE corpus instead of a 400-PNG prefix."
+ }
+}

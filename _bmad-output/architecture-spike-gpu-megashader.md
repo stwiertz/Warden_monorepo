@@ -241,7 +241,7 @@ This is an **upper bound** on the bound configuration, because Option A _removes
 
 **Labelled [P], and used nowhere as the binding number.** It is a construction over three measured parts describing a configuration that **was never run end to end**. Story 12.4 measures it for real.
 
-> ✅ **THE `[P]` GAP IS CLOSED ON CORRECTNESS, 2026-09-17 (Story 12.4b) — and still open on PERFORMANCE (Story 12.4d).** The two halves of `[P]` were different claims. The **correctness** half — "the CPU arm has never been fed MediaCodec output at all; 12.2's AC12 fed it BGRA decoded from labeled PNG Bitmaps" — is now answered: MediaCodec → `WardenColorConvert` → `WardenCpuBaseline` ran over the **full 1061-keyframe capture** against the GPU arm on byte-identical decoder planes, at **0 per-rule disagreements over 142,174 decisions**, with the GPU arm still present to answer. The **performance** half — an end-to-end ms/keyframe for the bound configuration — is **Story 12.4d's** and remains a projection here. See [`apps/mobile/bench/12-4b/REPORT.md`](../apps/mobile/bench/12-4b/REPORT.md).
+> ✅ **THE `[P]` GAP IS CLOSED ON CORRECTNESS, 2026-09-17 (Story 12.4b) — and ON PERFORMANCE, 2026-10-04 (Story 12.4d: 9.527 s detection pass, 19.219 s end to end).** The two halves of `[P]` were different claims. The **correctness** half — "the CPU arm has never been fed MediaCodec output at all; 12.2's AC12 fed it BGRA decoded from labeled PNG Bitmaps" — is now answered: MediaCodec → `WardenColorConvert` → `WardenCpuBaseline` ran over the **full 1061-keyframe capture** against the GPU arm on byte-identical decoder planes, at **0 per-rule disagreements over 142,174 decisions**, with the GPU arm still present to answer. The **performance** half — an end-to-end ms/keyframe for the bound configuration — is **Story 12.4d's** and remains a projection here. See [`apps/mobile/bench/12-4b/REPORT.md`](../apps/mobile/bench/12-4b/REPORT.md).
 
 **🔴 The honesty requirement — what this number covers and what it does not.**
 
@@ -256,6 +256,8 @@ The 44.9 s is a **detection-pass bench**, not an auto-slice run. PERF-002 scopes
 | the rest of the auto-slice pipeline (`processingPipeline.ts` stages, MMKV checkpointing, clip metadata) | — | **never measured** |
 
 **Therefore:** the re-baselined figure says _the detection pass costs ~1% of source duration on the reference device_. It does **not** say the full auto-slice pass does. The margin is large enough — ~4.9×, with ~176 s of the budget unused — that the excluded stages would have to cost roughly **four times the entire detection pass** to breach the NFR, which is why this re-baseline is defensible rather than optimistic. But it is bounded, and **Story 12.4 must re-measure PERF-002 end to end over the real pipeline** before the NFR is treated as closed.
+
+> ✅ **MEASURED END TO END, 2026-10-04 (Story 12.4d) — PERF-002 IS CLOSED.** Over the real pipeline (`runPipeline()` entry → session `ready`), on the reference device, 3 runs: **19.219 s = 0.435% of source duration, median — MET by ~11.5×.** Every row of the table above now has a number: keyframe index **3.024 s** (now *inside* the wall), segmentation **~0.24 s** (TS timeline 147 ms + SQLite 87 ms + segment build), thumbnail export **5.908 s** for 18 segments (~324 ms each — the largest previously-unmeasured cost), orchestration ~0.5 s. On this section's own boundary (detection pass, index outside) the wired path measures **9.527 s** — 4.7× under the 44.879 s re-baseline and ~1.9× under the best `[P]` below. **Both `[P]` constructions in this section are therefore superseded by measurement**; they are left as written so the projection can be checked against the result. Evidence: [`apps/mobile/bench/12-4d/REPORT.md`](../apps/mobile/bench/12-4d/REPORT.md).
 
 **The `< 10 s` aspiration.**
 
@@ -351,7 +353,13 @@ The two fixes — shorten `TIMEOUT_US` (two lines, ~10.6 ms/kf) and stop flushin
 
 The Innovation #1 fallback ladder lives in `architecture.md` → `#### Pre-PRD performance spike` → _Spike outcomes & ladder_. All five rows were audited on 2026-09-15 against the question **"is the trigger reachable, and does the remedy engage the measured cost?"** Two rows failed it and are amended; one is answered; one is carried verbatim.
 
-### Rung-0 (Pass row) — **PROVISIONAL pending Story 12.4**
+### Rung-0 (Pass row) — **RESOLVED 2026-10-04 (Story 12.4d)**
+
+> **`rung-0 RESOLVED 2026-10-04 (Story 12.4d) — the engine is bound AND wired (CPU rule evaluation on MediaCodec keyframe decode, in processingPipeline.ts since Story 12.4c); PERF-002 MET END TO END at 0.435% of source duration (19.219 s against 220.98 s, median of 3, reference device); PERF-003 / PERF-004 UN-INSTRUMENTED; PERF-005 unmeasured. The Pass condition — all 4 PERF NFRs met — is NOT satisfied and is NOT claimed: auto-slice ships ON in V1 with the three unmeasured PERF NFRs as soft UX targets. Cloud-fallback remains FORBIDDEN regardless.`**
+
+The Pass condition has two halves and the final verdict states both, the way the provisional one did: **"with a real engine binding" is now TRUE** — Stories 12.4a–c wired it, and Story 12.4d measured it end to end over the real pipeline on the reference device ([`apps/mobile/bench/12-4d/REPORT.md`](../apps/mobile/bench/12-4d/REPORT.md)); **"all 4 PERF NFRs met" is NOT** — PERF-002 is the only one measured. Resolved by an integration plus a measurement, **not** accepted without one (contrast Story 1.1's 2026-05-09 ship-and-observe acceptance). Retiring the PERF-003/004/005 caveat would claim what was not earned.
+
+**Superseded provisional verdict (2026-09-15, Story 12.3), kept as the record:**
 
 > **`rung-0 provisional — engine bound on measurement (CPU rule evaluation on MediaCodec keyframe decode); PERF-002 MET and re-baselined at ≤ 1.02%; PERF-003 / PERF-004 UN-INSTRUMENTED; PERF-005 unmeasured; the pipeline binding is Story 12.4's. Cloud-fallback remains FORBIDDEN regardless.`**
 
@@ -378,6 +386,8 @@ The Pass row's condition is _"all 4 PERF NFRs met on reference device **with a r
 
 **Step 1b is what _"lower the sampling rate"_ can honestly mean under this engine**, which is why the rung is re-armed rather than retired.
 
+> 🔴 **RE-CHECKED 2026-10-04 (Story 12.4d) — STEP 1a IS SPENT; STEP 1b IS THE REMAINING REMEDY.** Story 12.4a applied 1a (bound loop 42.431 → 9.742 ms/keyframe; in the wired pipeline decode-excluding-engine measures 7.767 ms/keyframe), so **1a is no longer available as a remedy** — a fix already applied cannot be applied again. **1b stays armed, but its basis moved:** decode + engine is now **~50%** of the end-to-end wall (9.5 of 19.2 s) and the keyframe index ~16% (3.0 s; a seek per GOP, so decimation can shorten it too) — not the ~94% of a detection-pass wall it was sized against. 1b still engages the largest cost; it does **not** engage **thumbnail export (~31%, ~324 ms per segment)**, which no rung addresses. Not a defect at 0.435% of source against a 5% budget — recorded so the rung is not read as covering the whole wall.
+
 **PRD cascade.** `mobile-AUTO-SLICE-001`'s _"with reduced sampling on weak hardware"_ clause attaches to **step 1b** and survives intact — the clause is still true, it now simply names a keyframe-decimation mechanism rather than an imaginary frame-rate knob. **Step 1a carries no PRD clause**, because it has no user-visible effect.
 
 ### Rung 2 (PERF-003 / PERF-004) — **trigger marked UN-INSTRUMENTED; rung retained**
@@ -392,7 +402,13 @@ The Pass row's condition is _"all 4 PERF NFRs met on reference device **with a r
 
 **What arming it would take, named rather than assumed:** the instrument belongs with the surfaces, i.e. **Stories 5.4 / 5.5 / 6.6**, when Card View, Cinema Mode and the clip surfaces are built. Until then this rung fires only on **observed** behaviour (a user report, a hands-on session), not on a measurement. **A rung that fires on observation is honest; a rung that claims a measurement it cannot take is the defect this story exists to remove.**
 
-### Rung 3 (Hard fail) — **verdict: DOES NOT FIRE. Not yet retired.**
+_Re-checked 2026-10-04 (Story 12.4d): unchanged — still `TRIGGER UN-INSTRUMENTED (2026-09-15)`, still not armed, home still Stories 5.4 / 5.5 / 6.6. Story 12.4d measured PERF-002 only._
+
+### Rung 3 (Hard fail) — **🔴 RETIRED 2026-10-04 (Story 12.4d), on the evidence**
+
+**What landed:** the binding this trigger is about — `analyzeSession` (CPU rule evaluation on MediaCodec keyframe decode) wired into `processingPipeline.ts` by **Story 12.4c** (`03fe9ca`, review `d96b91e`), on the decode loop of **12.4a** and the CPU colour path of **12.4b**. **When and how verified:** 2026-10-04, three end-to-end runs through the app on the reference device — 1061/1061 keyframes, 18 spans all labelled, **0 disagreements over 142,174 rule-frame decisions** against the independent PC oracle on every run, PERF-002 met at 0.435%. The binding shipped within the V1 timeline, so the trigger can no longer fire; auto-slice stays in V1.
+
+**Prior verdict (2026-09-15, Story 12.3) — DOES NOT FIRE, not yet retired — kept as the record:**
 
 The trigger was re-armed in wording on 2026-07-16 to _"the on-device detection engine does not ship as a real binding within V1 timeline"_ (engine-agnostic; it previously fired only on _"JSI binding does not ship"_, unreachable under a shader engine). **Evidence now exists, so the verdict against it can be stated:**
 
@@ -448,11 +464,13 @@ Mirrors Story 12.2's AC15 block, and extends it with what the verdict itself doe
 
 - **PERF-010 is not bound.** It remains a **soft target**, not a measured floor, per the 2026-05-09 ship-and-observe decision. V1 launch is not gated on a measurement. See [NFR re-baseline](#nfr-re-baseline-perf-002--perf-010).
 - **PERF-002's re-baseline covers the detection pass only.** Segmentation, thumbnail export and the rest of the auto-slice pipeline are **outside every number here** and were never measured. Story 12.4 must re-measure end to end.
+  ✅ **DONE 2026-10-04 by Story 12.4d** — 19.219 s = 0.435% end to end; see [PERF-002](#perf-002--re-baselined-and-what-is-inside-the-number).
 - **PERF-003 / PERF-004 / PERF-005 are not measured and have no instrument.** They are soft UX targets. Rung 2's trigger is explicitly un-instrumented.
 - **In-sample parity is not accuracy-in-the-world.** The 0 / 357,244 result is a **parity target** — the device reproducing the PC reference on the corpus the rules were tuned against. **There is no holdout.** It is not, and never was, a generalization claim.
 - **🔴 REL-006's ≥ 95% map-identification floor is NOT gated here.** That is **Story 9.9b's**, instrumented by **Tool 9** via **Story 9.16**. Nothing in this spike measures accuracy on an unseen test set.
 - **The three per-classifier accuracy figures are `[U]` — unbacked by any delivered artifact.** See [Measured results](#measured-results).
 - **The engine is chosen, not wired.** Story 12.2 delivered a **bench**. No production code path calls the bound engine today; `gameDetector.ts`, `mapIdentifier.ts`, `blackScreenDetector.ts`, `segmentation.ts` and `processingPipeline.ts` are untouched. **That is Story 12.4's**, and rung-0 is provisional until it lands.
+  ✅ **DONE — wired by Story 12.4c, measured end to end by Story 12.4d (2026-10-04).** Rung-0 resolved, rung 3 retired.
 - **This spike removes no code.** The GLES / EGL surface, the mega-shader and the Path Z / Path P fork are **rejected architecturally**; their physical removal from `apps/mobile/plugins/**` and the `Warden*.kt` sources is **Story 12.4's**. SEC-007 entries 5 / 5a are corrected in place, not deleted — see `architecture.md`.
   ✅ **DONE 2026-09-17 by Story 12.4b.** `WardenDetectionEngine.kt` (981 lines), `WardenGlUtil.kt` (219 lines), `WardenSurfaceTextureHost`, the `toSurface` decode path, `WardenRulePacker.decodeResults` and the shader-asset emission are deleted; the bench lost `cpugpu`, `pngdump`, `forcedCompletionProfile`, `threadingModel` and its EGL context. **The removal was a SUBSTITUTION, not a deletion:** `WardenColorConvert.kt` ports the bt709 limited-range conversion out of `RESOLVE_YUV_FRAG` first, and was proved before anything was removed. SEC-007 entry 5 now names the bound surface; entry 5a is **resolved as RETAINED** — its condition ("if it turns out to have a consumer") was checked, and `ffmpegKitControl` is one.
 - **Amendment 5c does not lapse.** MediaCodec keeps decode **Android-only by construction** (iOS = VideoToolbox) even with no GLES. The amendment is **re-scoped**, not reverted — see `architecture.md` → `#### iOS Phase 2 deferral`.
@@ -466,14 +484,14 @@ Mirrors Story 12.2's AC15 block, and extends it with what the verdict itself doe
 
 | item | measured headroom | note |
 | --- | --- | --- |
-| **Shorten `TIMEOUT_US` on `dequeueOutputBuffer`** | **~10.6 ms/kf** → ~11.2 s over 1061 kf | Two lines. The probe counts **1.02** `INFO_TRY_AGAIN_LATER` per keyframe against a 10 ms timeout — almost exactly one full sleep each time. |
-| **Stop flushing per keyframe** | **up to ~14.5 ms/kf** → ~15.4 s over 1061 kf | Keep several IDRs in flight. An IDR resets the DPB by definition, so no flush is required for correctness. `flush()` costs 14.5 ms in-loop against 1.8–3.6 ms idle — the expense is the `END_OF_STREAM` → flush transition. |
-| **Replace `countSyncSamplesByScan()`** | avoids a **62.070 s** full-file read | Bench-time assertion that **must never ship**. Take the index from the seek-built list (2.290 s), or read `stss` directly. |
-| ~~**Physically remove the GLES / EGL surface**~~ ✅ **DONE — Story 12.4b, 2026-09-17** | ~1,200 lines of Kotlin + the shader asset | Done **after** the CPU colour converter that replaces it was proved: exhaustively over all 2²⁴ (Y, Cb, Cr) triples on device (bit-identical to the pinned numpy reference), at 0 disagreements over the 2666-frame PNG corpus (357,244 decisions), and at 0 disagreements against the GPU arm over the full capture (142,174 decisions). SEC-007 entry 5 narrowed to MediaCodec-only; **entry 5a RETAINED** — the re-evaluation found a consumer (`ffmpegKitControl`, reached from the `timing` mode 12.4d re-uses). |
-| **Re-measure PERF-002 end to end** | — | Over the real auto-slice pipeline, including segmentation and thumbnail export. Closes the coverage caveat above and resolves provisional rung-0. |
-| **Wire the bound engine into the pipeline** | — | `processingPipeline.ts` and the four detection modules. Retires rung 3. |
+| **Shorten `TIMEOUT_US` on `dequeueOutputBuffer`** | **~10.6 ms/kf** → ~11.2 s over 1061 kf | Two lines. The probe counts **1.02** `INFO_TRY_AGAIN_LATER` per keyframe against a 10 ms timeout — almost exactly one full sleep each time. ✅ **TAKEN BY STORY 12.4a** (`e73b650`, review `c95a59d`): `10_000 → 1_000 µs`. Outcome, with the flush row: bound loop **42.431 → 9.742 ms/kf**; in the wired pipeline (12.4d) decode-excluding-engine **7.767 ms/kf**. |
+| **Stop flushing per keyframe** | **up to ~14.5 ms/kf** → ~15.4 s over 1061 kf | Keep several IDRs in flight. An IDR resets the DPB by definition, so no flush is required for correctness. `flush()` costs 14.5 ms in-loop against 1.8–3.6 ms idle — the expense is the `END_OF_STREAM` → flush transition. ✅ **TAKEN BY STORY 12.4a**: IDRs pipelined (k = 8 in flight), **1061 → 0** per-keyframe `flush()` calls, one `END_OF_STREAM` per run. Outcome shared with the row above; survived integration (12.4d AC3). |
+| **Replace `countSyncSamplesByScan()`** | avoids a **62.070 s** full-file read | Bench-time assertion that **must never ship**. Take the index from the seek-built list (2.290 s), or read `stss` directly. ✅ **TAKEN BY STORY 12.4a (AC3)**: `probe(scanSyncSamples = false)` is the default; the production analyzer (12.4c, `WardenSessionAnalyzer`) takes the index from `syncSamplePtsListBySeek` — **3.024 s** median end to end (12.4d), inside the measured wall. The scan survives as a bench-only opt-in. |
+| ~~**Physically remove the GLES / EGL surface**~~ ✅ **DONE — Story 12.4b, 2026-09-17** | ~1,200 lines of Kotlin + the shader asset | Done **after** the CPU colour converter that replaces it was proved: exhaustively over all 2²⁴ (Y, Cb, Cr) triples on device (bit-identical to the pinned numpy reference), at 0 disagreements over the 2666-frame PNG corpus (357,244 decisions), and at 0 disagreements against the GPU arm over the full capture (142,174 decisions). SEC-007 entry 5 narrowed to MediaCodec-only; **entry 5a RETAINED** — the re-evaluation found a consumer (`ffmpegKitControl`, reached from the `timing` mode 12.4d re-uses). Story **12.4b** (`61cdd8a`, review `83f1898`). |
+| ~~**Re-measure PERF-002 end to end**~~ ✅ **DONE — Story 12.4d, 2026-10-04** | — | Over the real auto-slice pipeline, including segmentation and thumbnail export. Closes the coverage caveat above and resolves provisional rung-0. **Outcome: 19.219 s = 0.435% of source, median of 3, MET by ~11.5×**; rung-0 resolved. [`bench/12-4d/REPORT.md`](../apps/mobile/bench/12-4d/REPORT.md). |
+| ~~**Wire the bound engine into the pipeline**~~ ✅ **DONE — Story 12.4c** (`03fe9ca`, review `d96b91e`) | — | `processingPipeline.ts` and the four detection modules. Retires rung 3. **Outcome:** one native call (`analyzeSession`); 18 spans all labelled on the reference capture; **device parity 0 / 142,174 on MediaCodec** (12.4d). **Rung 3 retired** 2026-10-04. |
 
-**Combined projection [P]:** `42.2 − 25.1 = ~17.1 ms/kf → ~18.1 s` whole capture, **≈ 0.41% of source duration**. Neither fix attempted, neither measured.
+**Combined projection [P]:** `42.2 − 25.1 = ~17.1 ms/kf → ~18.1 s` whole capture, **≈ 0.41% of source duration**. *(**Superseded by measurement, 2026-10-04 (Story 12.4d):** the detection pass on this boundary measures **9.527 s** in the wired pipeline — better than the projection by ~1.9×.)* Neither fix attempted, neither measured.
 
 ### Downstream stories this verdict unblocks
 
@@ -483,9 +501,9 @@ Mirrors Story 12.2's AC15 block, and extends it with what the verdict itself doe
 | **9.9b** — iterative zone population for shipping configs | Released. The engine it populates zones for is settled, and the zone data is engine-independent under either arm — the rule semantics are identical (0 disagreements). |
 | **9.10** — PRD / architecture editorial pass | Released. It keeps the **exhaustive** pHash→ROI/HSV prose sweep; this story amended only the ~10 sites its own ACs named. Stale reference-device identities in `architecture.md` are flagged above for it. |
 | **1.13** — hybrid `map_config` delivery / `schema_version` | Released for create-story. |
-| **12.4** — mobile detection consumer rewrite | **Conditional on this verdict, and the rejection changes its content**: it is now a CPU-arm wiring + decode-loop optimisation + GLES-removal story, not a shader-integration story. **SPLIT four ways 2026-09-17.** **12.4a** ✅ decode loop — 41.982 → **7.706 ms/keyframe** (5.45×). **12.4b** ✅ CPU colour port + GLES removal — the substitution proved at 0 disagreements, then ~1,200 lines deleted. **12.4c** pipeline wiring + TS consumer rewrite (retires rung 3). **12.4d** end-to-end PERF-002 + ladder close-out (resolves provisional rung-0). |
+| **12.4** — mobile detection consumer rewrite | **Conditional on this verdict, and the rejection changes its content**: it is now a CPU-arm wiring + decode-loop optimisation + GLES-removal story, not a shader-integration story. **SPLIT four ways 2026-09-17.** **12.4a** ✅ decode loop — 41.982 → **7.706 ms/keyframe** (5.45×). **12.4b** ✅ CPU colour port + GLES removal — the substitution proved at 0 disagreements, then ~1,200 lines deleted. **12.4c** ✅ pipeline wiring + TS consumer rewrite (`03fe9ca` + review `d96b91e`). **12.4d** ✅ end-to-end PERF-002 (0.435%) + ladder close-out — rung-0 resolved, rung 3 retired (2026-10-04). |
 
-Behind those, **Epics 5 / 6 / 7** (~20 stories) were _"held behind 12.3 + 12.4"_. **12.3 has landed; only 12.4 remains between them and start** — and since the 2026-09-17 split, the gate is specifically **12.4d**. 12.4a and 12.4b are done.
+Behind those, **Epics 5 / 6 / 7** (~20 stories) were _"held behind 12.3 + 12.4"_. **12.3 has landed; only 12.4 remains between them and start** — and since the 2026-09-17 split, the gate is specifically **12.4d**. 12.4a and 12.4b are done. **✅ RELEASED 2026-10-04 — Story 12.4d closed the gate: Epics 5 / 6 / 7 may start.**
 
 ### Deferred-work items disposed
 

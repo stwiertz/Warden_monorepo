@@ -47,6 +47,16 @@ jest.mock("../segmentRepository", () => ({
   updateResultFramePath: jest.fn().mockResolvedValue(undefined),
 }));
 
+// Story 12.4d — the dev-only analyzeSession dump is written through this.
+const mockDumpWrites: { uri: string; body: string }[] = [];
+jest.mock("expo-file-system", () => ({
+  Paths: { document: "file:///docs" },
+  File: jest.fn().mockImplementation((dir: string, name: string) => ({
+    uri: `${dir}/${name}`,
+    write: (body: string) => mockDumpWrites.push({ uri: `${dir}/${name}`, body }),
+  })),
+}));
+
 // An in-memory MMKV, so checkpoint resume can actually be exercised rather than
 // asserted through a mock that always returns undefined.
 // Named `mockStore` because jest.mock factories are hoisted above every other
@@ -483,6 +493,63 @@ describe("detection -> segments -> results, end to end (AC11/AC12)", () => {
     expect(mockStart).not.toHaveBeenCalled();
     expect(mockStop).not.toHaveBeenCalled();
     expect(mockUpdateStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe("the [PERF-002] record decomposes the run (Story 12.4d AC2)", () => {
+  const perf002 = () =>
+    mockStore.get(`processing.${SESSION}.perf002`) as Record<string, number>;
+
+  it("marks every stage boundary on ONE clock, in pipeline order", async () => {
+    const log = jest.spyOn(console, "log").mockImplementation(() => {});
+    await run(analysisOf([true, true, false, false, false, false, false]));
+    log.mockRestore();
+    const p = perf002();
+    const order = [
+      "setup_done",
+      "duration_probe_done",
+      "native_analysis_done",
+      "timeline_done",
+      "detection_done",
+      "segments_built",
+      "sqlite_done",
+      "segmentation_done",
+      "results_done",
+      "total",
+    ];
+    for (const k of order) expect(typeof p[k]).toBe("number");
+    for (let i = 1; i < order.length; i++) {
+      expect(p[order[i]]).toBeGreaterThanOrEqual(p[order[i - 1]]);
+    }
+  });
+
+  it("carries the native timing block and the thumbnail split beside the marks", async () => {
+    const log = jest.spyOn(console, "log").mockImplementation(() => {});
+    await run(analysisOf([true, true, false, false, false, false, false]));
+    log.mockRestore();
+    expect(perf002()).toMatchObject({
+      native_wall_ms: 100,
+      native_keyframe_index_ms: 1,
+      native_ms_per_keyframe_wall: 1,
+      native_ms_per_keyframe_engine: 0.2,
+      native_ms_per_keyframe_decode_excluding_engine: 0.8,
+      keyframes: 7,
+      segments: 1,
+      thumbnails: 1,
+    });
+    expect(typeof perf002().thumbnail_extract_ms).toBe("number");
+    expect(typeof perf002().thumbnail_db_ms).toBe("number");
+  });
+
+  it("dumps the raw analyzeSession result for the AC10 oracle compare (12.4c review D3)", async () => {
+    mockDumpWrites.length = 0;
+    const log = jest.spyOn(console, "log").mockImplementation(() => {});
+    const analysis = analysisOf([true, true, false, false, false, false, false]);
+    await run(analysis);
+    log.mockRestore();
+    expect(mockDumpWrites).toHaveLength(1);
+    expect(mockDumpWrites[0].uri).toBe("file:///docs/analyzeSession_dump.json");
+    expect(JSON.parse(mockDumpWrites[0].body)).toEqual(analysis);
   });
 });
 

@@ -1,0 +1,108 @@
+{
+  "story": "12.4d",
+  "run": 1,
+  "fixture": "videos/V2/2026-04-27 22-05-34.mp4 (pushed as /sdcard/Download/warden-12-4d-capture.mp4)",
+  "device": "22101320G",
+  "boundary": "runPipeline() entry -> updateSessionStatus('ready'); see story 12.4d AC0a",
+  "error": null,
+  "sessionId": "38034fbf-ab9e-4d1e-b2e7-7d5ae6c5fe01",
+  "perf002": {
+    "setup_done": 289.842188000679,
+    "duration_probe_done": 642.5022920370102,
+    "native_analysis_done": 14393.343224048615,
+    "native_wall_ms": 13701.624214,
+    "native_keyframe_index_ms": 3085.902551,
+    "native_ms_per_keyframe_wall": 12.913877675777568,
+    "native_ms_per_keyframe_engine": 0.8408012855796418,
+    "native_ms_per_keyframe_decode_excluding_engine": 8.598757793590952,
+    "timeline_done": 14545.989109039307,
+    "detection_done": 14551.305828094482,
+    "segments": 18,
+    "keyframes": 1061,
+    "segments_built": 14552.78364109993,
+    "sqlite_done": 14646.601089000702,
+    "segmentation_done": 14647.383120059967,
+    "results_done": 20630.03124308586,
+    "thumbnails": 18,
+    "thumbnail_extract_ms": 5897.84291601181,
+    "thumbnail_db_ms": 71.65114462375641,
+    "total": 20662.56817007065
+  },
+  "thermal": {
+    "before": {
+      "at": "2026-10-04T15:31:30.841Z",
+      "status": 0,
+      "battery_celsius": 28,
+      "temps": {},
+      "active_cooling": {}
+    },
+    "after": {
+      "at": "2026-10-04T15:32:43.480Z",
+      "status": 0,
+      "battery_celsius": 28,
+      "temps": {},
+      "active_cooling": {}
+    },
+    "samples": [
+      {
+        "at": "2026-10-04T15:31:41.122Z",
+        "status": 0,
+        "battery_celsius": 28,
+        "active_cooling": {}
+      },
+      {
+        "at": "2026-10-04T15:31:51.095Z",
+        "status": 0,
+        "battery_celsius": 28,
+        "active_cooling": {}
+      },
+      {
+        "at": "2026-10-04T15:32:00.997Z",
+        "status": 0,
+        "battery_celsius": 28,
+        "active_cooling": {}
+      },
+      {
+        "at": "2026-10-04T15:32:11.047Z",
+        "status": 0,
+        "battery_celsius": 28,
+        "active_cooling": {}
+      },
+      {
+        "at": "2026-10-04T15:32:21.164Z",
+        "status": 0,
+        "battery_celsius": 28,
+        "active_cooling": {}
+      },
+      {
+        "at": "2026-10-04T15:32:31.078Z",
+        "status": 0,
+        "battery_celsius": 28,
+        "active_cooling": {}
+      },
+      {
+        "at": "2026-10-04T15:32:41.123Z",
+        "status": 0,
+        "battery_celsius": 28,
+        "active_cooling": {}
+      }
+    ],
+    "worst_status": 0
+  },
+  "logcat": [
+    "10-04 17:32:22.772 I/ReactNativeJS( 5943): [PERF-002] sessionId=38034fbf-ab9e-4d1e-b2e7-7d5ae6c5fe01 start",
+    "10-04 17:32:23.061 I/ReactNativeJS( 5943): [PERF-002] sessionId=38034fbf-ab9e-4d1e-b2e7-7d5ae6c5fe01 mark=setup_done t+290ms",
+    "10-04 17:32:23.414 I/ReactNativeJS( 5943): [PERF-002] sessionId=38034fbf-ab9e-4d1e-b2e7-7d5ae6c5fe01 mark=duration_probe_done t+643ms",
+    "10-04 17:32:37.148 I/WardenAnalyzer( 5943): analysed 1061 keyframes of 802077f4-dbd7-4524-a55e-28ca9e58bd5e.mp4 in 13702 ms (engine 0,841 ms/kf)",
+    "10-04 17:32:37.165 I/ReactNativeJS( 5943): [PERF-002] sessionId=38034fbf-ab9e-4d1e-b2e7-7d5ae6c5fe01 mark=native_analysis_done t+14393ms",
+    "10-04 17:32:37.318 I/ReactNativeJS( 5943): [PERF-002] sessionId=38034fbf-ab9e-4d1e-b2e7-7d5ae6c5fe01 mark=timeline_done t+14546ms",
+    "10-04 17:32:37.322 I/ReactNativeJS( 5943): [PERF-009] sessionId=38034fbf-ab9e-4d1e-b2e7-7d5ae6c5fe01 keyframes=1061 in_match=772 score_screen=72 not_in_match=215 doubt=2 segments=18 unknownMaps=0 hud=v2 engine_ms_per_kf=0.841 layout=NV12 (semi-planar, U V U V)",
+    "10-04 17:32:37.323 I/ReactNativeJS( 5943): [PERF-002] sessionId=38034fbf-ab9e-4d1e-b2e7-7d5ae6c5fe01 mark=detection_done t+14551ms",
+    "10-04 17:32:37.324 I/ReactNativeJS( 5943): [PERF-002] sessionId=38034fbf-ab9e-4d1e-b2e7-7d5ae6c5fe01 mark=segments_built t+14553ms",
+    "10-04 17:32:37.418 I/ReactNativeJS( 5943): [PERF-002] sessionId=38034fbf-ab9e-4d1e-b2e7-7d5ae6c5fe01 mark=sqlite_done t+14647ms",
+    "10-04 17:32:37.419 I/ReactNativeJS( 5943): [PERF-002] sessionId=38034fbf-ab9e-4d1e-b2e7-7d5ae6c5fe01 mark=segmentation_done t+14647ms",
+    "10-04 17:32:43.402 I/ReactNativeJS( 5943): [PERF-002] sessionId=38034fbf-ab9e-4d1e-b2e7-7d5ae6c5fe01 mark=results_done t+20630ms",
+    "10-04 17:32:43.434 I/ReactNativeJS( 5943): [PERF-002] sessionId=38034fbf-ab9e-4d1e-b2e7-7d5ae6c5fe01 end totalMs=20663",
+    "10-04 17:32:43.435 I/ReactNativeJS( 5943): [PERF-002] sessionId=38034fbf-ab9e-4d1e-b2e7-7d5ae6c5fe01 record={\"setup_done\":289.842188000679,\"duration_probe_done\":642.5022920370102,\"native_analysis_done\":14393.343224048615,\"native_wall_ms\":13701.624214,\"native_keyframe_index_ms\":3085.902551,\"native_ms_per_keyframe_wall\":12.913877675777568,\"native_ms_per_keyframe_engine\":0.8408012855796418,\"native_ms_per_keyframe_decode_excluding_engine\":8.598757793590952,\"timeline_done\":14545.989109039307,\"detection_done\":14551.305828094482,\"segments\":18,\"keyframes\":1061,\"segments_built\":14552.78364109993,\"sqlite_done\":14646.601089000702,\"segmentation_done\":14647.383120059967,\"results_done\":20630.03124308586,\"thumbnails\":18,\"thumbnail_extract_ms\":5897.84291601181,\"thumbnail_db_ms\":71.65114462375641,\"total\":20662.56817007065}"
+  ]
+}
