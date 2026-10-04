@@ -5,6 +5,7 @@ import { AuthProvider } from '@/contexts/AuthContext'
 import { Header } from '@/components/layout/Header'
 import { Footer } from '@/components/layout/Footer'
 import { CookieBanner } from '@/components/layout/CookieBanner'
+import { rootMetadata } from '@/lib/seo/root-metadata'
 
 import './globals.css'
 
@@ -23,14 +24,7 @@ const inter = localFont({
   display: 'swap',
 })
 
-export const metadata: Metadata = {
-  title: {
-    default: 'Warden — Video Review for Coaches',
-    template: '%s | Warden',
-  },
-  description:
-    'Warden helps EVA After-h coaches review game sessions, export clips, and analyze minimaps to improve coaching workflows.',
-}
+export const metadata: Metadata = rootMetadata
 
 export default function RootLayout({
   children,

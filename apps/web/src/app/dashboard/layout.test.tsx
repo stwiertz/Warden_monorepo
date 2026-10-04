@@ -91,4 +91,11 @@ describe('DashboardLayout (RSC guard)', () => {
     await expect(DashboardLayout({ children: <div>child</div> })).rejects.toThrow('db is down')
     expect(mockRedirect).not.toHaveBeenCalled()
   })
+
+  it('opts the dashboard out of indexing (UX §3.3.1 — no OG preview surface)', async () => {
+    const { metadata } = await import('./layout')
+    expect(metadata.robots).toEqual({ index: false, follow: false })
+    expect(metadata.openGraph).toBeNull()
+    expect(metadata.twitter).toBeNull()
+  })
 })

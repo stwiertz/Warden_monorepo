@@ -4,20 +4,14 @@ import { CheckoutProvider, type AppliedCoupon } from '@/components/checkout/Chec
 import { CouponInput } from '@/components/checkout/CouponInput'
 import { PlanCard } from '@/components/checkout/PlanCard'
 import { PLAN_MONTHLY, PLAN_YEARLY } from '@/lib/pricing/plans'
+import { buildOpenGraph, OG_COPY } from '@/lib/seo/og'
 import { previewCoupon } from '@/lib/stripe/coupons'
 
 export const metadata: Metadata = {
   title: 'Pricing — Warden',
   description:
     'Simple, honest pricing for Warden. Choose a monthly or yearly plan and get full access to session review, clip export, and minimap analysis.',
-  openGraph: {
-    title: 'Pricing — Warden',
-    description:
-      'Simple, honest pricing for Warden. Choose a monthly or yearly plan and get full access to session review, clip export, and minimap analysis.',
-    type: 'website',
-    locale: 'en_US',
-    siteName: 'Warden',
-  },
+  openGraph: buildOpenGraph({ path: '/pricing', title: OG_COPY.pricingTitle }),
 }
 
 type PricingPageProps = {

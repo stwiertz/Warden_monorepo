@@ -283,3 +283,9 @@ or needing a device, or belonging to a story that owns the data rather than the 
   - The constant regex accepts `1.5748e0`.
   - Nothing re-derives `REFERENCE_YUV_SWEEP_SHA256` from `shader_model`; the two pins only check each other.
   - The sweeper regex is a hand-kept duplicate of `KOTLIN_FILES`.
+
+## Deferred from: code review of 4-2-og-image-asset-layout-meta (2026-10-04)
+
+- **`/pricing` `<title>` repeats the brand** (`apps/web/src/app/pricing/page.tsx:11`). The page title `Pricing — Warden` goes through the root `%s | Warden` template, giving "Pricing — Warden | Warden". This predates 4.2 and naturally belongs with Story 4.7's English web copy.
+- **OG pricing title hard-codes the prices** (`apps/web/src/lib/seo/og.ts:23`). `€7.99/mois ou €79.90/an` is UX §4.2.9 verbatim copy, kept separate from `PLAN_MONTHLY`/`PLAN_YEARLY`. A price change must update both, or Discord previews show stale prices.
+- **The AC7 metadata tests check literals, not resolved `<head>`** (`apps/web/src/lib/seo/root-metadata.test.ts`, `page.test.tsx`, `pricing/page.test.tsx`). Nothing runs Next's shallow merge or URL resolution in a test. The absolute `og:image` was confirmed only by a manual `next start` + curl. A render-level check, such as grepping the prerendered HTML after `build`, would close this.
