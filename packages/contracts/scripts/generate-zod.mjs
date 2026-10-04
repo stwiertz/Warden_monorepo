@@ -80,6 +80,11 @@ const outDir = resolve(here, '../src/generated')
 const schemas = [
   { input: 'map-config.schema.json', output: 'map-config.ts', exportName: 'MapConfigSchema' },
   { input: 'user-doc.schema.json', output: 'user-doc.ts', exportName: 'UserDocSchema' },
+  {
+    input: 'detection-config-envelope.schema.json',
+    output: 'detection-config-envelope.ts',
+    exportName: 'DetectionConfigEnvelopeSchema',
+  },
 ]
 
 await mkdir(outDir, { recursive: true })

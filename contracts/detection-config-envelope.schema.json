@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://warden.team/schemas/detection-config-envelope.json",
+  "title": "DetectionConfigEnvelope",
+  "description": "Firestore `detection_config/latest` document (Story 1.13) — the post-auth OVERLAY that upgrades the Metro-bundled `map_config.<hud_version>.json` files between Play Store releases. Each config travels as its exact emitted JSON TEXT (`config_json`), never as a nested Firestore map: Firestore does not preserve map-key order, and `WardenRulePacker.orderedMapNames` recovers `minimap_identification.maps` order (= every map rule's texel index) from the raw text. `revision` lives here, not in the config (map-config.schema.json is `additionalProperties: false` with no version field); the app applies the overlay only when `revision` exceeds both its cached overlay revision and its shipped `BUNDLED_MAP_CONFIG_REVISION`. Operator rule (Story 1.16): next revision = max(current Firestore revision, shipped bundled revision) + 1. Built by `apps/tooling/tools/detection_config_envelope.py`. Size: the bundled v2 config is ~62 kB of text, so Firestore's 1 MiB document limit leaves room for roughly 15 HUD configs.",
+  "type": "object",
+  "required": ["envelope_version", "revision", "configs"],
+  "additionalProperties": false,
+  "properties": {
+    "envelope_version": {
+      "type": "integer",
+      "enum": [1],
+      "description": "Envelope-shape version. A client that does not know the value rejects the whole document and keeps its bundled/cached config."
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonic overlay revision. Clients apply the overlay only when it is strictly greater than the cached overlay revision AND the shipped bundled revision."
+    },
+    "configs": {
+      "type": "object",
+      "description": "HUD version -> config entry. The KNOWN keys are the `hud_version` enum of map-config.schema.json (kept equal by a tooling test) and are listed as explicit properties. Any OTHER key (a HUD added after this app was built) is tolerated by the envelope as long as its value is a well-formed ConfigEntry: the client drops each unknown key individually (`unknown-hud`) and still applies the known ones, so an envelope carrying {v2, v3} still delivers the v2 update to a v2-only app (Story 1.13 code review, decision D1 — Stephane, 2026-10-04). Unknown keys are what make adding a HUD forward-compatible; a change to the entry or envelope SHAPE still needs an `envelope_version` bump. At least one entry.",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/ConfigEntry" },
+      "properties": {
+        "v1": { "$ref": "#/$defs/ConfigEntry" },
+        "v2": { "$ref": "#/$defs/ConfigEntry" }
+      }
+    }
+  },
+  "$defs": {
+    "ConfigEntry": {
+      "type": "object",
+      "description": "One HUD's config, carried as text so its key order survives Firestore.",
+      "required": ["config_json", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "config_json": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The emitted `map_config.<hud_version>.json` file text, verbatim. Must itself validate against map-config.schema.json, and its `hud_version` must equal this entry's key."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Lowercase hex SHA-256 of `config_json`'s UTF-8 bytes (integrity: catches a truncated or hand-edited paste)."
+        }
+      }
+    }
+  }
+}

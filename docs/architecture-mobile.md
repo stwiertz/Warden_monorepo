@@ -11,8 +11,8 @@ _(Superseded 2026-09-17: this chain used to be "black-screen + KDA / map-bar tra
 State is split across:
 
 - **expo-sqlite** (`warden.db`) — durable session/segment/clip/audio rows.
-- **react-native-mmkv** — ephemeral key/value: auth cache, prefs, processing checkpoints, detection-config cache.
-- **Firestore** — `users/{uid}` (subscription gate) and `detection_config/latest` (tunable detector params with stale-while-revalidate).
+- **react-native-mmkv** — ephemeral key/value: auth cache, prefs, processing checkpoints, map-config overlay cache (`detection.mapConfigOverlay`).
+- **Firestore** — `users/{uid}` (subscription gate) and `detection_config/latest` (the map-config OVERLAY envelope, read post-auth, never blocking — see "Map-config overlay" below). _(AMENDED 2026-10-04 (Story 1.13): was "tunable detector params with stale-while-revalidate" — the v1 pHash document.)_
 
 ## Architecture pattern
 
@@ -63,21 +63,22 @@ src/shared/
 1. [index.ts](../apps/mobile/index.ts) registers `App` with Expo.
 2. [App.tsx](../apps/mobile/App.tsx) loads Roboto + JetBrainsMono fonts (each in 400/500/700) and renders a dark splash placeholder until fonts resolve.
 3. `useEffect` (one-shot):
-   - `void bootstrapDetectionConfig()` — primes the MMKV cache from Firestore (best-effort; surfaces `OfflineFirstLaunchError` / `MalformedRemoteConfigError` to the bootstrap, not the UI).
+   - _(AMENDED 2026-10-04 (Story 1.13): the mount-time `bootstrapDetectionConfig()` call is gone, with the first-launch gate it fed.)_ A separate effect keyed on `useAuthStore`'s user `uid` calls `void refreshMapConfigOverlay()` once a real user is signed in (skipped under AUTH_BYPASS) — fire-and-forget, never awaited by processing.
+   - `void reconcileForegroundServiceAtLaunch()` — clears a foreground-service orphan left by a previous JS context (Story 1.2).
    - If `EXPO_PUBLIC_AUTH_BYPASS === 'true'`: injects a fake `{uid:'dev-bypass-user', isPaid:true}` user and returns. Logs a warning. **Remove this branch + the env var before shipping.**
    - Otherwise: `googleSignInService.configure()` → `authService.listenToAuthChanges()` (Firebase `onAuthStateChanged` → maps to `AuthUser` via `mapFirebaseUser`, which calls `subscriptionService.checkSubscription`) → `subscriptionService.startPeriodicRevalidation()` (60-min interval).
 4. `RootNavigator` reads `useAuthStore.isAuthenticated` and renders `Login` or `Home + Processing` accordingly. **Note: `isAuthenticated` is set to `true` only when both `user !== null` AND `user.isPaid`** — the subscription gate is enforced at navigation level, not just at backend level.
 
 ## State management
 
-| Concern                             | Mechanism                                                                                                                         | Where                    | Persisted?                                                                                                                     |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| Auth user + paid flag               | Zustand store ([useAuthStore.ts](../apps/mobile/src/features/auth/useAuthStore.ts))                                               | feature/auth             | Yes — MMKV via zustand persist. Partialized to `{user, isAuthenticated, cachedAt}`. **30-day TTL** invalidates on rehydration. |
-| Current session UI state            | Zustand store ([useSessionStore.ts](../apps/mobile/src/features/session/useSessionStore.ts))                                      | feature/session          | Yes — MMKV. Holds `currentSessionId`, `currentEpisodeIndex`, `playbackPositionMs`, `viewMode`, `sortOrder`.                    |
-| Sessions / segments / clips / audio | SQLite ([database.ts](../apps/mobile/src/shared/services/database.ts))                                                            | shared/services          | Yes — `warden.db`                                                                                                              |
-| Processing pipeline checkpoints     | MMKV keyed `processing.<sessionId>.<field>`                                                                                       | feature/video-processing | Yes                                                                                                                            |
-| Detection config cache              | MMKV key `detection.config` ([detectionConfigService.ts](../apps/mobile/src/features/video-processing/detectionConfigService.ts)) | feature/video-processing | Yes                                                                                                                            |
-| MMKV adapter                        | [storage.ts](../apps/mobile/src/shared/services/storage.ts)                                                                       | shared/services          | n/a — typed wrapper + Zustand `StateStorage` adapter                                                                           |
+| Concern                             | Mechanism                                                                                                                                                                              | Where                    | Persisted?                                                                                                                     |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Auth user + paid flag               | Zustand store ([useAuthStore.ts](../apps/mobile/src/features/auth/useAuthStore.ts))                                                                                                    | feature/auth             | Yes — MMKV via zustand persist. Partialized to `{user, isAuthenticated, cachedAt}`. **30-day TTL** invalidates on rehydration. |
+| Current session UI state            | Zustand store ([useSessionStore.ts](../apps/mobile/src/features/session/useSessionStore.ts))                                                                                           | feature/session          | Yes — MMKV. Holds `currentSessionId`, `currentEpisodeIndex`, `playbackPositionMs`, `viewMode`, `sortOrder`.                    |
+| Sessions / segments / clips / audio | SQLite ([database.ts](../apps/mobile/src/shared/services/database.ts))                                                                                                                 | shared/services          | Yes — `warden.db`                                                                                                              |
+| Processing pipeline checkpoints     | MMKV keyed `processing.<sessionId>.<field>`                                                                                                                                            | feature/video-processing | Yes                                                                                                                            |
+| Map-config overlay cache            | MMKV key `detection.mapConfigOverlay` ([mapConfigOverlayCache.ts](../apps/mobile/src/features/video-processing/mapConfigOverlayCache.ts); v1 `detection.config` deleted by Story 1.13) | feature/video-processing | Yes                                                                                                                            |
+| MMKV adapter                        | [storage.ts](../apps/mobile/src/shared/services/storage.ts)                                                                                                                            | shared/services          | n/a — typed wrapper + Zustand `StateStorage` adapter                                                                           |
 
 Domain types are exported from [src/shared/types/index.ts](../apps/mobile/src/shared/types/index.ts):
 
@@ -146,33 +147,65 @@ pipeline's tests run without a device.
 ## Map config (v2) — what detection actually reads
 
 [mapConfig.ts](../apps/mobile/src/features/video-processing/mapConfig.ts) owns the **v2** config:
-`assets/detection/map_config.v2.json`, bundled by Metro (62 kB; present on first launch, offline,
+`assets/detection/map_config.v2.json` (registered in [bundledMapConfigs.ts](../apps/mobile/src/features/video-processing/bundledMapConfigs.ts), the per-HUD registry that serves as the manifest), bundled by Metro (62 kB; present on first launch, offline,
 with no I/O), validated against `contracts/map-config.schema.json` via `@warden/contracts`, and
 handed to the native packer **as JSON text** — map iteration order lives in that string, because
 `org.json.JSONObject` is a HashMap and loses it.
 
-`listMapConfigCandidates()` is **the seam Story 1.13 widens** into the hybrid
-stale-while-revalidate Firestore overlay, `schema_version` migration and the per-HUD manifest. HUD
-version is selected **once per session** (`resolveSessionHudVersion`), and an unmatched HUD degrades
-gracefully rather than aborting the session.
+`listMapConfigCandidates()` is **the seam**, synchronous and never empty. _(AMENDED 2026-10-04 (Story 1.13): widened as
+planned.)_ Per HUD, ordered by preference: the cached Firestore overlay entry — only when the
+overlay's envelope `revision` exceeds `BUNDLED_MAP_CONFIG_REVISION` — then the bundled entry. A
+remote candidate's `rawJson` is the envelope's `config_json` text **verbatim**. `getPrimaryMapConfig()`
+returns the first candidate for `DEFAULT_HUD_VERSION` ("v2") and logs
+`[map-config] source=<bundled|remote> revision=<n> hud=<hud>`; a session keeps the candidate it
+captured at start. There is no `schema_version` migration: only shape 1 exists, and an overlay entry
+of another shape is dropped. HUD version is checked **once per session**, post hoc
+(`resolveSessionHudVersion`), and an unmatched HUD degrades gracefully rather than aborting the
+session; real HUD selection before `analyzeSession` waits for a second bundled HUD config.
 
-## Detection-config cache (v1 — no longer a detection input)
+## Map-config overlay (Story 1.13 — replaces the v1 detection-config cache)
 
-> **Story 12.4c:** the engine reads none of this. It is kept running because the first-launch-offline
-> gate still blocks video processing, and removing `OfflineFirstLaunchError` is **Story 1.13's AC7**,
-> which is engine-agnostic. Its ~20 tests stay green; nothing in the detection path calls it.
+> _AMENDED 2026-10-04 (Story 1.13):_ the v1 `detectionConfig.ts` / `detectionConfigService.ts` / `detectionConfigBootstrap.ts`
+> (pHash-era payload, `OfflineFirstLaunchError`, the first-launch gate) are **deleted**. Video
+> processing never waits on, or is refused by, a Firestore read.
 
-[detectionConfigService.ts](../apps/mobile/src/features/video-processing/detectionConfigService.ts) is a stale-while-revalidate cache over Firestore `detection_config/latest`:
+[mapConfigOverlay.ts](../apps/mobile/src/features/video-processing/mapConfigOverlay.ts) —
+`refreshMapConfigOverlay()` reads `detection_config/latest` (RNFB namespaced chain), called once a
+real user is signed in, fire-and-forget, singleflighted, **never throws**. The document is an
+envelope (`contracts/detection-config-envelope.schema.json`):
 
-- **Cache present + online:** return cache immediately, kick off background refresh **only if** `remote.version > cached.version`. Errors logged, never propagated.
-- **Cache present + offline:** return cache.
-- **No cache + online + valid payload:** fetch, validate, cache, return.
-- **No cache + offline (or doc missing):** throw `OfflineFirstLaunchError`.
-- **No cache + malformed remote payload:** throw `MalformedRemoteConfigError` (so bootstrap can avoid the misleading "open while online" copy).
+```json
+{
+  "envelope_version": 1,
+  "revision": 2,
+  "configs": {
+    "v2": { "config_json": "<exact emitted map_config.v2.json text>", "sha256": "<hex>" }
+  }
+}
+```
 
-Three singleflights guard `inflightInitialFetch`, `inflightBackgroundRefresh`, `inflightForcedRefresh` so per-frame detector reads in the hot path share a single Firestore round-trip.
+Configs travel as **text** because Firestore maps lose key order and the native packer reads map
+order (= texel index) from the text. Per entry, independently: sha256 of the UTF-8 text
+(`expo-crypto`) → `JSON.parse` → `MapConfigSchema` → key equals `hud_version`; bad entries are
+dropped with a logged reason, good ones survive. The surviving envelope is cached in MMKV
+(`detection.mapConfigOverlay`, [mapConfigOverlayCache.ts](../apps/mobile/src/features/video-processing/mapConfigOverlayCache.ts))
+only when its `revision` beats both the cached overlay and `BUNDLED_MAP_CONFIG_REVISION`.
 
-A module-level memo (`memoCache`) avoids re-parsing JSON / re-validating on every read. The synchronous accessor `getCachedDetectionConfig()` is for callers that already know the cache is primed (e.g. detectors invoked after `getDetectionConfig()` resolved at startup).
+| Condition                                                                    | `reason`             | Cache     | Session uses                  |
+| ---------------------------------------------------------------------------- | -------------------- | --------- | ----------------------------- |
+| no signed-in user                                                            | (not called)         | unchanged | cache/bundled                 |
+| `permission-denied` (until Stories 1.14 + 1.15)                              | `permission-denied`  | unchanged | cache/bundled                 |
+| offline / `unavailable`                                                      | `unavailable`        | unchanged | cache/bundled                 |
+| doc missing                                                                  | `not-found`          | unchanged | cache/bundled                 |
+| not an envelope (v1 doc, nested-object config, unknown `envelope_version`)   | `malformed-envelope` | unchanged | cache/bundled                 |
+| every entry fails (unknown HUD / sha / JSON / schema / key / native-invalid) | `malformed-entry`    | unchanged | cache/bundled                 |
+| `revision` not newer                                                         | `not-newer`          | unchanged | cache/bundled                 |
+| success                                                                      | `updated`            | written   | remote, from the next session |
+
+Per entry (code review 2026-10-04): a HUD key this build does not know is dropped as `unknown-hud` while the known entries still apply (the envelope contract tolerates unknown keys, decision D1), and a config the native `WardenRulePacker` would throw on is dropped as `native-invalid` ([mapConfigNativePreconditions.ts](../apps/mobile/src/features/video-processing/mapConfigNativePreconditions.ts), decision D2). The cached envelope is re-validated (contract + every config + native preconditions) on read by the seam; one that fails is
+deleted and the bundle is used. The legacy v1 MMKV keys `detection.config` and
+`detection.offlineFirstLaunchBlocked` are deleted once at module init. The envelope is built by
+`apps/tooling/tools/detection_config_envelope.py`; the upload procedure is Story 1.16's.
 
 ## Auth + subscription gate
 
@@ -205,7 +238,7 @@ A module-level memo (`memoCache`) avoids re-parsing JSON / re-validating on ever
 
 | Layer          | Suite                                                                                                                                                                                                                                               |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pipeline atoms | `src/features/video-processing/__tests__/` — `detectionConfig`, `detectionConfigBootstrap`, `detectionConfigService`, `gameDetector`, `mapConfig`, `mapIdentifier`, `processingPipeline`, `segmentation`                                            |
+| Pipeline atoms | `src/features/video-processing/__tests__/` — `gameDetector`, `mapConfig`, `mapConfigOverlay`, `mapIdentifier`, `processingPipeline`, `segmentation`                                                                                                 |
 | Engine parity  | `src/features/video-processing/__tests__/tool12Parity.test.ts` — the TS scoring/phase port against a **generated, committed** fixture of Tool 12's own output, including all 1061 keyframes of a real capture (`apps/mobile/bench/12-4c/REPORT.md`) |
 | Video import   | `src/features/video-import/__tests__/` — `useVideoImport`, `videoImportService`                                                                                                                                                                     |
 | Native seams   | `src/shared/services/__tests__/` — `detectionEngine` (incl. cross-language lockstep guards read off the Kotlin), `colorConvert`, `foregroundService`                                                                                                |

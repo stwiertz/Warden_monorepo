@@ -1,7 +1,7 @@
 // Story 12.4c — per-span map identification, and the cross-language label pin.
 //
 // Story 7.5's suite tested `createMapIdentifier` (DCT pHash + Hamming against
-// `DetectionConfig.maps`). That path is gone; see mapIdentifier.ts's header.
+// the v1 detection-config `maps` field). That path is gone; see mapIdentifier.ts's header.
 
 import fs from "fs";
 import path from "path";

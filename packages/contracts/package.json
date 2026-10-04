@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./map-config": "./src/generated/map-config.ts",
-    "./user-doc": "./src/generated/user-doc.ts"
+    "./user-doc": "./src/generated/user-doc.ts",
+    "./detection-config-envelope": "./src/generated/detection-config-envelope.ts"
   },
   "scripts": {
     "build": "node scripts/generate-zod.mjs",

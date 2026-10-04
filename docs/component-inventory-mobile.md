@@ -87,20 +87,20 @@ For each feature, services / repositories / stores / hooks. Listed here because 
 
 ### video-processing — [features/video-processing/](../apps/mobile/src/features/video-processing/)
 
-| File                          | Type   | Role                                                                                                                    |
-| ----------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `processingPipeline.ts`       | module | 4-stage orchestrator with MMKV checkpoints (see [architecture-mobile.md](./architecture-mobile.md))                     |
-| `detectionConfig.ts`          | module | Schema + `validateDetectionConfig`                                                                                      |
-| `detectionConfigService.ts`   | module | Stale-while-revalidate Firestore cache                                                                                  |
-| `detectionConfigBootstrap.ts` | module | App-boot detection-config primer                                                                                        |
-| `gameDetector.ts`             | module | KDA/HSV detector — short-GOP path                                                                                       |
-| `blackScreenDetector.ts`      | module | Black-screen detector — long-GOP fallback (2-pass)                                                                      |
-| `mapIdentifier.ts`            | module | pHash matching against `maps`                                                                                           |
-| `segmentation.ts`             | module | START/END pairing + `buildMapSegments`                                                                                  |
-| `segmentRepository.ts`        | module | SQLite `map_segments` writer                                                                                            |
-| `useVideoProcessing.ts`       | hook   | Pipeline launch + progress callback wiring                                                                              |
-| `types.ts`                    | types  | `ProcessingStage`, `KeyframeInfo`, `GameDetectorEvent`, `MapIdentificationResult`, `MapSegmentData`, `ProgressCallback` |
-| `ProcessingScreen.tsx`        | screen |                                                                                                                         |
+| File                       | Type   | Role                                                                                                                    |
+| -------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `processingPipeline.ts`    | module | 4-stage orchestrator with MMKV checkpoints (see [architecture-mobile.md](./architecture-mobile.md))                     |
+| `bundledMapConfigs.ts`     | module | Bundled per-HUD map-config registry (the manifest) + `BUNDLED_MAP_CONFIG_REVISION` (Story 1.13)                         |
+| `mapConfigOverlay.ts`      | module | Post-auth Firestore overlay refresh of `detection_config/latest` — envelope, sha256, revision gate; never throws (1.13) |
+| `mapConfigOverlayCache.ts` | module | MMKV cache of the overlay envelope, read synchronously by `mapConfig.ts` (1.13)                                         |
+| `gameDetector.ts`          | module | KDA/HSV detector — short-GOP path                                                                                       |
+| `blackScreenDetector.ts`   | module | Black-screen detector — long-GOP fallback (2-pass)                                                                      |
+| `mapIdentifier.ts`         | module | pHash matching against `maps`                                                                                           |
+| `segmentation.ts`          | module | START/END pairing + `buildMapSegments`                                                                                  |
+| `segmentRepository.ts`     | module | SQLite `map_segments` writer                                                                                            |
+| `useVideoProcessing.ts`    | hook   | Pipeline launch + progress callback wiring                                                                              |
+| `types.ts`                 | types  | `ProcessingStage`, `KeyframeInfo`, `GameDetectorEvent`, `MapIdentificationResult`, `MapSegmentData`, `ProgressCallback` |
+| `ProcessingScreen.tsx`     | screen |                                                                                                                         |
 
 ### clip-export, video-playback, audio-commentary
 

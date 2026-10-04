@@ -7,7 +7,7 @@
 // `const mockX = jest.fn()` declarations execute. So any direct reference like
 // `default: mockAuthFn` inside a factory dereferences `undefined`. Wrap every
 // factory reference in a lazy thunk that defers the deref to call time
-// (precedent: `detectionConfigService.test.ts:9` — `getDoc: (...args) => mockGetDoc(...args)`).
+// (precedent: the v1 `detectionConfigService.test.ts`, deleted by Story 1.13 — `getDoc: (...args) => mockGetDoc(...args)`).
 
 // Type the mocks as jest.Mock so the factory's spread thunks don't trip on
 // jest.fn's inferred zero-arg signature (and so babel-plugin-jest-hoist doesn't

@@ -20,7 +20,7 @@ import { authService } from "./src/features/auth/authService";
 import { subscriptionService } from "./src/features/auth/subscriptionService";
 import { googleSignInService } from "./src/features/auth/googleSignInService";
 import { useAuthStore } from "./src/features/auth/useAuthStore";
-import { bootstrapDetectionConfig } from "./src/features/video-processing/detectionConfigBootstrap";
+import { refreshMapConfigOverlay } from "./src/features/video-processing/mapConfigOverlay";
 import { reconcileForegroundServiceAtLaunch } from "./src/shared/services/foregroundService";
 
 // DEV ONLY: bypasses login + subscription gate so the rest of the app can be
@@ -38,8 +38,17 @@ export default function App() {
     JetBrainsMono_700Bold,
   });
 
+  // Story 1.13 AC7 — the map-config overlay is read AFTER auth only (the
+  // Firestore rule is `request.auth != null`), fire-and-forget: processing
+  // never awaits it and always has the bundled/cached config. Skipped under
+  // AUTH_BYPASS, whose fake user would only produce a doomed read.
+  const uid = useAuthStore((state) => state.user?.uid);
   useEffect(() => {
-    void bootstrapDetectionConfig();
+    if (AUTH_BYPASS || !uid) return;
+    void refreshMapConfigOverlay();
+  }, [uid]);
+
+  useEffect(() => {
     // Story 1.2 (BF-5) — clear any foreground-service orphan left by a previous
     // JS context (JS crash / dev reload / OS kill): once JS dies, nothing else
     // can ever stop the sticky notification.

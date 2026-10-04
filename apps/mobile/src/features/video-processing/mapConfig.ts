@@ -1,16 +1,14 @@
 // Story 12.4c (AC0c / AC4 / AC5) — the v2 detection config, on the device.
 //
-// 🔴 THIS IS THE V2 CONFIG. It is NOT `detectionConfig.ts`, which is the v1
-// pHash-era Firestore document (`detection_config/latest`: `roi_zones`,
-// `thresholds`, `maps: slug -> 16-hex pHash`). That apparatus is deliberately
-// left running — the first-launch-offline gate is Story 1.13's AC7 to remove —
-// but it is no longer a detection input. Nothing in the engine path reads it.
+// Story 1.13 deleted the v1 pHash-era detection-config apparatus (its Firestore
+// payload, MMKV cache and the first-launch-offline gate). `detection_config/latest`
+// now carries the map-config OVERLAY envelope instead — see mapConfigOverlay.ts.
 //
 // AC0c verdict (Stephane, at create-story): 12.4c bundles the config MINIMALLY
 // and Story 1.13 generalises. The mechanics chosen here, and the seam 1.13 takes:
 //
 //   * the config ships as a **Metro-bundled JSON module** (`assets/detection/
-//     map_config.v2.json`), not as a copied file or an adb-staged path. It is
+//     map_config.v2.json`, registered in `bundledMapConfigs.ts` since 1.13), not as a copied file or an adb-staged path. It is
 //     62 kB of text that must exist on first launch, offline, before any
 //     Firestore call — a bundled module is the only shape with no I/O and no
 //     failure mode. `WardenEngineBench` keeps its own adb-staged path; it is a
@@ -26,12 +24,15 @@
 //     order the emitter wrote. Permuting it would permute every map rule's texel
 //     index — each rule still correct, the ORDER wrong, which is the failure
 //     12.2 lost a full parity run to.
-//   * **THE SEAM FOR STORY 1.13** is [listMapConfigCandidates]. It returns the
-//     bundled config today; 1.13 makes it return the Firestore
-//     stale-while-revalidate overlay first and the bundled copy as the fallback,
-//     adds `schema_version` migration and reads the per-HUD manifest. Every
-//     consumer in this story goes through it, so 1.13 changes this function and
-//     nothing else.
+//   * **THE SEAM** is [listMapConfigCandidates]. Story 1.13 widened it, and
+//     nothing else: per HUD it returns the cached post-auth Firestore overlay
+//     (when its envelope revision beats the bundle's) and then the bundled copy
+//     from the `bundledMapConfigs.ts` registry as the always-present fallback.
+//     A remote candidate's `rawJson` is the envelope's `config_json` text
+//     VERBATIM — Firestore maps lose key order, text does not. There is no
+//     `schema_version` migration: only shape 1 exists, and an overlay entry with
+//     another shape fails the contract and is dropped (that IS the forward-compat
+//     behaviour for an old app meeting a future shape).
 //
 // AC4 — validation is real, not decorative. `MapConfigSchema` from
 // `@warden/contracts` used to be near-useless here: `json-schema-to-zod` does
@@ -50,9 +51,20 @@
 import { MapConfigSchema } from "@warden/contracts";
 import type { z } from "zod";
 
-import bundledV2 from "../../../assets/detection/map_config.v2.json";
+import {
+  BUNDLED_MAP_CONFIG_REVISION,
+  BUNDLED_MAP_CONFIGS,
+  DEFAULT_HUD_VERSION,
+} from "./bundledMapConfigs";
 import type { RuleKind, RuleRef } from "./engineScoring";
 import { HUD_THRESHOLD, scoreFromFires } from "./engineScoring";
+import { nativeConfigProblem } from "./mapConfigNativePreconditions";
+import {
+  __resetMapConfigOverlayCacheForTests,
+  discardCachedOverlay,
+  getOverlayCacheGeneration,
+  readCachedOverlay,
+} from "./mapConfigOverlayCache";
 
 export type MapConfig = z.infer<typeof MapConfigSchema>;
 export type MapConfigZone = MapConfig["in_match_detection"][number];
@@ -77,6 +89,11 @@ export interface MapConfigCandidate {
    */
   rawJson: string;
   source: "bundled" | "remote";
+  /**
+   * Story 1.13: BUNDLED_MAP_CONFIG_REVISION for a bundled candidate, the
+   * overlay envelope's `revision` for a remote one.
+   */
+  revision: number;
 }
 
 /**
@@ -105,12 +122,12 @@ export function normalizeHudVersion(value: string): string {
   return out.endsWith(".0") ? out.slice(0, -2) : out;
 }
 
-let cachedBundled: MapConfigCandidate | undefined;
-
 function parseCandidate(
   raw: unknown,
   source: MapConfigCandidate["source"],
-  label: string
+  revision: number,
+  label: string,
+  rawJson: string
 ): MapConfigCandidate {
   const parsed = MapConfigSchema.safeParse(raw);
   if (!parsed.success) {
@@ -126,47 +143,152 @@ function parseCandidate(
   return {
     hudVersion: normalizeHudVersion(config.hud_version),
     config,
-    rawJson: JSON.stringify(raw),
+    rawJson,
     source,
+    revision,
   };
 }
 
 /**
+ * Story 1.13 AC1 — a registry entry, validated, its key checked against its
+ * content. A broken BUNDLED config is a broken build and stays loud (throws).
+ */
+function parseBundledEntry(key: string, raw: unknown): MapConfigCandidate {
+  const label = `assets/detection/map_config.${key}.json`;
+  // Bundled modules are parsed objects: re-serialising them is order-safe
+  // (map slugs are non-integer-like strings, so insertion order survives).
+  const candidate = parseCandidate(
+    raw,
+    "bundled",
+    BUNDLED_MAP_CONFIG_REVISION,
+    label,
+    JSON.stringify(raw)
+  );
+  if (candidate.hudVersion !== normalizeHudVersion(key)) {
+    throw new MalformedMapConfigError(
+      label,
+      `registry key ${key} does not match the config's hud_version ${candidate.config.hud_version}`
+    );
+  }
+  return candidate;
+}
+
+/**
+ * Story 1.13 AC4 / AC6 — remote candidates from the cached overlay.
+ *
+ * 🔴 `rawJson` IS the envelope entry's `config_json`, verbatim: never
+ * re-serialised, because that text is the only carrier of map order the native
+ * packer can read. Returns `[]` (and discards the cache) when the overlay is
+ * absent, not newer than the bundle, or any entry fails re-validation — a
+ * cached overlay that an app update's tightened contract rejects must not
+ * crash the seam, only fall back to the bundle.
+ */
+function remoteCandidates(): MapConfigCandidate[] {
+  const overlay = readCachedOverlay();
+  if (!overlay || overlay.revision <= BUNDLED_MAP_CONFIG_REVISION) return [];
+  const out: MapConfigCandidate[] = [];
+  try {
+    for (const [key, entry] of Object.entries(overlay.configs)) {
+      if (!entry) continue;
+      // A HUD this build's contract does not know (code-review D1): never
+      // written by the refresh, but tolerate it here rather than discard.
+      if (!MapConfigSchema.shape.hud_version.options.includes(key as never)) continue;
+      const label = `detection_config/latest revision ${overlay.revision} (${key})`;
+      const candidate = parseCandidate(
+        JSON.parse(entry.config_json),
+        "remote",
+        overlay.revision,
+        label,
+        entry.config_json
+      );
+      if (candidate.hudVersion !== normalizeHudVersion(key)) {
+        throw new MalformedMapConfigError(label, `entry key ${key} carries hud_version ${candidate.config.hud_version}`);
+      }
+      // Code-review D2: a config the native packer would throw on must never
+      // reach a session (it would fail every session, with no fallback).
+      const nativeProblem = nativeConfigProblem(candidate.rawJson, candidate.config);
+      if (nativeProblem) throw new MalformedMapConfigError(label, `native packer would reject it: ${nativeProblem}`);
+      out.push(candidate);
+    }
+  } catch (err) {
+    console.warn(
+      "[map-config] cached overlay failed re-validation; discarding it and using the bundled config",
+      err instanceof Error ? err.message : err
+    );
+    discardCachedOverlay();
+    return [];
+  }
+  return out;
+}
+
+let cachedBundled: MapConfigCandidate[] | undefined;
+let cachedCandidates: { generation: number; list: MapConfigCandidate[] } | undefined;
+
+/**
  * 🔴 STORY 1.13'S SEAM. Every config consumer in the app goes through here.
  *
- * Today: the single bundled v2 config. Story 1.13 adds the hybrid
- * stale-while-revalidate Firestore overlay (returned FIRST, bundled second as
- * the offline fallback), `schema_version` migration and the per-HUD manifest —
- * by changing this function, not its callers.
+ * Synchronous, never touches the network, never empty. Ordered by preference:
+ * for each HUD, the cached Firestore overlay entry (only when the overlay's
+ * `revision` exceeds BUNDLED_MAP_CONFIG_REVISION) and then the bundled entry,
+ * which is always present as the fallback. HUDs follow the bundled registry's
+ * order; an overlay-only HUD (no bundled file) is appended after them.
  *
- * Ordered by preference. Never empty: a build with no config is a broken build,
- * and failing at the seam beats failing per-keyframe.
+ * Memoised; the memo is dropped when `refreshMapConfigOverlay` writes or the
+ * cache is discarded. A running session holds the candidate it captured at
+ * start, so an overlay landing mid-session only affects the next session.
  */
 export function listMapConfigCandidates(): MapConfigCandidate[] {
   if (!cachedBundled) {
-    cachedBundled = parseCandidate(
-      bundledV2,
-      "bundled",
-      "assets/detection/map_config.v2.json"
+    cachedBundled = Object.entries(BUNDLED_MAP_CONFIGS).map(([key, raw]) =>
+      parseBundledEntry(key, raw)
     );
   }
-  return [cachedBundled];
+  const generation = getOverlayCacheGeneration();
+  if (cachedCandidates && cachedCandidates.generation === generation) {
+    return cachedCandidates.list;
+  }
+  const remote = remoteCandidates();
+  // remoteCandidates() may discard the cache, which bumps the generation.
+  const settledGeneration = getOverlayCacheGeneration();
+  const list: MapConfigCandidate[] = [];
+  const huds = [
+    ...cachedBundled.map((c) => c.hudVersion),
+    ...remote.map((c) => c.hudVersion),
+  ].filter((hud, i, all) => all.indexOf(hud) === i);
+  for (const hud of huds) {
+    list.push(...remote.filter((c) => c.hudVersion === hud));
+    list.push(...cachedBundled.filter((c) => c.hudVersion === hud));
+  }
+  cachedCandidates = { generation: settledGeneration, list };
+  return list;
 }
 
-/** The config a session runs with before HUD-version selection refines it. */
+/**
+ * The config a session runs with: the preferred candidate for
+ * DEFAULT_HUD_VERSION (real HUD selection before `analyzeSession` is deferred
+ * to the first story that bundles a second HUD's config). Called once per
+ * session, which is why it logs which config the session got.
+ */
 export function getPrimaryMapConfig(): MapConfigCandidate {
   const candidates = listMapConfigCandidates();
-  if (candidates.length === 0) {
+  const primary =
+    candidates.find((c) => c.hudVersion === DEFAULT_HUD_VERSION) ?? candidates[0];
+  if (!primary) {
     throw new Error(
       "no map config is available — the bundled asset is missing from this build"
     );
   }
-  return candidates[0];
+  console.log(
+    `[map-config] source=${primary.source} revision=${primary.revision} hud=${primary.hudVersion}`
+  );
+  return primary;
 }
 
-/** Test seam: drop the memoized parse so a test can re-enter the parser. */
+/** Test seam: drop the memoized parse (and the overlay memo) so a test can re-enter the parser. */
 export function __resetMapConfigCacheForTests(): void {
   cachedBundled = undefined;
+  cachedCandidates = undefined;
+  __resetMapConfigOverlayCacheForTests();
 }
 
 export function summariseClassifiers(candidate: MapConfigCandidate): ClassifierConfig {

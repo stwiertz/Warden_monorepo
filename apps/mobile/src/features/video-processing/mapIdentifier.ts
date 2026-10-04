@@ -2,7 +2,7 @@
 //
 // 🔴 WHAT THIS REPLACED. Until 12.4c this was Story 7.5's pHash matcher: crop
 // the v1 `map_name` ROI, grayscale it, DCT-hash it to 64 bits and Hamming-compare
-// against `DetectionConfig.maps` (slug -> 16 hex chars) under
+// against the v1 detection-config `maps` field (slug -> 16 hex chars) under
 // `thresholds.collision_threshold`. None of those inputs exist in the v2 schema,
 // and it is the reason auto-slice produced `unknown` map labels on HUD 2.0
 // footage (`epics-and-stories.md:2748`) — which is the whole point of this story.

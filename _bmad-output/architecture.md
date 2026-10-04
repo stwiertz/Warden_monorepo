@@ -392,12 +392,13 @@ There is no Python starter analog to `create-expo-app` or `create-next-app` for 
 - `detectionConfigService.ts` stale-while-revalidate path stays — Firestore overlay is checked when online; cache update gated by `version` field.
 - Bundled config carries `schema_version: 1` (closes Brownfield Item 7).
 - The sticky `OfflineFirstLaunchError` path is removed; `MalformedRemoteConfigError` stays (as a fallback to bundled when remote payload schema-fails).
+- *(AMENDED 2026-10-04 (Story 1.13): shipped differently from the five bullets above, which are kept for history. **Baseline:** per-HUD `apps/mobile/assets/detection/map_config.<hud>.json` files (emitted by `map_config_emitter.py`; `map_config_generator.py` was retired by 9.11), registered in `apps/mobile/src/features/video-processing/bundledMapConfigs.ts` — that TS registry IS the manifest (Metro resolves only static imports) and carries `BUNDLED_MAP_CONFIG_REVISION`, bumped by hand when a bundled file changes. **Overlay:** `mapConfigOverlay.ts` (+ its MMKV cache `mapConfigOverlayCache.ts`, key `detection.mapConfigOverlay`) reads one doc `detection_config/latest` = an envelope `{envelope_version: 1, revision, configs: {<hud>: {config_json, sha256}}}` mastered as `contracts/detection-config-envelope.schema.json`. Each config travels as its exact JSON TEXT: Firestore does not preserve map-key order and `WardenRulePacker.orderedMapNames` reads map order (= texel index) from the text, so a remote candidate's `rawJson` is `config_json` verbatim. **Gating** is the envelope `revision` (must exceed the cached overlay AND the bundled revision), not a config `version` field — the config schema has none (`additionalProperties: false`). **Timing:** read post-auth only (App.tsx effect on the user uid, skipped under AUTH_BYPASS), fire-and-forget, never awaited by processing. `detectionConfig.ts` / `detectionConfigService.ts` / `detectionConfigBootstrap.ts` (v1 pHash shape, zero consumers since 12.4c) are DELETED; the first-launch gate is gone; `MalformedRemoteConfigError`'s intent survives as the `malformed-envelope` / `malformed-entry` refresh reasons (fall back to bundled/cached).)*
 
 **Cascading implications:**
 
-- Decision #7 — `firestore.rules` for `detection_config/*` no longer needs to support unauthenticated bootstrap reads; mobile reads only after auth (post-T0).
+- Decision #7 — `firestore.rules` for `detection_config/*` no longer needs to support unauthenticated bootstrap reads; mobile reads only after auth (post-T0). *(AMENDED 2026-10-04 (Story 1.13): the mobile side is post-auth only; the signed-in read rule itself is Story 1.14, its deploy 1.15 — until then every overlay read is `permission-denied` and the bundle is used.)*
 - Decision #8 — bundled is the baseline; Firestore is the OTA channel; ownership of `detection_config/latest` becomes a manual operator action (see below).
-- `docs/architecture-mobile.md` updates: replace "throws `OfflineFirstLaunchError`" with "falls back to bundled `map_config.json` from app asset bundle."
+- `docs/architecture-mobile.md` updates: replace "throws `OfflineFirstLaunchError`" with "falls back to bundled `map_config.json` from app asset bundle." *(AMENDED 2026-10-04 (Story 1.13): done — the doc now describes the bundled registry + post-auth overlay.)*
 
 #### Decision #6 — Wire `apps/web` to `@warden/contracts/user-doc` [RESOLVED]
 
@@ -440,6 +441,8 @@ There is no Python starter analog to `create-expo-app` or `create-next-app` for 
     apps/mobile/assets/map_config.json \
     --project <project-id>
   ```
+
+- *(AMENDED 2026-10-04 (Story 1.13): the command above is wrong twice — wrong artefact and, to our knowledge, `firebase firestore:set` is not a Firebase CLI command. The upload artefact is the ENVELOPE built by `apps/tooling/tools/detection_config_envelope.py --revision N` (no credentials, no network; writes `apps/tooling/output/detection_config/latest.json`), never the bare config file (a nested-object config is rejected by the app). The upload mechanism is Story 1.16's to pick: a firebase-admin Node script run with the operator's own credentials, or a Firebase Console paste. Revision rule: next = max(current Firestore revision, shipped bundled revision) + 1.)*
 
 - Phase-7 follow-up: a `pnpm tooling:deploy-config` script that wraps the upload (still manual trigger, scriptable). Out of V1 scope.
 
@@ -493,6 +496,7 @@ PRD-disposed; architecture confirms the implementation hook:
 - Re-run `pnpm --filter @warden/contracts build`; regenerated TS Zod surface now requires `schema_version`.
 - Mobile's `validateDetectionConfig` (and the bundled-config validator from Decision #2) accepts `schema_version: 1` only for V1; rejection of unknown versions is graceful (falls back to bundled `map_config.json` from the asset bundle).
 - Sprint 3 story: "Add `schema_version: 1` to all `map_config.json` writers; bump contract; regen Zod; commit regenerated `map_config.json` payload alongside the schema bump."
+- *(AMENDED 2026-10-04 (Story 1.13): CLOSED by 9.9a/9.9c/12.4c, verified at 1.13.) `contracts/map-config.schema.json` requires `schema_version` `enum [1]`; `map_config_emitter.py` writes it first; `test_map_config_emitter.py` asserts it; the generated Zod requires it; the bundled file carries it. `map_config_generator.py` / `hash_comparator.py` were retired by 9.11 and `validateDetectionConfig` was deleted by 1.13. An overlay entry with another `schema_version` fails the contract and is dropped (bundled is used) — that is the forward-compat behaviour; no migration code until a shape 2 exists.*
 
 ### Authentication & Security
 
@@ -1180,7 +1184,7 @@ Standard error codes (from `docs/api-contracts-web.md`): `INVALID_REQUEST`, `INV
 
 **Mobile → Firestore reads [LOCKED]:**
 - `users/{uid}` — read on auth-state-change, periodic revalidation, and app-foreground after Stripe portal round-trip. Network failures fall back to MMKV-cached `user.isPaid` per the entitlement state machine (Decision: 30-day offline-grace; day-31 force re-auth).
-- `detection_config/latest` — read post-auth via stale-while-revalidate cache (`detectionConfigService.ts`). Three singleflights guard `inflightInitialFetch`, `inflightBackgroundRefresh`, `inflightForcedRefresh`.
+- `detection_config/latest` — read post-auth via stale-while-revalidate cache (`detectionConfigService.ts`). Three singleflights guard `inflightInitialFetch`, `inflightBackgroundRefresh`, `inflightForcedRefresh`. *(AMENDED 2026-10-04 (Story 1.13): `refreshMapConfigOverlay()` in `mapConfigOverlay.ts`, one singleflight, fire-and-forget after sign-in; reads the overlay envelope, caches it only when its `revision` is newer; never throws, never gates processing.)*
 
 **Web → Firestore writes [LOCKED]:**
 - ONLY via firebase-admin (server-side bypassing rules). Client writes denied at the rules layer (Decision #7).
@@ -1519,7 +1523,7 @@ Warden_monorepo/
 │   │   │   ├── with-ffmpeg.js                               FFmpeg-kit Expo config plugin (legacy, retained)
 │   │   │   └── with-foreground-service.js                   [NEW] Foreground Service Android plugin (Decision: Brownfield Item 6)
 │   │   ├── assets/                                          App icons, splashes, fonts
-│   │   │   └── map_config.json                              [NEW] Bundled-as-Metro-asset baseline (Decision #2 hybrid)
+│   │   │   └── map_config.json                              [NEW] Bundled-as-Metro-asset baseline (Decision #2 hybrid) — AMENDED 2026-10-04 (Story 1.13): actually detection/map_config.<hud>.json, one per HUD (12.4c), registered in bundledMapConfigs.ts
 │   │   └── src/
 │   │       ├── app/                                         App shell — minimal navigation + screen composition
 │   │       │   ├── RootNavigator.tsx                        Auth-gated stack: Login | (Home + Processing)
@@ -1579,9 +1583,12 @@ Warden_monorepo/
 │   │       │       ├── mapConfig.ts                         [12.4c] Bundled map_config.v2.json + zod validation + per-session HUD-version selection; the seam Story 1.13 widens
 │   │       │       ├── engineScoring.ts                     [12.4c] Port of Tool 12 scoring.py — the THREE per-classifier formulas over the engine's fire bits
 │   │       │       ├── detectionTimeline.ts                 [12.4c] Fire bits → per-keyframe timeline, spans, segments, map IDs (pure)
-│   │       │       ├── detectionConfig.ts                   v1 pHash-era Firestore config (NOT a detection input since 12.4c; retired with Story 1.13's AC7)
-│   │       │       ├── detectionConfigService.ts            Stale-while-revalidate (bundled fallback per Decision #2)
-│   │       │       ├── detectionConfigBootstrap.ts          Reads bundled asset on first launch (Decision #2)
+│   │       │       ├── detectionConfig.ts                   v1 pHash-era Firestore config — DELETED by Story 1.13 (AMENDED 2026-10-04)
+│   │       │       ├── detectionConfigService.ts            Stale-while-revalidate — DELETED by Story 1.13 (AMENDED 2026-10-04)
+│   │       │       ├── detectionConfigBootstrap.ts          First-launch gate — DELETED by Story 1.13 (AMENDED 2026-10-04)
+│   │       │       ├── bundledMapConfigs.ts                 [1.13] Bundled per-HUD registry (the manifest) + BUNDLED_MAP_CONFIG_REVISION
+│   │       │       ├── mapConfigOverlay.ts                  [1.13] Post-auth Firestore overlay refresh (envelope, sha256, revision gate; never throws)
+│   │       │       ├── mapConfigOverlayCache.ts             [1.13] MMKV cache of the overlay envelope (read synchronously by mapConfig.ts)
 │   │       │       ├── gameDetector.ts                      [12.4c] Port of Tool 12 phases.py — binary in_match + doubt-HOLDS phase machine (was: short-GOP KDA/HSV detector)
 │   │       │       ├── mapIdentifier.ts                     [12.4c] Per-span RAW weighted zone aggregate vs identification_threshold (was: pHash matcher)
 │   │       │       ├── segmentation.ts                      Spans + map IDs → MapSegment rows; lobby/transition merged into not_in_match
@@ -1771,7 +1778,7 @@ Every FR in the PRD has a binding implementation location. Where multiple files 
 - `apps/mobile/src/shared/services/detectionEngine.ts` — `mobile-AUTO-SLICE-001` (**`analyzeSession`: the one per-session native call** — MediaCodec keyframe decode + Kotlin rule evaluation, progress as device events, cancellable).
 - `apps/mobile/src/features/video-processing/gameDetector.ts` — `mobile-AUTO-SLICE-001` (binary `in_match` classifier + the doubt-HOLDS phase machine; **the KDA/HSV detector and the long-GOP black-screen fallback were DELETED by Story 12.4c** — the engine decodes keyframes only, so the GOP branch had no meaning. `mobile-AUTO-SLICE-001`'s "reduced sampling on weak hardware" clause re-attaches to ladder rung 1 step 1b, keyframe decimation).
 - `apps/mobile/src/features/video-processing/mapIdentifier.ts` — `mobile-AUTO-SLICE-002/003` (per-span RAW weighted zone aggregate vs `identification_threshold`; below it, `mapName: null` — which is how `unknown` is spelled on this surface, rendered "Unknown map" with navigation intact).
-- `apps/mobile/src/features/video-processing/mapConfig.ts` — `cross-MAP-CONFIG-DELIVERY-001` (Metro-bundled `map_config.v2.json`, validated against `contracts/map-config.schema.json`; **Story 1.13 widens `listMapConfigCandidates()` into the Firestore overlay**).
+- `apps/mobile/src/features/video-processing/mapConfig.ts` — `cross-MAP-CONFIG-DELIVERY-001` (Metro-bundled `map_config.v2.json`, validated against `contracts/map-config.schema.json`; **Story 1.13 widens `listMapConfigCandidates()` into the Firestore overlay**). *(AMENDED 2026-10-04 (Story 1.13): done — per HUD, the cached overlay entry (revision > bundled) then the bundled entry; `bundledMapConfigs.ts` + `mapConfigOverlay.ts` feed it; callers unchanged.)*
 - `apps/mobile/src/features/video-processing/segmentation.ts` — spans + map IDs → segment rows; lobby exclusion `mobile-AUTO-SLICE-004` (lobby and transition are merged into `not_in_match` by design).
 - `apps/mobile/plugins/with-foreground-service.js` — keeps pipeline alive in background (Decision: Brownfield Item 6).
 
@@ -1889,6 +1896,7 @@ Every FR in the PRD has a binding implementation location. Where multiple files 
 - `apps/mobile/assets/map_config.json` — bundled baseline (Decision #2).
 - `apps/mobile/src/features/video-processing/detectionConfigBootstrap.ts` — reads bundled on first launch.
 - `apps/mobile/src/features/video-processing/detectionConfigService.ts` — Firestore overlay via stale-while-revalidate.
+- _AMENDED 2026-10-04 (Story 1.13):_ the three lines above are superseded — bundled baseline = `apps/mobile/assets/detection/map_config.<hud>.json` registered in `bundledMapConfigs.ts`; the v1 bootstrap/service are deleted; the post-auth overlay is `mapConfigOverlay.ts` (refresh) + `mapConfigOverlayCache.ts` (MMKV cache), consumed only through the `mapConfig.ts` seam.
 
 ### Architectural Boundaries
 
@@ -2027,9 +2035,9 @@ The integration map from `docs/integration-architecture.md` is the definitive re
 | 5 | `apps/web` (browser) | `apps/web` (route handlers) | HTTP same origin | Session cookie carries auth |
 | 6 | `apps/mobile` | Firebase Auth | `@react-native-firebase/auth` (post Item 5 migration) | Native module — Keychain/Keystore-backed persistence |
 | 7 | `apps/mobile` | Firestore | `@react-native-firebase/firestore` (post Item 5) | Reads only — users/{uid}, detection_config/latest |
-| 8 | `apps/mobile` | Firestore (detection_config) | Stale-while-revalidate | Bundled baseline per Decision #2; Firestore overlay only |
+| 8 | `apps/mobile` | Firestore (detection_config) | Stale-while-revalidate | Bundled baseline per Decision #2; Firestore overlay only. AMENDED 2026-10-04 (Story 1.13): post-auth, fire-and-forget; payload = the detection-config envelope (configs as JSON text), gated by envelope `revision` |
 | 9 | `apps/tooling` | filesystem | local files | Emits map_config.json (writes schema_version: 1 per Item 7) |
-| 10 | `apps/tooling` → operator → Firestore | Manual upload (Decision #8) | firebase CLI | OTA channel between releases |
+| 10 | `apps/tooling` → operator → Firestore | Manual upload (Decision #8) | firebase CLI | OTA channel between releases. AMENDED 2026-10-04 (Story 1.13): artefact = envelope from `detection_config_envelope.py`; mechanism (firebase-admin script or Console paste — `firebase firestore:set` is not a CLI command) = Story 1.16 |
 | 11 | `packages/contracts` | `apps/web` | TS package import | Wired per Decision #6 |
 | 12 | `packages/contracts` | `apps/mobile` | TS package import | Already wired |
 | 13 | `apps/tooling` | `contracts/` | filesystem read (Python jsonschema) | Per `tooling-SCHEMA-001` |

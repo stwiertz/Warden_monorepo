@@ -35,6 +35,8 @@ Map name slugs are lowercase ASCII (e.g. `the_cliff`, `frostbite`).
 
 **Producer:** [tools/map_config_generator.py](../apps/tooling/tools/map_config_generator.py). Runtime validation in Python via `jsonschema`. Output filename is `map_config.json` (not the `.schema.json` master).
 
+> _AMENDED 2026-10-04 (Story 1.13): decided and shipped — the emitter is `tools/map_config_emitter.py` (writes `map_config.<hud>.json`); `apps/mobile` bundles each as a Metro asset (`assets/detection/`, registry `bundledMapConfigs.ts`) and overlays it post-auth from `detection_config/latest`, which now holds the envelope of [detection-config-envelope.schema.json](../contracts/detection-config-envelope.schema.json) (each config as exact JSON text + sha256, gated by an envelope `revision`). The paragraph below is the pre-decision state._
+
 **Consumer:** `apps/mobile`. Today via Firestore document `detection_config/latest`, which is a _superset_ of `MapConfig` (adds `version`, ROI zones for detection, HSV bands). The bare `MapConfig` JSON file is not currently bundled. Phase 6 must decide:
 
 - Bundle `map_config.json` as a Metro asset (immutable, ships with app) — simpler, no runtime read, but requires app release for new maps.
@@ -88,7 +90,7 @@ Firestore `users/{uid}` document. Web writes (Stripe webhook handlers); mobile r
 ## Versioning
 
 - `@warden/contracts` is `private: true` and `version: 0.0.0` — there's no SemVer discipline because nothing outside the monorepo consumes it.
-- The wire-level `MapConfig` JSON has **no version field** — versioning is handled at the Firestore `detection_config/latest` document level (which has a `version: number` for stale-while-revalidate). If `map_config.json` ever ships as a Metro asset, add a version field at that point.
+- The wire-level `MapConfig` JSON has **no version field** — versioning is handled at the Firestore `detection_config/latest` document level (which has a `version: number` for stale-while-revalidate). If `map_config.json` ever ships as a Metro asset, add a version field at that point. _(AMENDED 2026-10-04 (Story 1.13): it ships as a Metro asset and still has no version field — `schema_version` is the shape version only. Delivery versioning is the overlay envelope's `revision` vs the app's `BUNDLED_MAP_CONFIG_REVISION`.)_
 - The `users/{uid}` document has no version field. Schema migrations would need to be coordinated with mobile (which reads via the firebase JS SDK, not via the Zod schema today).
 
 ## Phase 6 candidates

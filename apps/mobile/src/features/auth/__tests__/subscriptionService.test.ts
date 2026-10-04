@@ -1,7 +1,7 @@
 // Tests for subscriptionService.ts under the @react-native-firebase/firestore
 // namespaced API (Story 1.7 — Firebase v12 RN migration, Story 3.D).
 //
-// HOIST NOTE (reused from authService.test.ts / detectionConfigService.test.ts):
+// HOIST NOTE (reused from authService.test.ts / mapConfigOverlay.test.ts):
 // jest hoists jest.mock() factories above the file's imports, AND Babel's
 // ES-module compilation hoists `import` → `require()` above the module-scope
 // `const mockX = jest.fn()` declarations. So factories run BEFORE those consts

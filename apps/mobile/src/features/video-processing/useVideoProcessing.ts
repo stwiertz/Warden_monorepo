@@ -1,9 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { runProcessingPipeline, getCheckpoint } from "./processingPipeline";
-import {
-  getBootstrapPromise,
-  isVideoProcessingBlocked,
-} from "./detectionConfigBootstrap";
 import type { ProcessingStage } from "./types";
 
 interface UseVideoProcessingReturn {
@@ -46,26 +42,9 @@ export function useVideoProcessing(
     setError(null);
 
     void (async () => {
-      // Await bootstrap before reading the gate — otherwise a fast-tapping
-      // user can reach this entry point in the offline-first-launch case
-      // before the flag is written, bypassing AC 4.
-      const pending = getBootstrapPromise();
-      if (pending) {
-        try {
-          await pending;
-        } catch {
-          // bootstrap is contractually non-throwing; defensive only.
-        }
-      }
-
-      const block = isVideoProcessingBlocked();
-      if (block.blocked) {
-        setStatus("error");
-        setError(block.reason ?? "Video processing is unavailable.");
-        isRunning.current = false;
-        return;
-      }
-
+      // Story 1.13: no config gate. The pipeline always has a map config — the
+      // bundled one, or a post-auth overlay cached earlier — so processing
+      // never waits on, or is refused by, a Firestore read.
       const checkpoint = getCheckpoint(sessionId);
       if (checkpoint) {
         setStage(checkpoint);

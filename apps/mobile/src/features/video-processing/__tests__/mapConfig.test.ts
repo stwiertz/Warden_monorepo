@@ -1,4 +1,5 @@
 // Story 12.4c AC4 / AC5 — the bundled config, its validation, and HUD selection.
+// Story 1.13 AC1 / AC4 / AC6 — the bundled registry and the widened seam.
 
 import fs from "fs";
 import path from "path";
@@ -13,9 +14,30 @@ import {
   summariseClassifiers,
 } from "../mapConfig";
 import type { RuleRef } from "../engineScoring";
+import { BUNDLED_MAP_CONFIG_REVISION } from "../bundledMapConfigs";
+import {
+  MAP_CONFIG_OVERLAY_STORAGE_KEY,
+  writeCachedOverlay,
+  type DetectionConfigEnvelope,
+} from "../mapConfigOverlayCache";
+import { storage } from "../../../shared/services/storage";
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const FIXTURE: DetectionConfigEnvelope = require("./fixtures/overlay-envelope.json");
+const FIXTURE_TEXT = FIXTURE.configs.v2!.config_json;
+
+let logSpy: jest.SpyInstance;
+let warnSpy: jest.SpyInstance;
 
 beforeEach(() => {
   __resetMapConfigCacheForTests();
+  logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+  warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+});
+
+afterEach(() => {
+  logSpy.mockRestore();
+  warnSpy.mockRestore();
 });
 
 describe("the bundled v2 config", () => {
@@ -96,10 +118,150 @@ describe("the bundled v2 config", () => {
     expect(candidate.rawJson.indexOf('"maps"', firstMaps + 1)).toBe(-1);
   });
 
-  it("exposes exactly one candidate today — the seam Story 1.13 widens", () => {
+  it("with no overlay cached, the seam returns the bundled registry alone", () => {
     const candidates = listMapConfigCandidates();
     expect(candidates).toHaveLength(1);
     expect(candidates[0].source).toBe("bundled");
+    expect(candidates[0].revision).toBe(BUNDLED_MAP_CONFIG_REVISION);
+  });
+
+  it("logs which config the session got", () => {
+    getPrimaryMapConfig();
+    expect(logSpy).toHaveBeenCalledWith(
+      `[map-config] source=bundled revision=${BUNDLED_MAP_CONFIG_REVISION} hud=v2`
+    );
+  });
+});
+
+describe("Story 1.13 AC1 — the bundled registry", () => {
+  it("a registry key that differs from its config's hud_version throws at the seam", () => {
+    try {
+      jest.isolateModules(() => {
+        jest.doMock("../bundledMapConfigs", () => ({
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          BUNDLED_MAP_CONFIGS: { v1: require("../../../../assets/detection/map_config.v2.json") },
+          DEFAULT_HUD_VERSION: "v1",
+          BUNDLED_MAP_CONFIG_REVISION: 1,
+        }));
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const isolated = require("../mapConfig");
+        expect(() => isolated.listMapConfigCandidates()).toThrow(isolated.MalformedMapConfigError);
+        expect(() => isolated.listMapConfigCandidates()).toThrow(/registry key v1/);
+      });
+    } finally {
+      // Even when an assertion above throws, the override must not leak.
+      jest.dontMock("../bundledMapConfigs");
+    }
+  });
+
+  it("the revision is a positive integer", () => {
+    expect(Number.isInteger(BUNDLED_MAP_CONFIG_REVISION)).toBe(true);
+    expect(BUNDLED_MAP_CONFIG_REVISION).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("Story 1.13 AC4 / AC6 — the cached overlay through the seam", () => {
+  it("orders the overlay first and the bundled copy second, per HUD", () => {
+    writeCachedOverlay(FIXTURE);
+    const candidates = listMapConfigCandidates();
+    expect(candidates.map((c) => [c.hudVersion, c.source, c.revision])).toEqual([
+      ["v2", "remote", 2],
+      ["v2", "bundled", BUNDLED_MAP_CONFIG_REVISION],
+    ]);
+    expect(getPrimaryMapConfig().source).toBe("remote");
+  });
+
+  it("🔴 (a) rawJson IS config_json verbatim, and its NON-alphabetical map order survives", () => {
+    writeCachedOverlay(FIXTURE);
+    const remote = getPrimaryMapConfig();
+    expect(remote.rawJson).toBe(FIXTURE_TEXT);
+    const order = ["zeta_map", "alpha_map", "mu_map"];
+    expect(Object.keys(remote.config.minimap_identification.maps)).toEqual(order);
+    expect(Object.keys(summariseClassifiers(remote).mapZoneCounts)).toEqual(order);
+    expect(summariseClassifiers(remote).mapZoneCounts).toEqual({ zeta_map: 1, alpha_map: 2, mu_map: 0 });
+    // The packer's text scan sees the same order.
+    const positions = order.map((slug) => remote.rawJson.indexOf(`"${slug}"`));
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+  });
+
+  it("🔴 (c) JSON.parse(rawJson) deep-equals candidate.config", () => {
+    writeCachedOverlay(FIXTURE);
+    const remote = getPrimaryMapConfig();
+    expect(JSON.parse(remote.rawJson)).toEqual(remote.config);
+  });
+
+  it("ignores an overlay whose revision does not beat the bundle", () => {
+    writeCachedOverlay({ ...FIXTURE, revision: BUNDLED_MAP_CONFIG_REVISION });
+    expect(listMapConfigCandidates().map((c) => c.source)).toEqual(["bundled"]);
+  });
+
+  it("a cached overlay that fails re-validation on read is deleted and ignored", () => {
+    const tightened = JSON.parse(FIXTURE_TEXT);
+    tightened.schema_version = 2; // e.g. a contract an app update no longer accepts
+    storage.setString(
+      MAP_CONFIG_OVERLAY_STORAGE_KEY,
+      JSON.stringify({
+        envelope_version: 1,
+        revision: 3,
+        configs: { v2: { config_json: JSON.stringify(tightened), sha256: "0".repeat(64) } },
+      })
+    );
+    expect(listMapConfigCandidates().map((c) => c.source)).toEqual(["bundled"]);
+    expect(storage.getString(MAP_CONFIG_OVERLAY_STORAGE_KEY)).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("a cache entry stored as a nested object (no text) is deleted and ignored", () => {
+    storage.setString(
+      MAP_CONFIG_OVERLAY_STORAGE_KEY,
+      JSON.stringify({ envelope_version: 1, revision: 3, configs: { v2: JSON.parse(FIXTURE_TEXT) } })
+    );
+    expect(listMapConfigCandidates().map((c) => c.source)).toEqual(["bundled"]);
+    expect(storage.getString(MAP_CONFIG_OVERLAY_STORAGE_KEY)).toBeUndefined();
+  });
+
+  it("D2: a cached config the native packer would reject is deleted and ignored on read", () => {
+    const escapedKey = FIXTURE_TEXT.replace('"alpha_map": {', '"alpha\\u005fmap": {');
+    storage.setString(
+      MAP_CONFIG_OVERLAY_STORAGE_KEY,
+      JSON.stringify({
+        envelope_version: 1,
+        revision: 3,
+        configs: { v2: { config_json: escapedKey, sha256: "0".repeat(64) } },
+      })
+    );
+    expect(listMapConfigCandidates().map((c) => c.source)).toEqual(["bundled"]);
+    expect(storage.getString(MAP_CONFIG_OVERLAY_STORAGE_KEY)).toBeUndefined();
+    expect(String(warnSpy.mock.calls[0][1])).toMatch(/native packer would reject it/);
+  });
+
+  it("D1: an unknown HUD key in a cached overlay is skipped, not a reason to discard", () => {
+    writeCachedOverlay({
+      ...FIXTURE,
+      revision: 3,
+      configs: { ...FIXTURE.configs, v3: FIXTURE.configs.v2! },
+    });
+    expect(listMapConfigCandidates().map((c) => [c.hudVersion, c.source])).toEqual([
+      ["v2", "remote"],
+      ["v2", "bundled"],
+    ]);
+    expect(storage.getString(MAP_CONFIG_OVERLAY_STORAGE_KEY)).toBeDefined();
+  });
+
+  it("a corrupted (non-JSON) cache is deleted and ignored", () => {
+    storage.setString(MAP_CONFIG_OVERLAY_STORAGE_KEY, "{truncated");
+    expect(getPrimaryMapConfig().source).toBe("bundled");
+    expect(storage.getString(MAP_CONFIG_OVERLAY_STORAGE_KEY)).toBeUndefined();
+  });
+
+  it("is memoised, and the memo drops when the overlay cache is written", () => {
+    const first = listMapConfigCandidates();
+    expect(listMapConfigCandidates()).toBe(first);
+    writeCachedOverlay(FIXTURE);
+    const second = listMapConfigCandidates();
+    expect(second).not.toBe(first);
+    expect(second[0].source).toBe("remote");
+    expect(listMapConfigCandidates()).toBe(second);
   });
 });
 
