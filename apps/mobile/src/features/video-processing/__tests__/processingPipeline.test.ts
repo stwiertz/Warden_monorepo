@@ -38,6 +38,7 @@ jest.mock("../../session/sessionRepository", () => ({
 }));
 
 jest.mock("../segmentRepository", () => ({
+  deleteMapSegmentsForSession: jest.fn().mockResolvedValue(undefined),
   insertMapSegments: jest
     .fn()
     .mockImplementation((_sessionId: string, segments: unknown[]) =>
@@ -65,6 +66,7 @@ jest.mock("../../../shared/services/storage", () => ({
 
 import {
   CHECKPOINT_SCHEMA,
+  getAnalysisRecord,
   getCheckpoint,
   runProcessingPipeline,
 } from "../processingPipeline";
@@ -73,10 +75,20 @@ import {
   stopForegroundService,
   updateForegroundServiceStage,
 } from "../../../shared/services/foregroundService";
-import { extractFrameAt, getVideoDuration } from "../../../shared/services/ffmpeg";
-import { insertMapSegments } from "../segmentRepository";
-import { updateSessionStatus } from "../../session/sessionRepository";
-import { DetectionAnalysisCancelledError } from "../../../shared/services/detectionEngine";
+import {
+  extractFrameAt,
+  getProcessingDir,
+  getVideoDuration,
+} from "../../../shared/services/ffmpeg";
+import {
+  deleteMapSegmentsForSession,
+  insertMapSegments,
+} from "../segmentRepository";
+import { getSession, updateSessionStatus } from "../../session/sessionRepository";
+import {
+  DetectionAnalysisBusyError,
+  DetectionAnalysisCancelledError,
+} from "../../../shared/services/detectionEngine";
 import type {
   AnalyzeSessionOptions,
   EngineSessionAnalysis,
@@ -90,6 +102,9 @@ const mockUpdateStatus = updateSessionStatus as jest.Mock;
 const mockExtractFrameAt = extractFrameAt as jest.Mock;
 const mockInsertSegments = insertMapSegments as jest.Mock;
 const mockGetVideoDuration = getVideoDuration as jest.Mock;
+const mockGetProcessingDir = getProcessingDir as jest.Mock;
+const mockDeleteSegments = deleteMapSegmentsForSession as jest.Mock;
+const mockGetSession = getSession as jest.Mock;
 
 const SESSION = "test-session-1";
 const KF = 4167;
@@ -219,6 +234,14 @@ beforeEach(() => {
   mockUpdateStatus.mockResolvedValue(undefined);
   mockExtractFrameAt.mockResolvedValue(undefined);
   mockGetVideoDuration.mockResolvedValue(600_000);
+  mockGetProcessingDir.mockReturnValue("/tmp/processing");
+  mockDeleteSegments.mockResolvedValue(undefined);
+  mockGetSession.mockResolvedValue({
+    id: SESSION,
+    video_file_path: "/tmp/video.mp4",
+    name: "test",
+    status: "importing",
+  });
   mockInsertSegments.mockImplementation((_s: string, segments: unknown[]) =>
     Promise.resolve(segments.map((_x, i) => ({ id: `seg-${i}` })))
   );
@@ -361,25 +384,54 @@ describe("detection -> segments -> results, end to end (AC11/AC12)", () => {
     });
   });
 
-  it("🔴 a doubtful keyframe mid-match does not split the segment", () => {
+  it("🔴 a doubtful keyframe mid-match does not split the segment", async () => {
     // The pipeline-level statement of the doubt-holds contract: one match with
     // a split vote in the middle must persist as ONE row, not two.
     //
-    // The synthetic engine has ONE in_match zone, so its ratio is 0 or 1 and it
-    // cannot produce a split vote. `doubtMargin: 0.6` widens the band so that a
-    // ratio of 1 lands inside it — the same code path, reachable from a
-    // one-zone config.
-    return runProcessingPipeline(SESSION, {
-      analyze: analyzerFor(
-        analysisOf([false, true, true, true, false, false, false, false, false])
-      ) as never,
-      mapConfig: MAP_CONFIG as never,
-      doubtMargin: 0.6,
-    }).then(() => {
-      // Every in_match frame is now doubtful, so the machine never advances and
-      // no span opens: doubt alone can never create a segment.
-      expect(mockInsertSegments.mock.calls[0][1]).toHaveLength(0);
+    // A split vote needs more than one in_match zone, so this test carries its
+    // own three-zone config. Rules: 0 = hud, 1-3 = in_match, 4 = map. Fire bits
+    // are hex, LSB first per nibble: "f1" = all fire, "31" = hud + ONE in_match
+    // zone + map (ratio 1/3, inside the default 0.5 ± 0.2 doubt band), "11" =
+    // hud + map only.
+    const refs = [
+      REFS[0],
+      { texel: 1, owning_class: "in_match", zone_id: "i0", kind: "in_match" as const, effective_weight: 1 },
+      { texel: 2, owning_class: "in_match", zone_id: "i1", kind: "in_match" as const, effective_weight: 1 },
+      { texel: 3, owning_class: "in_match", zone_id: "i2", kind: "in_match" as const, effective_weight: 1 },
+      { texel: 4, owning_class: "artefact", zone_id: "a0", kind: "map" as const, effective_weight: 1 },
+    ];
+    const mapConfig = {
+      ...MAP_CONFIG,
+      config: {
+        ...MAP_CONFIG.config,
+        in_match_detection: [zone("i0"), zone("i1"), zone("i2")],
+      },
+    };
+    const pattern = ["11", "f1", "f1", "31", "f1", "f1", "11", "11", "11", "11", "11"];
+    const base = analysisOf(pattern.map(() => false), { n_rules: 5, refs });
+    const analysis = {
+      ...base,
+      frames: base.frames.map((f, i) => ({ ...f, fires: pattern[i] })),
+    };
+
+    await runProcessingPipeline(SESSION, {
+      analyze: analyzerFor(analysis) as never,
+      mapConfig: mapConfig as never,
     });
+    const segments = mockInsertSegments.mock.calls[0][1];
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({ startTimeMs: KF, endTimeMs: 5 * KF });
+
+    // The counterfactual: with doubt disabled, ratio 1/3 is a hard "no", the
+    // match falls at keyframe 3, and the persisted rows differ.
+    jest.clearAllMocks();
+    mockStore.clear();
+    await runProcessingPipeline(SESSION, {
+      analyze: analyzerFor(analysis) as never,
+      mapConfig: mapConfig as never,
+      doubtMargin: 0,
+    });
+    expect(mockInsertSegments.mock.calls[0][1]).not.toEqual(segments);
   });
 
   it("labels a segment unknown (null) rather than failing when nothing fires", async () => {
@@ -469,18 +521,52 @@ describe("checkpoint resume (AC7)", () => {
   });
 
   it("resumes after segmentation straight into results", async () => {
-    mockExtractFrameAt.mockImplementationOnce(() =>
-      Promise.reject(new Error("unused"))
-    );
+    // The results stage fails BEFORE its first thumbnail (thumbnail failures
+    // themselves are swallowed), leaving the checkpoint at `segmentation`.
+    mockGetProcessingDir.mockImplementationOnce(() => {
+      throw new Error("disk is full");
+    });
     const analysis = analysisOf([true, true, false, false, false, false, false]);
     const analyze = analyzerFor(analysis);
-    await runProcessingPipeline(SESSION, {
-      analyze: analyze as never,
-      mapConfig: MAP_CONFIG as never,
-    });
-    expect(getCheckpoint(SESSION)).toBeNull();
+    const opts = { analyze: analyze as never, mapConfig: MAP_CONFIG as never };
+    await expect(runProcessingPipeline(SESSION, opts)).rejects.toThrow("disk is full");
+    expect(getCheckpoint(SESSION)).toBe("segmentation");
+    expect(mockExtractFrameAt).not.toHaveBeenCalled();
+
+    await runProcessingPipeline(SESSION, opts);
+    // Neither detection nor segmentation re-runs; only the results do.
     expect(analyze).toHaveBeenCalledTimes(1);
     expect(mockInsertSegments).toHaveBeenCalledTimes(1);
+    expect(mockExtractFrameAt).toHaveBeenCalledTimes(1);
+    expect(getCheckpoint(SESSION)).toBeNull();
+  });
+
+  it("replaces, not duplicates, segment rows when segmentation re-runs", async () => {
+    // A v1 checkpoint discarded at `segmentation`, or a crash between the
+    // insert and its checkpoint, leaves rows behind; the re-run must not append
+    // a second set.
+    await run(analysisOf([false, true, true, false, false, false, false, false]));
+    expect(mockDeleteSegments).toHaveBeenCalledWith(SESSION);
+    expect(mockDeleteSegments.mock.invocationCallOrder[0]).toBeLessThan(
+      mockInsertSegments.mock.invocationCallOrder[0]
+    );
+  });
+
+  it("keeps the analysis record after success, including partial coverage", async () => {
+    // Review D1: a truncated keyframe index leaves the session `ready` but must
+    // stay visible after the checkpoint is cleared.
+    const analysis = analysisOf([false, true, false, false, false, false, false]);
+    analysis.keyframe_index = {
+      ...analysis.keyframe_index,
+      covers_duration: false,
+      uncovered_tail_us: 600_000_000,
+    };
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    await run(analysis);
+    warn.mockRestore();
+    expect(getCheckpoint(SESSION)).toBeNull();
+    expect(getAnalysisRecord(SESSION)).toMatchObject({ coversDuration: false });
+    expect(mockUpdateStatus).toHaveBeenLastCalledWith(SESSION, "ready");
   });
 
   it("🔴 DISCARDS a checkpoint written by the pre-12.4c pipeline", async () => {
@@ -531,5 +617,60 @@ describe("cancellation is not a failure (AC1)", () => {
     expect(mockUpdateStatus).not.toHaveBeenCalledWith(SESSION, "error");
     // And the foreground service is still stopped.
     expect(mockStop).toHaveBeenCalledWith(SESSION);
+  });
+
+  it("restores a stale `processing` status to `importing`, not `processing`", async () => {
+    // A killed run leaves `processing` behind; restoring it verbatim would
+    // strand the session as "processing" with nothing running.
+    mockGetSession.mockResolvedValueOnce({
+      id: SESSION,
+      video_file_path: "/tmp/video.mp4",
+      name: "test",
+      status: "processing",
+    });
+    const analyze = jest.fn().mockRejectedValue(new DetectionAnalysisCancelledError());
+    await expect(
+      runProcessingPipeline(SESSION, { analyze: analyze as never, mapConfig: MAP_CONFIG as never })
+    ).rejects.toBeInstanceOf(DetectionAnalysisCancelledError);
+    expect(mockUpdateStatus).toHaveBeenLastCalledWith(SESSION, "importing");
+  });
+
+  it("does not mark the session `error` when the native latch is busy", async () => {
+    const analyze = jest.fn().mockRejectedValue(new DetectionAnalysisBusyError());
+    await expect(
+      runProcessingPipeline(SESSION, { analyze: analyze as never, mapConfig: MAP_CONFIG as never })
+    ).rejects.toBeInstanceOf(DetectionAnalysisBusyError);
+    expect(mockUpdateStatus).not.toHaveBeenCalledWith(SESSION, "error");
+    expect(mockUpdateStatus).toHaveBeenLastCalledWith(SESSION, "importing");
+  });
+});
+
+describe("one run at a time (12.4c review)", () => {
+  it("🔴 rejects a second run up front — no status write, no service start/stop", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const analysis = analysisOf([false, true, false, false, false, false, false]);
+    const slow = jest.fn(async () => {
+      await gate;
+      return analysis;
+    });
+    const first = runProcessingPipeline(SESSION, {
+      analyze: slow as never,
+      mapConfig: MAP_CONFIG as never,
+    });
+    // Let the first run reach the engine call.
+    await new Promise((r) => setImmediate(r));
+    const startsBefore = mockStart.mock.calls.length;
+    const statusBefore = mockUpdateStatus.mock.calls.length;
+
+    await expect(run(analysis)).rejects.toBeInstanceOf(DetectionAnalysisBusyError);
+    expect(mockStart.mock.calls.length).toBe(startsBefore);
+    expect(mockStop).not.toHaveBeenCalled();
+    expect(mockUpdateStatus.mock.calls.length).toBe(statusBefore);
+
+    release();
+    await first;
+    // And the guard is released afterwards.
+    await expect(run(analysis)).resolves.toBeUndefined();
   });
 });

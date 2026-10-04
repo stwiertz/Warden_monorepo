@@ -46,11 +46,13 @@ class WardenDetectionEngineModule(
      * `requestId`, because a multi-minute call with a single 0 -> 100 jump would
      * regress the one thing the user actually watches (AC7).
      *
-     * Cancellable via [cancelAnalysis] with the same `requestId`: a user can
-     * leave the screen mid-run, and a codec left holding a 2 GB file open is not
-     * an option. Cancellation is COOPERATIVE — polled once per keyframe — which
-     * bounds the latency at one keyframe (~8 ms) and keeps the decoder's own
-     * `use {}` teardown on the normal path.
+     * Cancellable via [cancelAnalysis] with the same `requestId`, for an explicit
+     * "stop processing" — screen unmount deliberately does NOT cancel (the
+     * foreground service exists so a run survives backgrounding; see
+     * `cancelProcessing` in processingPipeline.ts). Cancellation is COOPERATIVE —
+     * polled once per decoded keyframe — so once decoding has started the latency
+     * is one keyframe (~8 ms), and the decoder's own `use {}` teardown stays on
+     * the normal path. It is not polled during probe and index building.
      */
     @ReactMethod
     fun analyzeSession(
@@ -83,35 +85,45 @@ class WardenDetectionEngineModule(
             )
             return
         }
-        activeRequestId.set(requestId)
+        // The flag is reset BEFORE the id is published: a cancelAnalysis that
+        // lands in between would otherwise be acknowledged and then wiped.
         cancelRequested.set(false)
+        activeRequestId.set(requestId)
 
         Thread({
+            var report: String? = null
+            var failure: Throwable? = null
             try {
-                val report = WardenSessionAnalyzer(videoPath, configJson).analyze(
+                report = WardenSessionAnalyzer(videoPath, configJson).analyze(
                     limit = limit,
                     onProgress = { done, total -> emitProgress(requestId, done, total) },
                     isCancelled = { cancelRequested.get() },
-                )
-                promise.resolve(report.toString())
-            } catch (cancelled: WardenAnalysisCancelledException) {
-                // A distinct code, because "the user left the screen" is not a
-                // failure the pipeline should mark the session `error` for.
-                promise.reject(WardenSessionAnalyzer.CANCELLED, cancelled.message, cancelled)
+                ).toString()
             } catch (t: Throwable) {
-                val code =
-                    if (t.message?.contains(WardenSessionAnalyzer.UNSUPPORTED_GEOMETRY) == true)
-                        WardenSessionAnalyzer.UNSUPPORTED_GEOMETRY
-                    else "WARDEN_ANALYSIS_FAILED"
-                promise.reject(code, t.message, t)
+                failure = t
             } finally {
                 // 🔴 The latch is released in `finally` on EVERY path — including
                 // cancellation and an unsupported-geometry throw. A stuck latch
                 // presents as "the app will never process another video again",
-                // which is indistinguishable from a dead native module.
+                // which is indistinguishable from a dead native module. Released
+                // BEFORE the promise settles, so a caller that starts the next
+                // analysis on resolution never meets a spurious BUSY.
                 cancelRequested.set(false)
                 activeRequestId.set(null)
                 analysisInFlight.set(false)
+            }
+            val t = failure
+            when {
+                t == null -> promise.resolve(report)
+                // A distinct code, because an explicit cancel is not a failure the
+                // pipeline should mark the session `error` for. The cause chain is
+                // walked: the decode loop may wrap what the callback threw.
+                causeChain(t).any { it is WardenAnalysisCancelledException } ->
+                    promise.reject(WardenSessionAnalyzer.CANCELLED, t.message, t)
+                causeChain(t).any {
+                    it.message?.contains(WardenSessionAnalyzer.UNSUPPORTED_GEOMETRY) == true
+                } -> promise.reject(WardenSessionAnalyzer.UNSUPPORTED_GEOMETRY, t.message, t)
+                else -> promise.reject("WARDEN_ANALYSIS_FAILED", t.message, t)
             }
         }, "warden-session-analysis").start()
     }
@@ -134,6 +146,10 @@ class WardenDetectionEngineModule(
             promise.resolve(false)
         }
     }
+
+    /** `t`, its cause, its cause's cause… — bounded against a cyclic chain. */
+    private fun causeChain(t: Throwable): Sequence<Throwable> =
+        generateSequence(t) { it.cause?.takeIf { c -> c !== it } }.take(16)
 
     private fun emitProgress(requestId: String, done: Int, total: Int) {
         try {

@@ -12,6 +12,21 @@ function nowISO(): string {
 }
 
 /**
+ * Delete every map segment of a session (dependent clip rows cascade).
+ *
+ * Only for the pipeline's segmentation stage, which runs before the session is
+ * ever `ready` — so no user clip can hang off these rows yet.
+ */
+export async function deleteMapSegmentsForSession(
+  sessionId: string
+): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(`DELETE FROM map_segments WHERE session_id = ?`, [
+    sessionId,
+  ]);
+}
+
+/**
  * Bulk insert map segments for a session.
  */
 export async function insertMapSegments(

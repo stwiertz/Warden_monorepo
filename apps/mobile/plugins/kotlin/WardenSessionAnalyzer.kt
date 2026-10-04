@@ -132,6 +132,16 @@ class WardenSessionAnalyzer(
                         "ship a config calibrated for this resolution."
                 )
             }
+            // Same reason, for orientation: decoded planes are in coded (unrotated)
+            // order, so a capture flagged for rotated display would be scored
+            // against a HUD layout it does not have.
+            if (profile.rotationDegrees != 0) {
+                throw IllegalStateException(
+                    "$UNSUPPORTED_GEOMETRY: the capture carries a ${profile.rotationDegrees}° " +
+                        "display rotation; the detection config is calibrated for an " +
+                        "unrotated ${refW}x$refH landscape capture."
+                )
+            }
 
             val tIndex = System.nanoTime()
             val ptsList = dec.syncSamplePtsListBySeek()
@@ -164,7 +174,9 @@ class WardenSessionAnalyzer(
                     .put("uncovered_tail_us", uncoveredUs)
                     .put(
                         "covers_duration",
-                        gopUs <= 0L || uncoveredUs <= 2L * gopUs
+                        // An unknown duration or a single-keyframe index (no
+                        // GOP estimate) proves nothing, so it is NOT coverage.
+                        profile.durationUs > 0L && gopUs > 0L && uncoveredUs <= 2L * gopUs
                     )
             )
 

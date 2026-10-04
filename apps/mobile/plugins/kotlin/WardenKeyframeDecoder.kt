@@ -78,6 +78,8 @@ data class WardenDecoderProfile(
     val durationUs: Long,
     val syncSampleCount: Int,
     val supportedColorFormats: List<Int>,
+    /** Container display rotation (`KEY_ROTATION`), 0 when absent. */
+    val rotationDegrees: Int = 0,
 )
 
 class WardenKeyframeDecoder(
@@ -200,6 +202,8 @@ class WardenKeyframeDecoder(
                 format.getLong(MediaFormat.KEY_DURATION) else -1L,
             syncSampleCount = syncCount,
             supportedColorFormats = colorFormats,
+            rotationDegrees = if (format.containsKey(MediaFormat.KEY_ROTATION))
+                format.getInteger(MediaFormat.KEY_ROTATION) else 0,
         )
         profile = p
         Log.i(TAG, "decoder=$codecName hw=$hw sync samples=$syncCount")
@@ -942,9 +946,13 @@ class WardenKeyframeDecoder(
         // (the analyzer builds one decoder per session inside `use {}`), but the
         // bench modes do run several probes per instance.
         codec?.let { stale ->
-            try { stale.stop() } catch (_: Throwable) {}
-            stale.release()
+            // Cleared first and released best-effort: a throwing release() must
+            // not leave the dead codec referenced or block the new one.
             codec = null
+            try { stale.stop() } catch (_: Throwable) {}
+            try { stale.release() } catch (t: Throwable) {
+                Log.w(TAG, "stale codec release failed; continuing", t)
+            }
         }
         val mime = format.getString(MediaFormat.KEY_MIME)!!
         val c = MediaCodec.createDecoderByType(mime)

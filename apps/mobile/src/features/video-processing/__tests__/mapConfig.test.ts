@@ -236,4 +236,21 @@ describe("resolveSessionHudVersion — once per session (AC5)", () => {
     expect(verdict.matched).toBe(true);
     expect(verdict.sampledKeyframes).toBeLessThan(frames.length);
   });
+
+  it("never samples more than sampleSize keyframes", () => {
+    // floor(127 / 64) = 1 sampled all 127; the bound is the point of sampling.
+    const frames = Array(127).fill(BOTH_HUD);
+    const verdict = resolveSessionHudVersion(frames, refs, candidate, cfg, 64);
+    expect(verdict.sampledKeyframes).toBeLessThanOrEqual(64);
+  });
+});
+
+describe("what the native side is handed", () => {
+  it("is the same config the TS side validated — zod adds and drops nothing", () => {
+    // Native receives `rawJson` (the TEXT, because map order lives in it) while
+    // TS scores with the zod-parsed object. A schema default or a stripped key
+    // would let the two sides read different configs without any check.
+    const candidate = getPrimaryMapConfig();
+    expect(JSON.parse(candidate.rawJson)).toEqual(candidate.config);
+  });
 });

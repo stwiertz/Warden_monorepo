@@ -290,7 +290,9 @@ export function resolveSessionHudVersion(
       matched: false,
     };
   }
-  const step = Math.max(1, Math.floor(frameFires.length / sampleSize));
+  // ceil, so the sample never exceeds `sampleSize` (floor sampled up to
+  // 2×sampleSize−1 frames, e.g. 127 frames at size 64 → step 1).
+  const step = Math.max(1, Math.ceil(frameFires.length / sampleSize));
   let sampled = 0;
   let confSum = 0;
   let agreed = 0;

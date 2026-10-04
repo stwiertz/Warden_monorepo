@@ -45,7 +45,11 @@ import {
   getVideoDuration,
 } from "../../shared/services/ffmpeg";
 import { getSession, updateSessionStatus } from "../session/sessionRepository";
-import { insertMapSegments, updateResultFramePath } from "./segmentRepository";
+import {
+  deleteMapSegmentsForSession,
+  insertMapSegments,
+  updateResultFramePath,
+} from "./segmentRepository";
 import { storage } from "../../shared/services/storage";
 import {
   startForegroundService,
@@ -55,6 +59,7 @@ import {
 import {
   analyzeSession as analyzeSessionNative,
   cancelAnalysis,
+  DetectionAnalysisBusyError,
   DetectionAnalysisCancelledError,
   type EngineSessionAnalysis,
 } from "../../shared/services/detectionEngine";
@@ -171,11 +176,66 @@ function isKnownStage(value: string): value is ProcessingStage {
   return value === "detection" || value === "segmentation" || value === "results";
 }
 
-function clearCheckpoint(sessionId: string): void {
+/**
+ * Records that outlive a successful run: `analysis` (what ran, including the
+ * keyframe-index coverage the UI reads via {@link getAnalysisRecord}) and
+ * `perf002` (post-run inspection). A discarded or migrated checkpoint clears
+ * them too.
+ */
+const RECORD_KEYS: ReadonlySet<string> = new Set(["analysis", "perf002"]);
+
+function clearCheckpoint(
+  sessionId: string,
+  { keepRecords = false }: { keepRecords?: boolean } = {}
+): void {
   for (const field of CHECKPOINT_KEYS) {
+    if (keepRecords && RECORD_KEYS.has(field)) continue;
     storage.delete(checkpointKey(sessionId, field));
   }
 }
+
+/** The compact record of the last detection run, persisted for the UI. */
+export interface SessionAnalysisRecord {
+  hudVersion: string;
+  hudConfidence: number;
+  keyframes: number;
+  keyframeCountMatches: boolean;
+  /**
+   * False when the seek-derived keyframe index stopped short of the capture's
+   * end, i.e. matches after that point were NOT analysed. The session is still
+   * `ready` (Review D1); the UI is expected to surface this.
+   */
+  coversDuration: boolean;
+  engineMsPerKeyframe: number;
+  wallMs: number;
+}
+
+export function getAnalysisRecord(
+  sessionId: string
+): SessionAnalysisRecord | undefined {
+  return storage.getObject<SessionAnalysisRecord>(
+    checkpointKey(sessionId, "analysis")
+  );
+}
+
+/**
+ * The status a session goes back to when a run stops without failing
+ * (cancelled, or the native latch was busy). A stale `processing` — left by a
+ * killed run — would otherwise stick forever with nothing running.
+ */
+function statusToRestore(
+  status: "importing" | "processing" | "ready" | "error"
+): "importing" | "ready" | "error" {
+  return status === "processing" ? "importing" : status;
+}
+
+/**
+ * Session ids with a pipeline running in THIS JS context. The native engine runs
+ * one analysis at a time; this guard rejects a second run up front, before it
+ * touches the session status or the singleton foreground service (a second
+ * start/stop with the same owner token would strip the live run's protection).
+ */
+let activePipelineSessionId: string | null = null;
 
 /**
  * Stage -> overall 0-100.
@@ -218,10 +278,30 @@ export async function cancelProcessing(sessionId: string): Promise<boolean> {
 
 /**
  * Run the full processing pipeline for a session.
+ *
+ * Rejects with {@link DetectionAnalysisBusyError} — before writing any status
+ * or touching the foreground service — while another run is in flight.
  */
 export async function runProcessingPipeline(
   sessionId: string,
   options: RunPipelineOptions = {}
+): Promise<void> {
+  if (activePipelineSessionId !== null) {
+    throw new DetectionAnalysisBusyError(
+      `a processing run is already in flight (session ${activePipelineSessionId})`
+    );
+  }
+  activePipelineSessionId = sessionId;
+  try {
+    await runPipeline(sessionId, options);
+  } finally {
+    activePipelineSessionId = null;
+  }
+}
+
+async function runPipeline(
+  sessionId: string,
+  options: RunPipelineOptions
 ): Promise<void> {
   // Story 1.1 AR-SPIKE — PERF-002 wall-clock + per-stage timing.
   // __DEV__-gated; no production overhead. Read live via:
@@ -319,7 +399,10 @@ export async function runProcessingPipeline(
       const gameSegments = detection.segments;
       const mapIdentifications = detection.identifications;
 
-      if (!analysis.keyframe_index.covers_duration && __DEV__) {
+      // Not __DEV__-gated (Review D1): a truncated index silently drops late
+      // matches, so it is logged in release too and persisted in the
+      // `analysis` record below, which survives success for the UI.
+      if (!analysis.keyframe_index.covers_duration) {
         console.warn(
           `[processingPipeline] the keyframe index stops ` +
             `${(analysis.keyframe_index.uncovered_tail_us / 1e6).toFixed(1)}s ` +
@@ -350,7 +433,7 @@ export async function runProcessingPipeline(
       // A compact record of WHAT ran, not the timeline: 1061 rows of per-frame
       // state would be the largest thing this app ever puts in MMKV, and nothing
       // resumes from them.
-      storage.setObject(checkpointKey(sessionId, "analysis"), {
+      storage.setObject<SessionAnalysisRecord>(checkpointKey(sessionId, "analysis"), {
         hudVersion: detection.hud.hudVersion,
         hudConfidence: detection.hud.meanConfidence,
         keyframes: analysis.n_keyframes,
@@ -396,6 +479,10 @@ export async function runProcessingPipeline(
         storage.getNumber(checkpointKey(sessionId, "duration")) ?? 0;
 
       const segments = buildMapSegments(gameSegments, mapIdentifications);
+      // Idempotent: rows from an earlier attempt — a crash between the insert
+      // and saveCheckpoint, or a discarded v1 checkpoint that had already
+      // reached segmentation — are replaced, not duplicated.
+      await deleteMapSegmentsForSession(sessionId);
       const savedSegments = await insertMapSegments(sessionId, segments);
 
       storage.setObject(
@@ -514,7 +601,7 @@ export async function runProcessingPipeline(
         console.warn(`[PERF-002] mmkv persist failed:`, err);
       }
     }
-    clearCheckpoint(sessionId);
+    clearCheckpoint(sessionId, { keepRecords: true });
   } catch (error) {
     if (__DEV__) {
       const totalMs = performance.now() - __perfStart;
@@ -532,13 +619,18 @@ export async function runProcessingPipeline(
         console.warn(`[PERF-002] mmkv persist (error path) failed:`, persistErr);
       }
     }
-    // 🔴 CANCELLATION IS NOT A FAILURE. The user left the screen; the session
-    // keeps whatever status it had before this run and its checkpoint, so the
-    // next run resumes instead of restarting. Marking it `error` would make a
-    // deliberate act look like a broken app — and `error` is a terminal state in
-    // the session list.
-    if (error instanceof DetectionAnalysisCancelledError) {
-      await updateSessionStatus(sessionId, session.status);
+    // 🔴 CANCELLATION IS NOT A FAILURE, AND NEITHER IS A BUSY LATCH. An explicit
+    // cancel, or a native latch still held by an orphaned run (a JS reload
+    // mid-analysis), says nothing about THIS session. It keeps its pre-run
+    // status (a stale `processing` maps back to `importing`) and its
+    // checkpoint, so the next run resumes instead of restarting. Marking it
+    // `error` would make it look broken — and `error` is a terminal state in the
+    // session list.
+    if (
+      error instanceof DetectionAnalysisCancelledError ||
+      error instanceof DetectionAnalysisBusyError
+    ) {
+      await updateSessionStatus(sessionId, statusToRestore(session.status));
       throw error;
     }
     await updateSessionStatus(sessionId, "error");

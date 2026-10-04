@@ -85,7 +85,10 @@ export function aggregateSpanScores(
  * there is nothing to identify. Tool 12's `_run_video` would return its first
  * config key with confidence 0 in that case; labelling a match `artefact`
  * because no zone fired is precisely the "forced to the nearest class" E4
- * forbids, so this is a deliberate, narrow divergence — and it is the ONLY one.
+ * forbids, so this is a deliberate, narrow divergence. It is one of TWO: the
+ * other is `engineScoring.argmaxWithThreshold`'s unknown-slug ordering (Python
+ * raises). Neither is exercised by the Tool 12 fixture — no span in the
+ * reference capture is all-zero or tied.
  */
 export function identifySpanMap(
   agg: Record<string, number>,

@@ -433,6 +433,40 @@ describe("analyzeSession — the production detection call (Story 12.4c)", () =>
     ).rejects.toBeInstanceOf(mod.UnsupportedCaptureError);
   });
 
+  it("maps a held native latch onto its own error type (not a failure)", async () => {
+    const mod = loadModule();
+    mockAnalyzeSession.mockRejectedValue(
+      Object.assign(new Error("a session analysis is already in flight"), {
+        code: "WARDEN_ANALYSIS_BUSY",
+      })
+    );
+    await expect(
+      mod.analyzeSession({ requestId: "s", videoPath: "/v.mp4", configJson: "{}" })
+    ).rejects.toBeInstanceOf(mod.DetectionAnalysisBusyError);
+  });
+
+  it("🔴 hands the native side a filesystem path, not the picker's file:// URI", async () => {
+    // Sessions store expo-document-picker's `asset.uri`. `java.io.File` and
+    // `MediaExtractor.setDataSource(String)` both need a bare path, so a raw URI
+    // failed `File(videoPath).exists()` for every real import (12.4c review).
+    const mod = loadModule();
+    mockAnalyzeSession.mockResolvedValue(JSON.stringify(ANALYSIS));
+    await mod.analyzeSession({
+      requestId: "s",
+      videoPath: "file:///data/user/0/app/cache/DocumentPicker/my%20scrim.mp4",
+      configJson: "{}",
+    });
+    expect(mockAnalyzeSession.mock.calls[0][1]).toBe(
+      "/data/user/0/app/cache/DocumentPicker/my scrim.mp4"
+    );
+  });
+
+  it("leaves a bare path, and a malformed escape, alone", () => {
+    const { toNativeFilePath } = loadModule();
+    expect(toNativeFilePath("/sd/video.mp4")).toBe("/sd/video.mp4");
+    expect(toNativeFilePath("file:///sd/100%.mp4")).toBe("/sd/100%.mp4");
+  });
+
   it("rethrows any other native failure unchanged", async () => {
     const mod = loadModule();
     mockAnalyzeSession.mockRejectedValue(

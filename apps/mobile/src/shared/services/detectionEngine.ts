@@ -115,11 +115,25 @@ export class DetectionEngineUnavailableError extends Error {
   }
 }
 
-/** The user (or a screen unmount) cancelled the run. NOT a processing failure. */
+/**
+ * An explicit cancel ({@link cancelAnalysis}) stopped the run. NOT a processing
+ * failure. Screen unmount deliberately does not cancel (see `cancelProcessing`).
+ */
 export class DetectionAnalysisCancelledError extends Error {
   constructor(message?: string) {
     super(message ?? "the session analysis was cancelled");
     this.name = "DetectionAnalysisCancelledError";
+  }
+}
+
+/**
+ * Another analysis already holds the native latch. NOT a failure of THIS
+ * session: the pipeline must not mark it `error` for it.
+ */
+export class DetectionAnalysisBusyError extends Error {
+  constructor(message?: string) {
+    super(message ?? "a session analysis is already in flight");
+    this.name = "DetectionAnalysisBusyError";
   }
 }
 
@@ -137,6 +151,23 @@ export const ENGINE_PROGRESS_EVENT = "WardenDetectionEngineProgress";
 /** Reject codes the native side uses. Matched, so they are an API. */
 const CODE_CANCELLED = "WARDEN_ANALYSIS_CANCELLED";
 const CODE_UNSUPPORTED_GEOMETRY = "WARDEN_UNSUPPORTED_GEOMETRY";
+const CODE_BUSY = "WARDEN_ANALYSIS_BUSY";
+
+/**
+ * The native side opens the video with `java.io.File` / `MediaExtractor`, which
+ * take a filesystem path. Sessions store the picker's `file://` URI (see
+ * videoImportService.ts), so the scheme is stripped and percent-escapes decoded
+ * here — the counterpart of ffmpeg.ts's `toFFmpegPath`.
+ */
+export function toNativeFilePath(uri: string): string {
+  if (!uri.startsWith("file://")) return uri;
+  const path = uri.slice("file://".length);
+  try {
+    return decodeURI(path);
+  } catch {
+    return path;
+  }
+}
 
 /**
  * The bound pipeline's measured stage split, in ms per keyframe.
@@ -409,7 +440,8 @@ export interface AnalyzeSessionOptions {
  * `null` at this seam would reach the checkpoint logic as "no matches found".
  *
  * Errors worth distinguishing, and distinguished:
- *   * {@link DetectionAnalysisCancelledError} — the user left; not a failure.
+ *   * {@link DetectionAnalysisCancelledError} — an explicit cancel; not a failure.
+ *   * {@link DetectionAnalysisBusyError} — another run holds the native latch.
  *   * {@link UnsupportedCaptureError} — wrong capture geometry for this config.
  *   * {@link DetectionEngineUnavailableError} — no native module (jest, iOS, a
  *     build that was never prebuilt).
@@ -437,7 +469,7 @@ export async function analyzeSession(
   try {
     const raw = await native.analyzeSession(
       requestId,
-      videoPath,
+      toNativeFilePath(videoPath),
       configJson,
       limit
     );
@@ -450,6 +482,9 @@ export async function analyzeSession(
     }
     if (code === CODE_UNSUPPORTED_GEOMETRY) {
       throw new UnsupportedCaptureError(message);
+    }
+    if (code === CODE_BUSY) {
+      throw new DetectionAnalysisBusyError(message);
     }
     throw error;
   } finally {

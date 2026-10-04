@@ -283,3 +283,16 @@ or needing a device, or belonging to a story that owns the data rather than the 
   - The constant regex accepts `1.5748e0`.
   - Nothing re-derives `REFERENCE_YUV_SWEEP_SHA256` from `shader_model`; the two pins only check each other.
   - The sweeper regex is a hand-kept duplicate of `KOTLIN_FILES`.
+
+## Deferred from: code review of 12-4c-engine-wiring-and-ts-consumer-rewrite (2026-10-04)
+
+`/bmad-code-review 12.4c` against commit `03fe9ca`, code-only diff, three layers. The decision and patch items are in the story's **Review Findings** section. The items below are deferred.
+
+- **Segment and thumbnail timestamps assume the container starts at PTS 0** (`detectionTimeline.ts` `ptsUsToMs` feeds FFmpeg `-ss` in the results stage). A capture with an edit list or a non-zero `start_time` offsets both. Verify on device footage in the 12.4d pass.
+- **A negative first sync PTS reads as "no sync samples found"** (`WardenKeyframeDecoder.kt:489-490`, `syncSamplePtsListBySeek`). An edit-list or B-frame offset on the first sample would mark a valid session `error`. Needs real footage.
+- **The bench and analysis latches use a check-then-act across two atomics** (`WardenDetectionEngineModule.kt`). `runBench` and `analyzeSession` can both pass. Dev-only.
+- **Cancel is not polled during probe or index building** (`WardenSessionAnalyzer.kt`). It takes effect at the first keyframe callback, not "within one keyframe" as the comment says.
+- **`assertRefsMatchConfig` checks kind/class only, not zone id or weight** (`mapConfig.ts`). It is harmless with today's uniform weights. Separately, the `mapConfig.test.ts` drift guard passes vacuously when the gitignored tooling output is absent.
+- **12.4c D3 → Story 12.4d:** the device parity re-run, the end-to-end run on a real HUD-2.0 capture, and a dev-only producer for `analyzeSession_dump.json` (`bench/12-4c/REPORT.md` §2 pulls it, but nothing writes it). Task 9 was unchecked.
+- **12.4c D5 — accepted:** an isolated one-keyframe "yes" produces a zero-duration segment. Reason: a min-duration filter in TS alone would break exact parity with Tool 12's `phases.py`. Revisit together with Tool 12 if Card View shows such segments.
+- **12.4c D2 → Story 1.13:** real HUD-version selection among `listMapConfigCandidates()` has to happen BEFORE `analyzeSession`. 12.4c ships only a post-hoc single-config check (AC5 amended).

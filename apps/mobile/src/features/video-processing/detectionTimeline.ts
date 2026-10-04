@@ -84,9 +84,17 @@ export interface SessionDetection {
  * would drift every timestamp down by up to 1 ms — harmless for a thumbnail,
  * but it would also stop the PC oracle's `timestamp_ms` from matching, which is
  * how the phase timeline is compared at all.
+ *
+ * Mirrors the oracle bit for bit: `int(round(pts_s * 1000.0))` (frames.py:153,
+ * video_oracle.py:368) goes through SECONDS as a double, and Python's `round`
+ * is half-to-even where `Math.round` is half-up — a `…500` µs PTS would
+ * otherwise land 1 ms off.
  */
 export function ptsUsToMs(ptsUs: number): number {
-  return Math.round(ptsUs / 1000);
+  const ms = (ptsUs / 1e6) * 1000.0;
+  const floor = Math.floor(ms);
+  if (ms - floor === 0.5) return floor % 2 === 0 ? floor : floor + 1;
+  return Math.round(ms);
 }
 
 export function buildSessionDetection(
