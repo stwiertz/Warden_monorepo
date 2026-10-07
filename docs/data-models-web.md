@@ -35,16 +35,22 @@ Read by [GET /api/subscription](./api-contracts-web.md#get-apisubscription--read
 
 Validated with [`subscriptionResponseSchema`](../apps/web/src/lib/schemas/subscription.ts) — note this is currently a web-local Zod schema **not yet importing from `@warden/contracts/user-doc`** (Phase 6 unification candidate).
 
-[firestore.rules](../apps/web/firestore.rules):
+[firestore.rules](../apps/web/firestore.rules) (Story 1.14):
 
 ```
 match /users/{userId} {
   allow read:  if request.auth != null && request.auth.uid == userId;
   allow write: if false;
 }
+match /detection_config/{docId} {
+  allow read:  if request.auth != null;
+  allow write: if false;
+}
+match /stripe_events/{eventId} { allow read, write: if false; }
+match /{document=**} { allow read, write: if false; }
 ```
 
-Reads are limited to the owner; client writes are denied at the rules layer. firebase-admin bypasses rules for server-side writes.
+`users/{uid}` reads are limited to the owner; `detection_config/{docId}` is readable by any signed-in user; `stripe_events` and every other path are closed to clients. All client writes are denied at the rules layer. firebase-admin bypasses rules for server-side writes. Emulator-verified by `pnpm --filter web test:rules`.
 
 ### `stripe_events/{event_id}` — webhook idempotency log
 

@@ -160,19 +160,27 @@ Returns `null` for unknown / inactive / expired coupons. Throws on lookup failur
 
 ## Firestore security
 
-[firestore.rules](../apps/web/firestore.rules) is minimal:
+[firestore.rules](../apps/web/firestore.rules) (architecture Decision #7, written by Story 1.14):
 
 ```
 match /users/{userId} {
   allow read:  if request.auth != null && request.auth.uid == userId;
   allow write: if false;
 }
+match /detection_config/{docId} {
+  allow read:  if request.auth != null;
+  allow write: if false;
+}
+match /stripe_events/{eventId} { allow read, write: if false; }
 match /{document=**} { allow read, write: if false; }
 ```
 
-`users/{uid}`: owner-read only; client writes denied. Server-side writes go through `firebase-admin` which **bypasses rules**. `stripe_events/{id}` is server-only — no client access at all.
+- `users/{uid}`: owner-read only; client writes denied. Server-side writes go through `firebase-admin`, which **bypasses rules**.
+- `detection_config/{docId}`: any signed-in user reads (no subscription check); client writes denied. This is the mobile post-auth overlay read of `detection_config/latest` (Story 1.13).
+- `stripe_events/{eventId}`: server-only, no client access at all (explicit, although the catch-all also denies it).
+- Everything else, including sub-collections such as `users/{uid}/x/y`, falls to the catch-all deny.
 
-`detection_config/latest` does **not** appear in these rules — meaning under the wildcard `{document=**}` deny, mobile cannot currently read it through `firestore.rules`. Either rules are out of date, or mobile reads against a different rule set. Phase 6 must reconcile.
+The rule set is verified against the Firestore emulator by `pnpm --filter web test:rules` ([firestore.rules.test.md](../apps/web/firestore.rules.test.md)). It is not yet deployed to production: that is Story 1.15.
 
 ## Tests
 
@@ -196,10 +204,10 @@ Setup file: [vitest.setup.ts](../apps/web/vitest.setup.ts). Alias `@/*` → `./s
 
 ## Known issues / debt
 
-| Issue                                                                  | File                                                           | Action                                                                                                |
-| ---------------------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Stripe API version drift (pinned vs installed types)                   | [stripe/server.ts](../apps/web/src/lib/stripe/server.ts)       | Bump pin to `2026-04-22.dahlia` and re-run schemas + tests, **or** freeze types to the older version. |
-| Test files have spread-arg / implicit-any errors (per memory)          | various `*.test.ts`                                            | Tighten types or revert TS strictness in tests only.                                                  |
-| `firestore.rules` doesn't cover `detection_config` and `stripe_events` | [firestore.rules](../apps/web/firestore.rules)                 | Phase 6: write explicit rules.                                                                        |
-| `subscription.ts` schema diverges from `@warden/contracts/user-doc`    | [subscription.ts](../apps/web/src/lib/schemas/subscription.ts) | Phase 6: import from contracts.                                                                       |
-| `next.config.ts` is empty                                              | [next.config.ts](../apps/web/next.config.ts)                   | Phase 6: add image domains, headers, etc. as needed.                                                  |
+| Issue                                                               | File                                                           | Action                                                                                                |
+| ------------------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Stripe API version drift (pinned vs installed types)                | [stripe/server.ts](../apps/web/src/lib/stripe/server.ts)       | Bump pin to `2026-04-22.dahlia` and re-run schemas + tests, **or** freeze types to the older version. |
+| Test files have spread-arg / implicit-any errors (per memory)       | various `*.test.ts`                                            | Tighten types or revert TS strictness in tests only.                                                  |
+| `firestore.rules` written (Story 1.14) but not yet deployed to prod | [firestore.rules](../apps/web/firestore.rules)                 | Story 1.15: `firebase deploy --only firestore:rules` against the shared project.                      |
+| `subscription.ts` schema diverges from `@warden/contracts/user-doc` | [subscription.ts](../apps/web/src/lib/schemas/subscription.ts) | Phase 6: import from contracts.                                                                       |
+| `next.config.ts` is empty                                           | [next.config.ts](../apps/web/next.config.ts)                   | Phase 6: add image domains, headers, etc. as needed.                                                  |

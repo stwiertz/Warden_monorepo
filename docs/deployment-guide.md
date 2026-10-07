@@ -55,7 +55,7 @@ Firestore rules deploy:
 firebase deploy --only firestore:rules --project <project-id>
 ```
 
-(from `apps/web/`). Currently the rules file [firestore.rules](../apps/web/firestore.rules) only covers `users/{uid}` (owner-read, no client write) and a wildcard deny. **`detection_config` and `stripe_events` are not covered explicitly** — they fall into the wildcard deny, which means mobile cannot read `detection_config/latest` under those rules. Either rules are out of date, or mobile is hitting a different rule set. Phase 6 must reconcile.
+(from `apps/web/`). The rules file [firestore.rules](../apps/web/firestore.rules) covers `users/{uid}` (owner-read, no client write), `detection_config/{docId}` (signed-in read, no client write), `stripe_events/{eventId}` (no client access) and a catch-all deny (Story 1.14). Verify it locally with `pnpm --filter web test:rules` before deploying; the production deploy is Story 1.15.
 
 ### `apps/tooling`
 
@@ -154,7 +154,7 @@ Currently advisory — relies on the developer running things locally.
 
 1. Add `.github/workflows/ci.yml`, `.github/workflows/deploy-web.yml`, `.github/workflows/deploy-firestore-rules.yml`.
 2. Wire mobile to EAS Build (or document the local-build path more explicitly).
-3. Reconcile `firestore.rules` with all Firestore collections actually written (`users`, `stripe_events`, `detection_config`).
+3. Wire `pnpm --filter web test:rules` (Firestore emulator suite, Story 1.14) into CI. The rules themselves now cover `users`, `stripe_events` and `detection_config`.
 4. Add a `contracts-codegen-check.yml` that fails PRs where `pnpm contracts:build` produces dirty diffs.
 5. Add branch protection on `main`.
 6. Document staging vs production env separation for Stripe (test mode keys + a separate webhook).

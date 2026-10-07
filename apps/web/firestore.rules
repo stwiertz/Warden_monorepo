@@ -1,10 +1,25 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // users/{uid} — owner read only; server (firebase-admin) writes via webhooks
     match /users/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
+      allow read:  if request.auth != null && request.auth.uid == userId;
       allow write: if false;
     }
+
+    // detection_config — any authenticated user reads; server-only writes
+    match /detection_config/{docId} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+
+    // stripe_events — server-only; no client access at all
+    match /stripe_events/{eventId} {
+      allow read, write: if false;
+    }
+
+    // catch-all deny
     match /{document=**} {
       allow read, write: if false;
     }

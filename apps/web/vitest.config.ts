@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
@@ -8,6 +8,8 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./vitest.react-singleton.ts', './vitest.setup.ts'],
     globals: true,
+    // Story 1.14: the Firestore rules suite needs the emulator; it runs only via `test:rules`.
+    exclude: [...configDefaults.exclude, 'firestore.rules.test.ts'],
     // Inlining the React libraries below makes the first transform of a suite slower; under a
     // full parallel run a cold `await import('./layout')` can exceed the 5 s default.
     testTimeout: 15000,

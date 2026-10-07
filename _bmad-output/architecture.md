@@ -538,7 +538,7 @@ PRD-disposed; architecture confirms the implementation hook:
 
 **Rationale:**
 
-- Today's rules (`apps/web/firestore.rules`) cover only `users/{uid}` (owner read; deny client write); everything else falls under wildcard deny. Mobile's `detection_config/latest` read currently fails this rule set — but mobile reads work in the dev environment, suggesting either the rules aren't deployed or they were deployed against a different revision. Architecture resolves the conflict by writing the explicit coverage and deploying.
+- Today's rules (`apps/web/firestore.rules`) cover only `users/{uid}` (owner read; deny client write); everything else falls under wildcard deny. Mobile's `detection_config/latest` read currently fails this rule set — but mobile reads work in the dev environment, suggesting either the rules aren't deployed or they were deployed against a different revision. Architecture resolves the conflict by writing the explicit coverage and deploying. *(AMENDED 2026-10-07 (Story 1.14): puzzle resolved: mobile reads of `detection_config/latest` never worked. Story 12.4d hit `PERMISSION_DENIED` on the reference device and Story 1.13 confirmed it. The rule set below is now in `apps/web/firestore.rules`, emulator-verified by `pnpm --filter web test:rules`; the production deploy is Story 1.15.)*
 - `stripe_events/*` is server-only (firebase-admin bypasses rules); no client should ever touch it. Explicit deny is defense-in-depth.
 - After Decision #2 hybrid, mobile reads `detection_config/latest` only after auth (post-T0) — so the `auth != null` rule is sufficient (no anonymous read needed for bootstrap).
 

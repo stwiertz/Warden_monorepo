@@ -54,3 +54,8 @@ next-env.d.ts
 .claude/skills/
 .claude/scheduled_tasks.lock
 skills-lock.json
+
+# Firebase emulator logs (Story 1.14 test:rules)
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
