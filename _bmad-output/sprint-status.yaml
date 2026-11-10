@@ -141,7 +141,7 @@ development_status:
   # ───────────────────────────────────────────────────────────────────
   epic-4: in-progress  # backlog -> in-progress 2026-10-04 (first story, 4-1, delivered from the bonus lane worktree).
   4-1-web-token-bump-accent-hover-a11y-001-contrast-re-verify: done  # 2026-10-04, bonus lane (worktree bonus/web-epic-4): create-story -> dev-story -> code-review (5 patches, 4 defers) -> done; commits 3462170 + af177c3, merged to main. #FF6B00 accent + hover token; on-accent text #0f0f0f because white fails AA on the new orange (2.86:1) — dark text approved by Stephane 2026-10-04. Web baseline repaired: tsc 0 errors, vitest 351/351 on main after `pnpm install` (first cold run showed 3 timeouts, then green twice). Manual checks (DevTools contrast spot-check, Lighthouse a11y before/after) held for the Epic 4 close-out pass; visual sign-off DONE.
-  4-2-og-image-asset-layout-meta: backlog
+  4-2-og-image-asset-layout-meta: done  # 2026-10-04, bonus lane (worktree bonus/web-epic-4): create-story -> dev-story -> code-review (6 patches, 3 defers) -> done; commits a72d5b7 + 935ea39, merged to main 2026-11-10. 1200x630 OG card + root/route Open Graph and Twitter meta via a shared helper. AC8 (Discord/X preview check) held for the Epic 4 close-out pass.
   4-3-footer-get-help-link-mailto-support: backlog
   4-4-password-reset-form-sign-in-password-reset-query-handler: backlog
   4-5-cancel-dialog-anti-dark-pattern: backlog

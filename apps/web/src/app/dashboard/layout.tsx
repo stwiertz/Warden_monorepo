@@ -10,6 +10,11 @@ import type { ReactNode } from 'react'
 
 export const metadata: Metadata = {
   title: 'Dashboard',
+  // UX §3.3.1: protected user data, no OG preview surface. `null` stops the root card from being
+  // inherited (shallow merge).
+  robots: { index: false, follow: false },
+  openGraph: null,
+  twitter: null,
 }
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {

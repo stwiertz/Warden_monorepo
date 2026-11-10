@@ -17,6 +17,8 @@ vi.mock('@/lib/stripe/coupons', () => ({
   previewCoupon: (...args: unknown[]) => mockPreviewCoupon(...args),
 }))
 
+import { LANDING_OG_IMAGE } from '@/lib/seo/og'
+
 import PricingPage, { metadata } from './page'
 
 async function renderPricing(searchParams?: { checkout?: string; coupon?: string }) {
@@ -100,6 +102,10 @@ describe('Pricing Page', () => {
     expect(metadata.openGraph).toMatchObject({
       type: 'website',
       siteName: 'Warden',
+      url: '/pricing',
+      title: 'Warden — €7.99/mois ou €79.90/an. Coaching FPS sur mobile.',
+      locale: 'fr_FR',
+      images: [LANDING_OG_IMAGE],
     })
   })
 

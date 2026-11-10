@@ -357,3 +357,9 @@ Decisions D1 and D2 were resolved by Stephane on 2026-10-04 and applied in 1.13.
 
 - **`detection_config` read is `request.auth != null`, so any Firebase Auth user passes, anonymous included.** Warden never calls `signInAnonymously` and the content is non-secret (it ships in the APK), so this is the accepted posture (1.13 Q5: sign-in gated, not subscription gated). Home: **1.15**: when deploying, confirm in the Console that the Anonymous sign-in provider is disabled on `warden-8ce50`.
 - **`test:rules` is not in CI and needs Java 21 + port 8080 + network on the first run.** Home: **Phase 7** `ci.yml` (Java 21 runner, cache `~/.cache/firebase/emulators`), as `firestore.rules.test.md` already notes.
+
+## Deferred from: code review of 4-2-og-image-asset-layout-meta (2026-10-04)
+
+- **`/pricing` `<title>` repeats the brand** (`apps/web/src/app/pricing/page.tsx:11`). The page title `Pricing — Warden` goes through the root `%s | Warden` template, giving "Pricing — Warden | Warden". This predates 4.2 and naturally belongs with Story 4.7's English web copy.
+- **OG pricing title hard-codes the prices** (`apps/web/src/lib/seo/og.ts:23`). `€7.99/mois ou €79.90/an` is UX §4.2.9 verbatim copy, kept separate from `PLAN_MONTHLY`/`PLAN_YEARLY`. A price change must update both, or Discord previews show stale prices.
+- **The AC7 metadata tests check literals, not resolved `<head>`** (`apps/web/src/lib/seo/root-metadata.test.ts`, `page.test.tsx`, `pricing/page.test.tsx`). Nothing runs Next's shallow merge or URL resolution in a test. The absolute `og:image` was confirmed only by a manual `next start` + curl. A render-level check, such as grepping the prerendered HTML after `build`, would close this.

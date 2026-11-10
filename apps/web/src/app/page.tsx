@@ -3,19 +3,13 @@ import Link from 'next/link'
 import { Play, Target, Clapperboard, Map, Smartphone } from 'lucide-react'
 
 import { ctaPrimaryClass } from '@/components/ui/cta-class'
+import { buildOpenGraph } from '@/lib/seo/og'
 
 export const metadata: Metadata = {
   title: 'Warden — Video Review for Coaches',
   description:
     'Warden helps EVA After-h coaches review game sessions, export clips, and analyze minimaps to improve coaching workflows.',
-  openGraph: {
-    title: 'Warden — Video Review for Coaches',
-    description:
-      'Warden helps EVA After-h coaches review game sessions, export clips, and analyze minimaps to improve coaching workflows.',
-    type: 'website',
-    locale: 'en_US',
-    siteName: 'Warden',
-  },
+  openGraph: buildOpenGraph({ path: '/' }),
 }
 
 const features = [

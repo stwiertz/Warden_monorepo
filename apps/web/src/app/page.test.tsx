@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect } from 'vitest'
 import Home, { metadata } from './page'
+import { LANDING_OG_IMAGE, OG_COPY } from '@/lib/seo/og'
 
 describe('Landing Page', () => {
   it('renders the hero section with h1 heading', () => {
@@ -91,6 +92,15 @@ describe('Landing Page', () => {
   it('exports metadata with title and description', () => {
     expect(metadata.title).toBe('Warden — Video Review for Coaches')
     expect(metadata.description).toContain('Warden helps EVA After-h coaches')
+  })
+
+  it('openGraph override keeps the OG image (shallow merge would otherwise drop it)', () => {
+    expect(metadata.openGraph).toMatchObject({
+      url: '/',
+      title: OG_COPY.landingTitle,
+      locale: 'fr_FR',
+      images: [LANDING_OG_IMAGE],
+    })
   })
 
   it('feature icons have aria-hidden attribute', () => {
